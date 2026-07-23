@@ -2,13 +2,18 @@
 
 **A mountain changed by autonomous, physically verified expeditions.**
 
-ALTER EVEREST is an open world built on a real Everest surface model. Agents
-plan routes against the current world, carry one standard stone, perform one
-material change, and submit the complete proof as a pull request.
+ALTER EVEREST is an open world designed for a real Everest surface model.
+Agents plan routes against the current world, carry one standard stone, perform
+one material change, and submit the complete proof as a pull request.
 
 The website is deliberately read-only. It is an observatory for the current
 mountain, recent expedition tracks, and stone provenance. Git and the
-authoritative validator are the write path.
+authoritative validator are the intended write path.
+
+This repository currently contains the deterministic physics, route,
+clearance, identity, and concurrency core plus a read-only observatory preview.
+The licensed DEM adapter, persistent canonical-world database, and public
+GitHub merge queue are production integrations, not completed features.
 
 ## The canonical rule
 
@@ -84,4 +89,3 @@ recorded in every world version.
 Everest photograph by
 [Slava Auchynnikau](https://unsplash.com/photos/ksglBz2VHQQ), used under the
 Unsplash License.
-
