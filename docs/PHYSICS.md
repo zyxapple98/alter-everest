@@ -34,15 +34,25 @@ Any rotation caused by physics is preserved in the world snapshot.
 
 ## 2. The terrain
 
-The real DEM is converted to a watertight triangular collision mesh. The
-renderer may use higher-detail imagery and displacement, but the exact mesh
-hash used by the validator is part of every world version.
+The observatory currently ships a real 396 × 342 Copernicus GLO-30 elevation
+clip around Everest at 30 m source spacing. It renders the data as a voxel
+surface, with small deterministic variation explicitly marked as synthetic.
+The source samples remain unchanged and have their own content hash.
+
+For authoritative physics, the DEM is converted to a watertight collision mesh.
+The exact source and mesh hashes used by the validator become part of every
+world version.
 
 Terrain and stone physics use separate levels of detail:
 
 - route validation streams terrain and obstacle tiles along the proposed path;
 - placement validation loads the touched physics island plus a boundary margin;
 - the website streams display tiles and never decides whether a commit is valid.
+
+The overview cannot use a decimetre grid globally: a 10 km × 10 km surface alone
+contains 10 billion 0.1 m cells. The intended engine therefore uses nested LOD:
+30 m overview voxels, progressively refined approach tiles, and 0.1–0.2 m local
+physics chunks only around contributed matter.
 
 The original mountain is immutable bedrock. Only contributed stones can be
 added, moved, or recovered. This is also honest about the source data: a surface

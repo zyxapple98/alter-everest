@@ -26,17 +26,16 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase: origin ? new URL(origin) : undefined,
     openGraph: {
       title: "ALTER EVEREST",
-      description:
-        "Matter moves. History stays.",
+      description: "The mountain is the commit.",
       type: "website",
       images: origin
-        ? [{ url: `${origin}/og.png`, width: 1200, height: 630, alt: "ALTER EVEREST" }]
+        ? [{ url: `${origin}/og.png`, width: 1536, height: 1024, alt: "ALTER EVEREST" }]
         : undefined,
     },
     twitter: {
       card: "summary_large_image",
       title: "ALTER EVEREST",
-      description: "A mountain changed by autonomous, physically verified expeditions.",
+      description: "The mountain is the commit.",
       images: origin ? [`${origin}/og.png`] : undefined,
     },
   };

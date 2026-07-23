@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --ink: #061016;
-  --paper: #f2f1e9;
-  --line: rgba(235, 241, 239, 0.18);
+  --ink: #061018;
+  --paper: #f3f0e7;
+  --line: rgba(220, 235, 235, 0.17);
   --orange: #ff7138;
   --mono: var(--font-geist-mono), "SFMono-Regular", Consolas, monospace;
 }
@@ -40,30 +40,51 @@ a {
   height: 100svh;
   overflow: hidden;
   isolation: isolate;
-  background: #08131a;
+  background: #0a1c27;
 }
 
-.everest-photo {
-  position: absolute;
-  inset: -18px;
-  z-index: 0;
-  background-image: url("/everest-sunrise.jpg");
-  background-position: 50% 51%;
-  background-size: cover;
-  filter: saturate(0.62) contrast(1.08) brightness(0.45) blur(2px);
-  opacity: 0.58;
-  transform: scale(1.035);
-}
-
-.atmosphere {
+.voxel-sky {
   position: absolute;
   inset: 0;
-  z-index: 1;
-  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
   background:
-    linear-gradient(180deg, rgba(4, 10, 14, 0.28), rgba(4, 9, 12, 0.04) 45%, rgba(3, 8, 11, 0.66) 100%),
-    radial-gradient(ellipse at 52% 47%, rgba(28, 62, 73, 0.08) 0 28%, rgba(3, 8, 12, 0.45) 78%),
-    linear-gradient(90deg, rgba(3, 8, 11, 0.34), transparent 28%, transparent 72%, rgba(3, 8, 11, 0.34));
+    linear-gradient(180deg, #07131d 0%, #123042 48%, #975b45 100%);
+}
+
+.voxel-sky::before,
+.voxel-sky::after {
+  position: absolute;
+  content: "";
+  image-rendering: pixelated;
+}
+
+.voxel-sky::before {
+  top: 16%;
+  left: 17%;
+  width: 46px;
+  height: 46px;
+  background: #f5b56f;
+  box-shadow:
+    0 0 0 10px rgba(245, 181, 111, 0.07),
+    0 0 90px 26px rgba(237, 128, 70, 0.22);
+}
+
+.voxel-sky::after {
+  inset: 0;
+  opacity: 0.18;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 63px,
+      rgba(255, 255, 255, 0.035) 64px 66px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0 63px,
+      rgba(255, 255, 255, 0.025) 64px 66px
+    );
+  mask-image: linear-gradient(180deg, transparent 0%, #000 58%, #000 100%);
 }
 
 .observatory-canvas {
@@ -92,14 +113,14 @@ a {
   right: 0;
   left: 0;
   z-index: 6;
-  height: 72px;
+  height: 70px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 30px;
+  padding: 0 28px;
   pointer-events: none;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(3, 8, 11, 0.46), transparent);
+  background: linear-gradient(180deg, rgba(4, 12, 18, 0.54), transparent);
 }
 
 .wordmark {
@@ -144,25 +165,25 @@ a {
   display: flex;
   align-items: center;
   gap: 9px;
-  color: rgba(231, 237, 235, 0.62);
-  font: 570 9px/1 var(--mono);
+  color: rgba(232, 238, 235, 0.64);
+  font: 570 8px/1 var(--mono);
   letter-spacing: 0.15em;
 }
 
 .live-state i {
   width: 5px;
   height: 5px;
-  border-radius: 50%;
+  border-radius: 0;
   background: #7af0a2;
-  box-shadow: 0 0 13px rgba(122, 240, 162, 0.9);
-  animation: breathe 2.4s ease-in-out infinite;
+  box-shadow: 0 0 12px rgba(122, 240, 162, 0.82);
+  animation: breathe 2.4s steps(2, end) infinite;
 }
 
 .world-id {
   position: absolute;
   z-index: 5;
-  left: 30px;
-  bottom: 28px;
+  left: 28px;
+  bottom: 27px;
   display: flex;
   align-items: baseline;
   gap: 14px;
@@ -171,13 +192,13 @@ a {
 }
 
 .world-id span {
-  color: rgba(234, 239, 237, 0.42);
+  color: rgba(234, 239, 237, 0.43);
   font-size: 8px;
   letter-spacing: 0.13em;
 }
 
 .world-id strong {
-  color: rgba(245, 244, 237, 0.82);
+  color: rgba(245, 244, 237, 0.84);
   font-size: 11px;
   font-weight: 520;
   letter-spacing: 0.04em;
@@ -186,21 +207,20 @@ a {
 .last-trace {
   position: absolute;
   z-index: 5;
-  right: 30px;
-  bottom: 26px;
+  right: 28px;
+  bottom: 25px;
   display: grid;
   grid-template-columns: 7px auto auto;
   align-items: center;
   gap: 12px;
-  min-width: 280px;
+  min-width: 240px;
   pointer-events: none;
   font-family: var(--mono);
 }
 
 .route-swatch {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
+  width: 6px;
+  height: 6px;
 }
 
 .last-trace div {
@@ -210,22 +230,22 @@ a {
 }
 
 .last-trace small {
-  color: rgba(232, 238, 236, 0.36);
+  color: rgba(232, 238, 236, 0.38);
   font-size: 7px;
   letter-spacing: 0.14em;
 }
 
 .last-trace strong {
-  color: rgba(246, 245, 238, 0.88);
+  color: rgba(246, 245, 238, 0.9);
   font-size: 10px;
   font-weight: 550;
 }
 
 .last-trace > span:last-child {
   justify-self: end;
-  color: rgba(232, 238, 236, 0.46);
+  color: rgba(232, 238, 236, 0.47);
   font-size: 8px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
 }
 
 .orbit-hint {
@@ -233,17 +253,28 @@ a {
   z-index: 5;
   bottom: 28px;
   left: 50%;
-  color: rgba(234, 239, 237, 0.32);
+  color: rgba(234, 239, 237, 0.36);
   pointer-events: none;
   font: 520 7px/1 var(--mono);
   letter-spacing: 0.16em;
   transform: translateX(-50%);
 }
 
+.dem-credit {
+  position: absolute;
+  z-index: 5;
+  right: 28px;
+  top: 87px;
+  max-width: 330px;
+  color: rgba(226, 236, 235, 0.3);
+  pointer-events: auto;
+  font: 500 6px/1 var(--mono);
+  letter-spacing: 0.08em;
+}
+
 @keyframes breathe {
   50% {
     opacity: 0.35;
-    transform: scale(0.7);
   }
 }
 
@@ -253,8 +284,8 @@ a {
   }
 
   .observatory-header {
-    height: 64px;
-    padding: 0 18px;
+    height: 62px;
+    padding: 0 17px;
   }
 
   .wordmark strong {
@@ -262,8 +293,8 @@ a {
   }
 
   .world-id {
-    left: 18px;
-    bottom: 22px;
+    left: 17px;
+    bottom: 20px;
   }
 
   .world-id strong {
@@ -271,8 +302,8 @@ a {
   }
 
   .last-trace {
-    right: 18px;
-    bottom: 20px;
+    right: 17px;
+    bottom: 18px;
     min-width: 0;
   }
 
@@ -282,14 +313,21 @@ a {
 
   .orbit-hint {
     top: 78px;
-    right: 18px;
+    right: 17px;
     bottom: auto;
     left: auto;
     transform: none;
   }
 
-  .everest-photo {
-    background-position: 56% 50%;
+  .dem-credit {
+    display: none;
+  }
+
+  .voxel-sky::before {
+    top: 13%;
+    left: 11%;
+    width: 32px;
+    height: 32px;
   }
 }
 

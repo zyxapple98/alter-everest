@@ -11,8 +11,9 @@ mountain, recent expedition tracks, and stone provenance. Git and the
 authoritative validator are the intended write path.
 
 This repository currently contains the deterministic physics, route,
-clearance, identity, and concurrency core plus a read-only observatory preview.
-The licensed DEM adapter, persistent canonical-world database, and public
+clearance, identity, and concurrency core plus a read-only voxel observatory.
+The observatory is driven by a real Copernicus GLO-30 clip around Everest. The
+persistent canonical-world database, physics-grade DEM adapter, and public
 GitHub merge queue are production integrations, not completed features.
 
 ## The canonical rule
@@ -80,12 +81,22 @@ npm run dev
 npm test
 ```
 
-The first terrain in the website is a visual preview. A production world must
-replace it with a licensed DEM-derived collision mesh whose content hash is
-recorded in every world version.
+## Terrain data and level of detail
 
-## Image credit
+The website includes a 396 × 342 sample Everest clip from the public Copernicus
+WorldDEM-30 dataset. The untouched elevation samples and their SHA-256 are
+stored with a source manifest. The renderer quantizes them into 30 m overview
+voxels and adds small, deterministic visual variation. That variation is
+synthetic detail, not new measured elevation.
 
-Everest photograph by
-[Slava Auchynnikau](https://unsplash.com/photos/ksglBz2VHQQ), used under the
-Unsplash License.
+A decimetre grid is reserved for loaded contribution chunks. Applying a 0.1 m
+grid to only 10 km × 10 km would already require 10 billion surface cells
+before terrain depth, so the global view must use LOD. A production world must
+derive its local collision meshes from the hashed source DEM and record every
+LOD boundary.
+
+## Data attribution
+
+Produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence
+and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and
+ESA; all rights reserved.
