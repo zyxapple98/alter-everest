@@ -1,76 +1,69 @@
-import type { ActionMode, TripMode } from "./world";
+import type { CandidateCommit, StoneMutation } from "../engine/types";
 
-export const PROTOCOL_VERSION = "0.1.0";
+export const PROTOCOL_VERSION = "0.2.0";
 
-export interface ExpeditionPayload {
-  protocol: typeof PROTOCOL_VERSION;
-  world: string;
-  agent: string;
-  action: ActionMode;
-  trip: TripMode;
-  stone: string;
-  route: Array<[number, number, number]>;
-  place?: [number, number, number];
-}
-
-export interface ValidationResult {
+export interface ShapeValidationResult {
   valid: boolean;
   errors: string[];
-  steps: number;
 }
 
-const actions: ActionMode[] = ["ADD", "MOVE", "RECOVER"];
-const trips: TripMode[] = ["ROUND_TRIP", "ONE_WAY"];
+function isFiniteVec3(value: unknown) {
+  if (!value || typeof value !== "object") return false;
+  const point = value as Record<string, unknown>;
+  return ["x", "y", "z"].every((key) => Number.isFinite(point[key]));
+}
 
-export function validateExpedition(
-  payload: Partial<ExpeditionPayload>,
-  expectedWorld?: string,
-): ValidationResult {
+function validMutation(value: unknown): value is StoneMutation {
+  if (!value || typeof value !== "object") return false;
+  const mutation = value as Record<string, unknown>;
+  if (!["ADD", "MOVE", "RECOVER"].includes(String(mutation.kind))) {
+    return false;
+  }
+  if (typeof mutation.stoneId !== "string" || !mutation.stoneId) return false;
+  if (mutation.kind === "RECOVER") return true;
+  const releasePose = mutation.releasePose as Record<string, unknown> | undefined;
+  return Boolean(
+    releasePose &&
+      isFiniteVec3(releasePose.translation) &&
+      releasePose.rotation &&
+      typeof releasePose.rotation === "object",
+  );
+}
+
+export function validateCandidateShape(
+  value: unknown,
+): ShapeValidationResult {
   const errors: string[] = [];
+  if (!value || typeof value !== "object") {
+    return { valid: false, errors: ["candidate must be an object"] };
+  }
+  const candidate = value as Partial<CandidateCommit> & {
+    protocol?: string;
+  };
 
-  if (payload.protocol !== PROTOCOL_VERSION) {
+  if (candidate.protocol !== PROTOCOL_VERSION) {
     errors.push(`protocol must equal ${PROTOCOL_VERSION}`);
   }
-  if (!payload.agent || payload.agent.length > 80) {
-    errors.push("agent must be a non-empty identifier under 80 characters");
+  if (!candidate.id || typeof candidate.id !== "string") {
+    errors.push("candidate id is required");
   }
-  if (!payload.world) errors.push("world hash is required");
-  if (expectedWorld && payload.world !== expectedWorld) {
-    errors.push("expedition is based on a stale world");
+  if (!candidate.parentWorldHash || typeof candidate.parentWorldHash !== "string") {
+    errors.push("parentWorldHash is required");
   }
-  if (!payload.action || !actions.includes(payload.action)) {
-    errors.push("action must be ADD, MOVE, or RECOVER");
+  if (!candidate.agentId || typeof candidate.agentId !== "string") {
+    errors.push("agentId is required");
   }
-  if (!payload.trip || !trips.includes(payload.trip)) {
-    errors.push("trip must be ROUND_TRIP or ONE_WAY");
-  }
-  if (!payload.stone) errors.push("stone id is required");
-  if (!Array.isArray(payload.route) || payload.route.length < 2) {
-    errors.push("route must contain at least two coordinates");
-  }
-  if (payload.action !== "RECOVER" && !payload.place) {
-    errors.push("ADD and MOVE expeditions require a place coordinate");
-  }
-  if (payload.action === "RECOVER" && payload.trip === "ONE_WAY") {
-    errors.push("RECOVER expeditions must return the stone to base camp");
-  }
-
-  const route = Array.isArray(payload.route) ? payload.route : [];
-  for (const coordinate of route) {
-    if (
-      !Array.isArray(coordinate) ||
-      coordinate.length !== 3 ||
-      coordinate.some((value) => !Number.isFinite(value))
-    ) {
-      errors.push("every route coordinate must be a finite [x,y,z] tuple");
-      break;
+  if (!candidate.proof || typeof candidate.proof !== "object") {
+    errors.push("proof is required");
+  } else {
+    if (!Array.isArray(candidate.proof.route) || candidate.proof.route.length < 2) {
+      errors.push("proof.route must contain at least two samples");
+    }
+    if (!validMutation(candidate.proof.mutation)) {
+      errors.push("proof.mutation is invalid");
     }
   }
 
-  return {
-    valid: errors.length === 0,
-    errors,
-    steps: Math.max(0, route.length - 1),
-  };
+  return { valid: errors.length === 0, errors };
 }
 

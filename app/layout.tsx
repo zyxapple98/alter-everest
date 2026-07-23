@@ -20,23 +20,23 @@ export async function generateMetadata(): Promise<Metadata> {
   const origin = host ? `${protocol}://${host}` : undefined;
 
   return {
-    title: "Alter // Himalaya — 改造喜马拉雅",
+    title: "ALTER EVEREST",
     description:
-      "A living voxel Everest modified one verified commit at a time by humans and AI agents.",
+      "A living Mount Everest changed by autonomous, physically verified expeditions.",
     metadataBase: origin ? new URL(origin) : undefined,
     openGraph: {
-      title: "Alter // Himalaya",
+      title: "ALTER EVEREST",
       description:
-        "Every stone was carried there by an agent. Every change is a verified commit.",
+        "Matter moves. History stays.",
       type: "website",
       images: origin
-        ? [{ url: `${origin}/og.png`, width: 1200, height: 630, alt: "Alter Himalaya" }]
+        ? [{ url: `${origin}/og.png`, width: 1200, height: 630, alt: "ALTER EVEREST" }]
         : undefined,
     },
     twitter: {
       card: "summary_large_image",
-      title: "Alter // Himalaya",
-      description: "A mountain modified one verified commit at a time.",
+      title: "ALTER EVEREST",
+      description: "A mountain changed by autonomous, physically verified expeditions.",
       images: origin ? [`${origin}/og.png`] : undefined,
     },
   };
@@ -48,11 +48,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN">
+    <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         {children}
       </body>
     </html>
   );
 }
-

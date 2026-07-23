@@ -7,10 +7,10 @@ async function render() {
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
-    new Request("https://alter-himalaya.test/", {
+    new Request("https://alter-everest.test/", {
       headers: {
         accept: "text/html",
-        host: "alter-himalaya.test",
+        host: "alter-everest.test",
         "x-forwarded-proto": "https",
       },
     }),
@@ -26,23 +26,25 @@ async function render() {
   );
 }
 
-test("renders the living mountain experience", async () => {
+test("renders the read-only Everest observatory", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Alter \/\/ Himalaya/);
-  assert.match(html, /Move the mountain/);
-  assert.match(html, /RUN VERIFIED COMMIT/);
-  assert.match(html, /The mountain/);
-  assert.match(html, /expeditions\/agent-6319\.json/);
-  assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
+  assert.match(html, /<title>ALTER EVEREST<\/title>/);
+  assert.match(html, /Matter moves/);
+  assert.match(html, /RECENT EXPEDITIONS/);
+  assert.match(html, /PHYSICS v0\.2/);
+  assert.doesNotMatch(
+    html,
+    /RUN VERIFIED COMMIT|ROUND TRIP|ONE WAY|Expedition planner/i,
+  );
 });
 
 test("ships an absolute social preview URL", async () => {
   const response = await render();
   const html = await response.text();
-  assert.match(html, /https:\/\/alter-himalaya\.test\/og\.png/);
+  assert.match(html, /https:\/\/alter-everest\.test\/og\.png/);
 });
 

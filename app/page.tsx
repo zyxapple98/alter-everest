@@ -1,6 +1,5 @@
-import MountainExperience from "./MountainExperience";
+import EverestObservatory from "./EverestObservatory";
 
 export default function Home() {
-  return <MountainExperience />;
+  return <EverestObservatory />;
 }
-

@@ -1,0 +1,324 @@
+import { PHYSICS } from "./constants";
+import {
+  IDENTITY_QUATERNION,
+  type PhysicsSnapshot,
+  type PhysicsVerdict,
+  type Pose,
+  type StoneMutation,
+  type StoneState,
+} from "./types";
+
+type Rapier = (typeof import("@dimforge/rapier3d-deterministic-compat"))["default"];
+
+let rapierReady: Promise<Rapier> | null = null;
+
+export async function loadPhysicsRuntime() {
+  if (!rapierReady) {
+    rapierReady = (async () => {
+      const rapierPackage = await import(
+        "@dimforge/rapier3d-deterministic-compat"
+      );
+      const rapier = rapierPackage.default;
+      await rapier.init();
+      return rapier;
+    })();
+  }
+  return rapierReady;
+}
+
+function snap(value: number) {
+  return Math.round(value / PHYSICS.releaseSnapM) * PHYSICS.releaseSnapM;
+}
+
+export function snapReleasePose(pose: Pose): Pose {
+  return {
+    translation: {
+      x: snap(pose.translation.x),
+      y: snap(pose.translation.y),
+      z: snap(pose.translation.z),
+    },
+    // A cube has 24 equivalent axis-aligned orientations. Canonicalizing the
+    // release orientation avoids platform-dependent trigonometric initialization.
+    rotation: IDENTITY_QUATERNION,
+  };
+}
+
+function distance(a: Pose["translation"], b: Pose["translation"]) {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+function vectorMagnitude(vector: { x: number; y: number; z: number }) {
+  return Math.hypot(vector.x, vector.y, vector.z);
+}
+
+function changedStoneIds(before: StoneState[], after: StoneState[]) {
+  const initial = new Map(before.map((stone) => [stone.id, stone]));
+  const changed: string[] = [];
+
+  for (const stone of after) {
+    const previous = initial.get(stone.id);
+    if (
+      !previous ||
+      distance(previous.pose.translation, stone.pose.translation) > 0.001
+    ) {
+      changed.push(stone.id);
+    }
+  }
+  for (const stone of before) {
+    if (!after.some((candidate) => candidate.id === stone.id)) {
+      changed.push(stone.id);
+    }
+  }
+
+  return [...new Set(changed)].sort();
+}
+
+function prepareMutation(
+  snapshot: PhysicsSnapshot,
+  mutation: StoneMutation,
+):
+  | { ok: true; stones: StoneState[]; intendedRelease: Pose | null }
+  | {
+      ok: false;
+      verdict: PhysicsVerdict;
+    } {
+  const exists = snapshot.stones.some((stone) => stone.id === mutation.stoneId);
+
+  if (mutation.kind === "ADD" && exists) {
+    return {
+      ok: false,
+      verdict: {
+        valid: false,
+        code: "STONE_ALREADY_EXISTS",
+        finalStones: snapshot.stones,
+        affectedStoneIds: [],
+        simulatedSeconds: 0,
+        maxLinearSpeed: 0,
+      },
+    };
+  }
+
+  if (mutation.kind !== "ADD" && !exists) {
+    return {
+      ok: false,
+      verdict: {
+        valid: false,
+        code: "STONE_NOT_FOUND",
+        finalStones: snapshot.stones,
+        affectedStoneIds: [],
+        simulatedSeconds: 0,
+        maxLinearSpeed: 0,
+      },
+    };
+  }
+
+  const remaining = snapshot.stones.filter(
+    (stone) => stone.id !== mutation.stoneId,
+  );
+
+  if (mutation.kind === "RECOVER") {
+    return { ok: true, stones: remaining, intendedRelease: null };
+  }
+
+  const intendedRelease = snapReleasePose(mutation.releasePose);
+  const releasedStone: StoneState = {
+    id: mutation.stoneId,
+    pose: intendedRelease,
+  };
+
+  return {
+    ok: true,
+    stones: [...remaining, releasedStone].sort((a, b) =>
+      a.id.localeCompare(b.id),
+    ),
+    intendedRelease,
+  };
+}
+
+export async function simulateMutation(
+  snapshot: PhysicsSnapshot,
+  mutation: StoneMutation,
+): Promise<PhysicsVerdict> {
+  const prepared = prepareMutation(snapshot, mutation);
+  if (!prepared.ok) return prepared.verdict;
+
+  const RAPIER = await loadPhysicsRuntime();
+  const world = new RAPIER.World({
+    x: 0,
+    y: -PHYSICS.gravityMps2,
+    z: 0,
+  });
+  world.timestep = PHYSICS.fixedTimestepSeconds;
+
+  for (const terrain of snapshot.terrain) {
+    const descriptor =
+      terrain.kind === "cuboid"
+        ? RAPIER.ColliderDesc.cuboid(
+            terrain.halfExtents.x,
+            terrain.halfExtents.y,
+            terrain.halfExtents.z,
+          ).setTranslation(terrain.center.x, terrain.center.y, terrain.center.z)
+        : RAPIER.ColliderDesc.trimesh(terrain.vertices, terrain.indices);
+    descriptor
+      .setFriction(terrain.friction ?? PHYSICS.dryRockFriction)
+      .setRestitution(PHYSICS.restitution)
+      .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min);
+    world.createCollider(descriptor);
+  }
+
+  const bodies = new Map<string, import("@dimforge/rapier3d-deterministic-compat").RigidBody>();
+  const halfEdge = PHYSICS.stoneEdgeM / 2;
+
+  for (const stone of prepared.stones) {
+    const body = world.createRigidBody(
+      RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation(
+          stone.pose.translation.x,
+          stone.pose.translation.y,
+          stone.pose.translation.z,
+        )
+        .setRotation(stone.pose.rotation)
+        .setCanSleep(true)
+        .setCcdEnabled(true)
+        .setLinearDamping(0.08)
+        .setAngularDamping(0.08),
+    );
+    world.createCollider(
+      RAPIER.ColliderDesc.cuboid(halfEdge, halfEdge, halfEdge)
+        .setDensity(PHYSICS.stoneDensityKgM3)
+        .setFriction(PHYSICS.dryRockFriction)
+        .setRestitution(PHYSICS.restitution)
+        .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min),
+      body,
+    );
+    bodies.set(stone.id, body);
+  }
+
+  // The mutation may remove a support or introduce a new impact. Waking the
+  // local island lets Rapier discover secondary movement and collapse.
+  for (const body of bodies.values()) body.wakeUp();
+
+  const maxSteps = Math.ceil(
+    PHYSICS.maxSettlingSeconds / PHYSICS.fixedTimestepSeconds,
+  );
+  const minimumSteps = Math.ceil(
+    PHYSICS.minimumSettlingSeconds / PHYSICS.fixedTimestepSeconds,
+  );
+  let quietFrames = 0;
+  let settled = false;
+  let completedSteps = 0;
+  let maxLinearSpeed = 0;
+
+  for (let step = 0; step < maxSteps; step += 1) {
+    world.step();
+    completedSteps = step + 1;
+    let frameQuiet = true;
+
+    for (const body of bodies.values()) {
+      const linearSpeed = vectorMagnitude(body.linvel());
+      const angularSpeed = vectorMagnitude(body.angvel());
+      maxLinearSpeed = Math.max(maxLinearSpeed, linearSpeed);
+      if (
+        linearSpeed > PHYSICS.linearSleepThresholdMps ||
+        angularSpeed > PHYSICS.angularSleepThresholdRps
+      ) {
+        frameQuiet = false;
+      }
+    }
+
+    quietFrames = frameQuiet ? quietFrames + 1 : 0;
+    if (step >= minimumSteps && quietFrames >= 30) {
+      settled = true;
+      break;
+    }
+  }
+
+  const finalStones = [...bodies.entries()]
+    .map(([id, body]) => {
+      const translation = body.translation();
+      const rotation = body.rotation();
+      return {
+        id,
+        pose: {
+          translation: {
+            x: translation.x,
+            y: translation.y,
+            z: translation.z,
+          },
+          rotation: {
+            x: rotation.x,
+            y: rotation.y,
+            z: rotation.z,
+            w: rotation.w,
+          },
+        },
+      } satisfies StoneState;
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  const exceededBounds = finalStones.some((stone) => {
+    const { x, y, z } = stone.pose.translation;
+    return (
+      Math.abs(x) > PHYSICS.worldBoundsM ||
+      Math.abs(y) > PHYSICS.worldBoundsM ||
+      Math.abs(z) > PHYSICS.worldBoundsM
+    );
+  });
+
+  const placedStone =
+    mutation.kind === "RECOVER"
+      ? null
+      : finalStones.find((stone) => stone.id === mutation.stoneId) ?? null;
+  const placementHeld =
+    !prepared.intendedRelease ||
+    (placedStone !== null &&
+      distance(
+        prepared.intendedRelease.translation,
+        placedStone.pose.translation,
+      ) <= PHYSICS.placementToleranceM);
+  const affectedStoneIds = changedStoneIds(snapshot.stones, finalStones);
+  const simulatedSeconds =
+    completedSteps * PHYSICS.fixedTimestepSeconds;
+
+  world.free();
+
+  if (exceededBounds) {
+    return {
+      valid: false,
+      code: "WORLD_BOUNDS_EXCEEDED",
+      finalStones,
+      affectedStoneIds,
+      simulatedSeconds,
+      maxLinearSpeed,
+    };
+  }
+  if (!settled) {
+    return {
+      valid: false,
+      code: "SETTLING_TIMEOUT",
+      finalStones,
+      affectedStoneIds,
+      simulatedSeconds,
+      maxLinearSpeed,
+    };
+  }
+  if (!placementHeld) {
+    return {
+      valid: false,
+      code: "PLACEMENT_DID_NOT_HOLD",
+      finalStones,
+      affectedStoneIds,
+      simulatedSeconds,
+      maxLinearSpeed,
+    };
+  }
+
+  return {
+    valid: true,
+    code: "STABLE",
+    finalStones,
+    affectedStoneIds,
+    simulatedSeconds,
+    maxLinearSpeed,
+  };
+}

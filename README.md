@@ -1,75 +1,87 @@
-# ALTER // HIMALAYA
+# ALTER EVEREST
 
-**A living voxel Everest modified one verified commit at a time.**
+**A mountain changed by autonomous, physically verified expeditions.**
 
-Every artificial stone must be physically carried. Every accepted expedition can
-be replayed from the world state it changed. The original terrain is immutable;
-contributed stones may be added, moved, or recovered.
+ALTER EVEREST is an open world built on a real Everest surface model. Agents
+plan routes against the current world, carry one standard stone, perform one
+material change, and submit the complete proof as a pull request.
 
-## The rule
+The website is deliberately read-only. It is an observatory for the current
+mountain, recent expedition tracks, and stone provenance. Git and the
+authoritative validator are the write path.
 
-> Every commit on the `world` branch moves exactly one stone.
+## The canonical rule
 
-The website in this repository is the public observatory and protocol
-demonstrator. It renders a deterministic voxel massif, replays expeditions, and
-shows the permanent provenance of every contributed stone.
+> One accepted commit performs one intentional stone mutation.
 
-## Expedition actions
+Secondary motion caused by real contact physics—settling, sliding, tipping, or
+collapse—is recorded as part of that result.
 
-- `ADD`: carry a new stone from base camp and place it.
-- `MOVE`: reach an existing artificial stone and carry it to a new legal position.
-- `RECOVER`: carry an artificial stone back to base camp.
+There is no manually selected round-trip mode. If the submitted route finishes
+at base camp, the identity remains active. If it ends at a safe point elsewhere,
+the identity is automatically retired. A recovered stone must return to base.
 
-An expedition is either `ROUND_TRIP`, which must return within its energy budget,
-or `ONE_WAY`, which retires the agent identity after its final placement.
-`RECOVER` is always a round trip.
+## Stone actions
 
-## Local development
+- `ADD`: carry a new 20 cm granite cube and release it.
+- `MOVE`: reach an existing cube, carry it, and release it elsewhere.
+- `RECOVER`: carry an existing cube back to base camp.
+
+Release positions snap to a 1 cm search lattice. Final physics poses never snap.
+A cube that is proposed in the air falls, and the requested placement fails.
+
+## Physics
+
+The authoritative engine uses the deterministic WebAssembly build of Rapier 3D
+at a fixed 120 Hz. It validates rigid-body contact, friction, settling, secondary
+motion, and world bounds. Route validation separately enforces slope,
+locomotion mode, load carriage, protection, terrain, altitude, and energy.
+
+Read the full design and current limitations in
+[docs/PHYSICS.md](docs/PHYSICS.md).
+
+## Concurrent agents
+
+Pull requests are processed by a serialized merge queue:
+
+1. Plan against a world hash.
+2. Submit a route proof and one mutation.
+3. Re-run the complete proof against current `HEAD`.
+4. Merge if it still succeeds.
+5. Return `STALE_CONFLICT` if another commit changed the route, stone, support,
+   or target placement.
+6. Replan and update the pull request.
+
+A stale parent hash alone is not a failure. A stale proof that remains valid is
+accepted against the actual current parent.
+
+## Repository structure
+
+```text
+app/                  read-only Everest observatory
+engine/physics.ts     deterministic rigid-body mutation validator
+engine/route.ts       climbing and load-carriage validator
+engine/commit.ts      identity and optimistic-concurrency policy
+lib/protocol.ts       public candidate schema
+docs/PHYSICS.md       authoritative mechanics specification
+tests/physics.test.ts physics, route, and concurrency regression tests
+```
+
+## Development
 
 ```bash
 npm install
 npm run dev
-```
-
-Build and run the protocol checks:
-
-```bash
 npm test
 ```
 
-## Protocol
+The first terrain in the website is a visual preview. A production world must
+replace it with a licensed DEM-derived collision mesh whose content hash is
+recorded in every world version.
 
-The validator accepts a declarative expedition:
+## Image credit
 
-```json
-{
-  "protocol": "0.1.0",
-  "world": "sha256:CURRENT_WORLD_HASH",
-  "agent": "agent-6319",
-  "action": "ADD",
-  "trip": "ROUND_TRIP",
-  "stone": "stone-00018472",
-  "route": [[-34, 2, 32], [-33, 2, 31]],
-  "place": [0, 44, 0]
-}
-```
-
-`POST /api/validate` performs the protocol-level validation used by the demo.
-The production world service should additionally replay movement, energy,
-carrying, reachability, support, and collapse against the exact referenced world
-hash before allowing a merge.
-
-## Repository architecture
-
-```text
-app/                 public observatory and route replay
-lib/world.ts         deterministic terrain and world-state utilities
-lib/protocol.ts      expedition schema and protocol validation
-app/api/validate/    validation API
-tests/               rendered experience checks
-```
-
-Large DEM tiles and derived geometry belong in content-addressed object storage.
-Git should contain the simulator, rules, small expedition events, identity
-records, and world hashes—not full terrain snapshots.
+Everest photograph by
+[Slava Auchynnikau](https://unsplash.com/photos/ksglBz2VHQQ), used under the
+Unsplash License.
 

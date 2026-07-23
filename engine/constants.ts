@@ -1,0 +1,37 @@
+export const PHYSICS = {
+  gravityMps2: 9.80665,
+  fixedTimestepSeconds: 1 / 120,
+  maxSettlingSeconds: 12,
+  minimumSettlingSeconds: 0.5,
+  stoneEdgeM: 0.2,
+  stoneDensityKgM3: 2700,
+  stoneMassKg: 21.6,
+  dryRockFriction: 0.78,
+  iceFriction: 0.08,
+  restitution: 0.015,
+  releaseSnapM: 0.01,
+  placementToleranceM: 0.025,
+  linearSleepThresholdMps: 0.018,
+  angularSleepThresholdRps: 0.04,
+  worldBoundsM: 256,
+} as const;
+
+export const CLIMBER = {
+  bodyMassKg: 78,
+  baseCampRadiusM: 2,
+  maxProofSegmentM: 1,
+  maxWalkStepM: 0.42,
+  maxWalkSlopeDegrees: 35,
+  maxLoadedWalkSlopeDegrees: 32,
+  maxScrambleSlopeDegrees: 55,
+  maxLoadedScrambleSlopeDegrees: 48,
+  maxClimbSlopeDegrees: 82,
+  walkSpeedMps: 0.78,
+  scrambleSpeedMps: 0.34,
+  climbSpeedMps: 0.16,
+  maximumEnergyKj: 18_500,
+  rockTerrainFactor: 1.15,
+  snowTerrainFactor: 1.62,
+  iceTerrainFactor: 1.36,
+} as const;
+
