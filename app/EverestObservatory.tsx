@@ -51,6 +51,7 @@ interface TerrainOptions {
   overlapCells?: number;
   yOffset?: number;
   detailedSides?: boolean;
+  edgeFeatherCells?: number;
 }
 
 const BASE_ELEVATION_M = 0;
@@ -105,6 +106,7 @@ function createVoxelTerrain(
     overlapCells = 1.25,
     yOffset = 0,
     detailedSides = true,
+    edgeFeatherCells = 0,
   } = options;
   const blockSize =
     metadata.sampleSpacingArcSeconds * WORLD_PER_ARC_SECOND;
@@ -136,7 +138,18 @@ function createVoxelTerrain(
       latitude > holeBounds.south + overlapCells * degreesPerSample &&
       longitude < holeBounds.east - overlapCells * degreesPerSample &&
       longitude > holeBounds.west + overlapCells * degreesPerSample;
-    included[index] = insideHole ? 0 : 1;
+    const edgeDistance = Math.min(
+      row,
+      column,
+      height - 1 - row,
+      width - 1 - column,
+    );
+    const featheredOut =
+      edgeFeatherCells > 0 &&
+      edgeDistance < edgeFeatherCells &&
+      hashNoise(column, row, metadata.lod === "core" ? 211 : 307) >
+        (edgeDistance + 0.5) / edgeFeatherCells;
+    included[index] = insideHole || featheredOut ? 0 : 1;
     const syntheticDetail =
       metadata.lod === "core"
         ? (hashNoise(column, row, 101) - 0.5) * 0.34 +
@@ -448,7 +461,7 @@ export default function EverestObservatory() {
         0.1,
         1_400,
       );
-      camera.position.set(68, 72, 116);
+      camera.position.set(50, 110, 124);
 
       const renderer = new THREE.WebGLRenderer({
         antialias: true,
@@ -474,7 +487,7 @@ export default function EverestObservatory() {
         far.metadata,
         {
           holeBounds: mid.metadata.bounds,
-          overlapCells: 1.35,
+          overlapCells: 3.5,
           yOffset: -0.08,
           detailedSides: false,
         },
@@ -484,14 +497,16 @@ export default function EverestObservatory() {
         mid.metadata,
         {
           holeBounds: core.metadata.bounds,
-          overlapCells: 1.35,
+          overlapCells: 5.5,
           yOffset: -0.035,
           detailedSides: false,
+          edgeFeatherCells: 8,
         },
       );
       const terrain = createVoxelTerrain(
         core.elevations,
         core.metadata,
+        { edgeFeatherCells: 12 },
       );
       const terrainLayers = [farTerrain, midTerrain, terrain];
       terrainLayers.forEach((layer) => scene.add(layer.mesh));
@@ -524,16 +539,7 @@ export default function EverestObservatory() {
       controls.maxDistance = 210;
       controls.minPolarAngle = 0.48;
       controls.maxPolarAngle = 1.42;
-      controls.autoRotate = true;
-      controls.autoRotateSpeed = 0.16;
-
-      const stopAutoRotate = () => {
-        controls.autoRotate = false;
-      };
-      renderer.domElement.addEventListener("pointerdown", stopAutoRotate);
-      renderer.domElement.addEventListener("wheel", stopAutoRotate, {
-        passive: true,
-      });
+      controls.autoRotate = false;
 
       const traceObjects = expeditions.map((expedition, index) => {
         const points = createRoute(
@@ -668,8 +674,6 @@ export default function EverestObservatory() {
       cleanupScene = () => {
         cancelAnimationFrame(frame);
         observer.disconnect();
-        renderer.domElement.removeEventListener("pointerdown", stopAutoRotate);
-        renderer.domElement.removeEventListener("wheel", stopAutoRotate);
         controls.dispose();
         traceObjects.forEach(
           ({
