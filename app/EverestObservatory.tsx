@@ -7,13 +7,29 @@ import { recentExpeditions } from "../lib/world";
 
 interface DemMetadata {
   id: string;
+  lod: "core" | "mid" | "far";
   source: string;
   sourceResolutionM: number;
+  displayResolutionM: number;
+  sampleSpacingArcSeconds: number;
   width: number;
   height: number;
+  bounds: DemBounds;
   minimumM: number;
   maximumM: number;
   attribution: string;
+}
+
+interface DemBounds {
+  north: number;
+  south: number;
+  west: number;
+  east: number;
+}
+
+interface DemLayer {
+  metadata: DemMetadata;
+  elevations: Int16Array;
 }
 
 interface VoxelTerrain {
@@ -26,11 +42,23 @@ interface VoxelTerrain {
   verticalStepM: number;
   peakColumn: number;
   peakRow: number;
+  xOrigin: number;
+  zOrigin: number;
 }
 
-const BASE_ELEVATION_M = 5_000;
-const VERTICAL_STEP_M = 20;
-const BLOCK_SIZE = 0.235;
+interface TerrainOptions {
+  holeBounds?: DemBounds;
+  overlapCells?: number;
+  yOffset?: number;
+  detailedSides?: boolean;
+}
+
+const BASE_ELEVATION_M = 0;
+const CORE_BLOCK_SIZE = 0.235;
+const WORLD_PER_ARC_SECOND = CORE_BLOCK_SIZE;
+const VERTICAL_EXAGGERATION = 1.5;
+const ORIGIN_LATITUDE = 27.9881;
+const ORIGIN_LONGITUDE = 86.925;
 
 function hashNoise(x: number, z: number, seed = 0) {
   let value = Math.imul(x + seed * 1013, 374761393);
@@ -69,40 +97,79 @@ function terrainColor(
 function createVoxelTerrain(
   elevations: Int16Array,
   metadata: DemMetadata,
+  options: TerrainOptions = {},
 ): VoxelTerrain {
   const { width, height } = metadata;
+  const {
+    holeBounds,
+    overlapCells = 1.25,
+    yOffset = 0,
+    detailedSides = true,
+  } = options;
+  const blockSize =
+    metadata.sampleSpacingArcSeconds * WORLD_PER_ARC_SECOND;
+  const verticalStepM =
+    metadata.displayResolutionM / VERTICAL_EXAGGERATION;
+  const degreesPerSample = metadata.sampleSpacingArcSeconds / 3600;
+  const xOrigin =
+    (metadata.bounds.west - ORIGIN_LONGITUDE) *
+    3600 *
+    WORLD_PER_ARC_SECOND;
+  const zOrigin =
+    (ORIGIN_LATITUDE - metadata.bounds.north) *
+    3600 *
+    WORLD_PER_ARC_SECOND;
   const levels = new Int16Array(elevations.length);
+  const included = new Uint8Array(elevations.length);
   let peakIndex = 0;
 
   for (let index = 0; index < elevations.length; index += 1) {
     const row = Math.floor(index / width);
     const column = index % width;
+    const latitude =
+      metadata.bounds.north - (row + 0.5) * degreesPerSample;
+    const longitude =
+      metadata.bounds.west + (column + 0.5) * degreesPerSample;
+    const insideHole =
+      holeBounds &&
+      latitude < holeBounds.north - overlapCells * degreesPerSample &&
+      latitude > holeBounds.south + overlapCells * degreesPerSample &&
+      longitude < holeBounds.east - overlapCells * degreesPerSample &&
+      longitude > holeBounds.west + overlapCells * degreesPerSample;
+    included[index] = insideHole ? 0 : 1;
     const syntheticDetail =
-      (hashNoise(column, row, 101) - 0.5) * 0.34 +
-      Math.sin(column * 0.31 + row * 0.19) * 0.08;
+      metadata.lod === "core"
+        ? (hashNoise(column, row, 101) - 0.5) * 0.34 +
+          Math.sin(column * 0.31 + row * 0.19) * 0.08
+        : 0;
     levels[index] = Math.max(
       0,
       Math.round(
-        (elevations[index] - BASE_ELEVATION_M) / VERTICAL_STEP_M +
+        (elevations[index] - BASE_ELEVATION_M) / verticalStepM +
           syntheticDetail,
       ),
     );
     if (elevations[index] > elevations[peakIndex]) peakIndex = index;
   }
 
-  let faceCount = width * height;
+  let faceCount = 0;
   for (let row = 0; row < height; row += 1) {
     for (let column = 0; column < width; column += 1) {
       const index = row * width + column;
+      if (!included[index]) continue;
+      faceCount += 1;
       const level = levels[index];
-      const east = column < width - 1 ? levels[index + 1] : 0;
-      const west = column > 0 ? levels[index - 1] : 0;
-      const south = row < height - 1 ? levels[index + width] : 0;
-      const north = row > 0 ? levels[index - width] : 0;
-      faceCount += Math.max(0, level - east);
-      faceCount += Math.max(0, level - west);
-      faceCount += Math.max(0, level - south);
-      faceCount += Math.max(0, level - north);
+      const neighborIndices = [
+        column < width - 1 ? index + 1 : -1,
+        column > 0 ? index - 1 : -1,
+        row < height - 1 ? index + width : -1,
+        row > 0 ? index - width : -1,
+      ];
+      for (const neighborIndex of neighborIndices) {
+        if (neighborIndex < 0 || !included[neighborIndex]) continue;
+        const difference = Math.max(0, level - levels[neighborIndex]);
+        faceCount += detailedSides ? difference : Number(difference > 0);
+      }
     }
   }
 
@@ -145,40 +212,47 @@ function createVoxelTerrain(
   for (let row = 0; row < height; row += 1) {
     for (let column = 0; column < width; column += 1) {
       const index = row * width + column;
+      if (!included[index]) continue;
       const level = levels[index];
-      const x0 = (column - width / 2) * BLOCK_SIZE;
-      const x1 = x0 + BLOCK_SIZE;
-      const z0 = (row - height / 2) * BLOCK_SIZE;
-      const z1 = z0 + BLOCK_SIZE;
-      const yTop = (level + 1) * BLOCK_SIZE;
+      const x0 = xOrigin + column * blockSize;
+      const x1 = x0 + blockSize;
+      const z0 = zOrigin + row * blockSize;
+      const z1 = z0 + blockSize;
+      const yTop = (level + 1) * blockSize + yOffset;
       const elevationM = elevations[index];
+      const noiseColumn = Math.round(
+        (metadata.bounds.west + column * degreesPerSample) * 3600,
+      );
+      const noiseRow = Math.round(
+        (metadata.bounds.north - row * degreesPerSample) * 3600,
+      );
 
       writeFace(
         [x0, yTop, z0, x0, yTop, z1, x1, yTop, z1, x1, yTop, z0],
-        terrainColor(elevationM, column, row, 1),
+        terrainColor(elevationM, noiseColumn, noiseRow, 1),
       );
 
       const sides = [
         {
-          neighbor: column < width - 1 ? levels[index + 1] : 0,
+          neighborIndex: column < width - 1 ? index + 1 : -1,
           shade: 0.72,
           vertices: (y0: number, y1: number) =>
             [x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1] as const,
         },
         {
-          neighbor: column > 0 ? levels[index - 1] : 0,
+          neighborIndex: column > 0 ? index - 1 : -1,
           shade: 0.56,
           vertices: (y0: number, y1: number) =>
             [x0, y0, z1, x0, y1, z1, x0, y1, z0, x0, y0, z0] as const,
         },
         {
-          neighbor: row < height - 1 ? levels[index + width] : 0,
+          neighborIndex: row < height - 1 ? index + width : -1,
           shade: 0.64,
           vertices: (y0: number, y1: number) =>
             [x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1] as const,
         },
         {
-          neighbor: row > 0 ? levels[index - width] : 0,
+          neighborIndex: row > 0 ? index - width : -1,
           shade: 0.48,
           vertices: (y0: number, y1: number) =>
             [x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0] as const,
@@ -186,12 +260,38 @@ function createVoxelTerrain(
       ];
 
       for (const side of sides) {
-        for (let layer = side.neighbor + 1; layer <= level; layer += 1) {
-          const y0 = layer * BLOCK_SIZE;
-          const y1 = (layer + 1) * BLOCK_SIZE;
+        if (
+          side.neighborIndex < 0 ||
+          !included[side.neighborIndex] ||
+          levels[side.neighborIndex] >= level
+        ) {
+          continue;
+        }
+        const neighborLevel = levels[side.neighborIndex];
+        if (detailedSides) {
+          for (let layer = neighborLevel + 1; layer <= level; layer += 1) {
+            const y0 = layer * blockSize + yOffset;
+            const y1 = (layer + 1) * blockSize + yOffset;
+            writeFace(
+              side.vertices(y0, y1),
+              terrainColor(
+                elevationM,
+                noiseColumn,
+                noiseRow,
+                side.shade,
+              ),
+            );
+          }
+        } else {
+          const y0 = (neighborLevel + 1) * blockSize + yOffset;
           writeFace(
-            side.vertices(y0, y1),
-            terrainColor(elevationM, column, row, side.shade),
+            side.vertices(y0, yTop),
+            terrainColor(
+              elevationM,
+              noiseColumn,
+              noiseRow,
+              side.shade,
+            ),
           );
         }
       }
@@ -217,79 +317,14 @@ function createVoxelTerrain(
     levels,
     width,
     height,
-    blockSize: BLOCK_SIZE,
+    blockSize,
     baseElevationM: BASE_ELEVATION_M,
-    verticalStepM: VERTICAL_STEP_M,
+    verticalStepM,
     peakColumn: peakIndex % width,
     peakRow: Math.floor(peakIndex / width),
+    xOrigin,
+    zOrigin,
   };
-}
-
-function createDistantRanges(scene: THREE.Scene) {
-  const placements: Array<{
-    x: number;
-    y: number;
-    z: number;
-    color: THREE.Color;
-  }> = [];
-  const cubeSize = 1.7;
-  const peaks = 18;
-
-  for (let peak = 0; peak < peaks; peak += 1) {
-    const angle = (peak / peaks) * Math.PI * 2;
-    const radius = 104 + hashNoise(peak, 1, 5) * 16;
-    const centerX = Math.cos(angle) * radius;
-    const centerZ = Math.sin(angle) * radius;
-    const footprint = 7 + Math.floor(hashNoise(peak, 2, 7) * 5);
-    const peakHeight = 11 + Math.floor(hashNoise(peak, 3, 11) * 10);
-
-    for (let localZ = -footprint; localZ <= footprint; localZ += 1) {
-      for (let localX = -footprint; localX <= footprint; localX += 1) {
-        const distance = Math.hypot(localX, localZ) / footprint;
-        if (distance > 1) continue;
-        const columnHeight = Math.max(
-          1,
-          Math.floor(
-            (1 - distance) * peakHeight +
-              hashNoise(localX + peak * 31, localZ, 29) * 2,
-          ),
-        );
-        for (let y = 0; y < columnHeight; y += 1) {
-          const snow = y > columnHeight * 0.72;
-          placements.push({
-            x: centerX + localX * cubeSize,
-            y: -5 + y * cubeSize,
-            z: centerZ + localZ * cubeSize,
-            color: new THREE.Color(snow ? "#7e9da4" : "#223942").multiplyScalar(
-              0.62 + hashNoise(localX, y + peak, 47) * 0.18,
-            ),
-          });
-        }
-      }
-    }
-  }
-
-  const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
-  const material = new THREE.MeshBasicMaterial({
-    color: "#ffffff",
-    fog: true,
-  });
-  const ranges = new THREE.InstancedMesh(
-    geometry,
-    material,
-    placements.length,
-  );
-  const dummy = new THREE.Object3D();
-  placements.forEach((placement, index) => {
-    dummy.position.set(placement.x, placement.y, placement.z);
-    dummy.updateMatrix();
-    ranges.setMatrixAt(index, dummy.matrix);
-    ranges.setColorAt(index, placement.color);
-  });
-  ranges.instanceMatrix.needsUpdate = true;
-  if (ranges.instanceColor) ranges.instanceColor.needsUpdate = true;
-  scene.add(ranges);
-  return { ranges, geometry, material };
 }
 
 function gridPoint(
@@ -310,9 +345,9 @@ function gridPoint(
   );
   const level = terrain.levels[safeRow * terrain.width + safeColumn];
   return new THREE.Vector3(
-    (safeColumn + 0.5 - terrain.width / 2) * terrain.blockSize,
+    terrain.xOrigin + (safeColumn + 0.5) * terrain.blockSize,
     (level + 1 + lift) * terrain.blockSize,
-    (safeRow + 0.5 - terrain.height / 2) * terrain.blockSize,
+    terrain.zOrigin + (safeRow + 0.5) * terrain.blockSize,
   );
 }
 
@@ -349,13 +384,16 @@ function positiveModulo(value: number, modulus: number) {
   return ((value % modulus) + modulus) % modulus;
 }
 
-async function loadDem(signal: AbortSignal) {
+async function loadDemLayer(
+  stem: string,
+  signal: AbortSignal,
+): Promise<DemLayer> {
   const [metadataResponse, elevationResponse] = await Promise.all([
-    fetch("/data/everest-dem.json", { signal }),
-    fetch("/data/everest-dem.int16", { signal }),
+    fetch(`/data/${stem}.json`, { signal }),
+    fetch(`/data/${stem}.int16`, { signal }),
   ]);
   if (!metadataResponse.ok || !elevationResponse.ok) {
-    throw new Error("Everest DEM assets could not be loaded.");
+    throw new Error(`Everest DEM layer ${stem} could not be loaded.`);
   }
   const metadata = (await metadataResponse.json()) as DemMetadata;
   const buffer = await elevationResponse.arrayBuffer();
@@ -365,9 +403,20 @@ async function loadDem(signal: AbortSignal) {
     elevations[index] = view.getInt16(index * 2, true);
   }
   if (elevations.length !== metadata.width * metadata.height) {
-    throw new Error("Everest DEM dimensions do not match the source manifest.");
+    throw new Error(
+      `Everest DEM layer ${stem} does not match its source manifest.`,
+    );
   }
   return { metadata, elevations };
+}
+
+async function loadDem(signal: AbortSignal) {
+  const [core, mid, far] = await Promise.all([
+    loadDemLayer("everest-dem", signal),
+    loadDemLayer("everest-dem-mid", signal),
+    loadDemLayer("everest-dem-far", signal),
+  ]);
+  return { core, mid, far };
 }
 
 export default function EverestObservatory() {
@@ -387,19 +436,19 @@ export default function EverestObservatory() {
     let cleanupScene = () => {};
 
     const start = async () => {
-      const { metadata, elevations } = await loadDem(abortController.signal);
+      const { core, mid, far } = await loadDem(abortController.signal);
       if (disposed) return;
 
       const scene = new THREE.Scene();
-      scene.fog = new THREE.FogExp2("#102c3a", 0.0088);
+      scene.fog = new THREE.FogExp2("#102c3a", 0.0046);
 
       const camera = new THREE.PerspectiveCamera(
         43,
         host.clientWidth / host.clientHeight,
         0.1,
-        420,
+        1_400,
       );
-      camera.position.set(60, 54, 100);
+      camera.position.set(68, 72, 116);
 
       const renderer = new THREE.WebGLRenderer({
         antialias: true,
@@ -420,12 +469,35 @@ export default function EverestObservatory() {
       renderer.domElement.tabIndex = 0;
       host.appendChild(renderer.domElement);
 
-      const terrain = createVoxelTerrain(elevations, metadata);
-      scene.add(terrain.mesh);
-      const distant = createDistantRanges(scene);
+      const farTerrain = createVoxelTerrain(
+        far.elevations,
+        far.metadata,
+        {
+          holeBounds: mid.metadata.bounds,
+          overlapCells: 1.35,
+          yOffset: -0.08,
+          detailedSides: false,
+        },
+      );
+      const midTerrain = createVoxelTerrain(
+        mid.elevations,
+        mid.metadata,
+        {
+          holeBounds: core.metadata.bounds,
+          overlapCells: 1.35,
+          yOffset: -0.035,
+          detailedSides: false,
+        },
+      );
+      const terrain = createVoxelTerrain(
+        core.elevations,
+        core.metadata,
+      );
+      const terrainLayers = [farTerrain, midTerrain, terrain];
+      terrainLayers.forEach((layer) => scene.add(layer.mesh));
 
       const ground = new THREE.Mesh(
-        new THREE.PlaneGeometry(420, 420),
+        new THREE.PlaneGeometry(1_600, 1_600),
         new THREE.MeshBasicMaterial({
           color: "#171d22",
           fog: true,
@@ -448,8 +520,8 @@ export default function EverestObservatory() {
       controls.enableDamping = true;
       controls.dampingFactor = 0.055;
       controls.enablePan = false;
-      controls.minDistance = 46;
-      controls.maxDistance = 145;
+      controls.minDistance = 52;
+      controls.maxDistance = 210;
       controls.minPolarAngle = 0.48;
       controls.maxPolarAngle = 1.42;
       controls.autoRotate = true;
@@ -616,10 +688,10 @@ export default function EverestObservatory() {
           markerMaterial.dispose();
           },
         );
-        terrain.mesh.geometry.dispose();
-        (terrain.mesh.material as THREE.Material).dispose();
-        distant.geometry.dispose();
-        distant.material.dispose();
+        terrainLayers.forEach((layer) => {
+          layer.mesh.geometry.dispose();
+          (layer.mesh.material as THREE.Material).dispose();
+        });
         ground.geometry.dispose();
         (ground.material as THREE.Material).dispose();
         summitStone.geometry.dispose();
@@ -699,7 +771,7 @@ export default function EverestObservatory() {
         className="dem-credit"
         title="produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"
       >
-        COPERNICUS GLO-30 · SYNTHETIC SUBGRID DETAIL
+        COPERNICUS GLO-30 · 30 / 90 / 300 M TERRAIN LOD
       </div>
     </main>
   );

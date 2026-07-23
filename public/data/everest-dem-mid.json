@@ -1,0 +1,26 @@
+{
+  "id": "COP-DEM-GLO-30-EVEREST-MID-001",
+  "lod": "mid",
+  "source": "Copernicus WorldDEM-30 (GLO-30)",
+  "sourceResolutionM": 30,
+  "displayResolutionM": 90,
+  "sampleSpacingArcSeconds": 3,
+  "format": "signed-int16-little-endian",
+  "width": 540,
+  "height": 510,
+  "bounds": {
+    "north": 28.2,
+    "south": 27.775,
+    "west": 86.7,
+    "east": 87.15
+  },
+  "minimumM": 2773,
+  "maximumM": 8733,
+  "maximumCoordinate": {
+    "latitude": 27.98875,
+    "longitude": 86.92625
+  },
+  "sha256": "164ec622c541c82273f545880463a963103b5be667f271bf4eb8ace59efb94e4",
+  "attribution": "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
+  "processing": "Public GLO-30 COG tiles were mosaicked and bilinearly resampled to a 90 m display LOD. This remains a visualization derivative of the 30 m source, not new measured elevation."
+}

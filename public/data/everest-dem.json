@@ -1,7 +1,10 @@
 {
-  "id": "COP-DEM-GLO-30-EVEREST-001",
+  "id": "COP-DEM-GLO-30-EVEREST-CORE-001",
+  "lod": "core",
   "source": "Copernicus WorldDEM-30 (GLO-30)",
   "sourceResolutionM": 30,
+  "displayResolutionM": 30,
+  "sampleSpacingArcSeconds": 1,
   "format": "signed-int16-little-endian",
   "width": 396,
   "height": 342,
@@ -19,5 +22,5 @@
   },
   "sha256": "4441db20eee18e58ee9d80839865cdd7f0d708b6a4ea590c4e24ed43398054da",
   "attribution": "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved",
-  "processing": "Two public GLO-30 COG tiles were clipped and joined without elevation resampling. The browser adds deterministic sub-grid visual detail; that detail is synthetic and is never represented as measured elevation."
+  "processing": "Public GLO-30 COG tiles were clipped and joined without elevation resampling. The browser adds deterministic sub-grid visual detail; that detail is synthetic and is never represented as measured elevation."
 }

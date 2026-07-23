@@ -83,10 +83,17 @@ npm test
 
 ## Terrain data and level of detail
 
-The website includes a 396 × 342 sample Everest clip from the public Copernicus
-WorldDEM-30 dataset. The untouched elevation samples and their SHA-256 are
-stored with a source manifest. The renderer quantizes them into 30 m overview
-voxels and adds small, deterministic visual variation. That variation is
+The website streams three nested terrain levels derived from the public
+Copernicus WorldDEM-30 dataset:
+
+- a 396 × 342 core clip rendered as 30 m voxels;
+- a roughly 45 km middle band resampled to 90 m display voxels;
+- a roughly 105 km outer band resampled to 300 m display voxels.
+
+Every binary elevation layer has a source manifest and SHA-256. The bands share
+one geographic origin, overlap at their seams, and the outer edge dissolves
+into atmospheric fog instead of producing a false vertical cut. The renderer
+adds small deterministic variation only to the core. That variation is
 synthetic detail, not new measured elevation.
 
 A decimetre grid is reserved for loaded contribution chunks. Applying a 0.1 m

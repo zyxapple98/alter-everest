@@ -34,10 +34,13 @@ Any rotation caused by physics is preserved in the world snapshot.
 
 ## 2. The terrain
 
-The observatory currently ships a real 396 × 342 Copernicus GLO-30 elevation
-clip around Everest at 30 m source spacing. It renders the data as a voxel
-surface, with small deterministic variation explicitly marked as synthetic.
-The source samples remain unchanged and have their own content hash.
+The observatory ships three nested display layers derived from Copernicus
+GLO-30: a 30 m core, a roughly 45 km band at 90 m display spacing, and a
+roughly 105 km band at 300 m display spacing. The layers are registered to one
+geographic origin and overlap at their boundaries, so the mountain continues
+beyond the detailed core without a false terrain wall. The 90 m and 300 m
+layers are display resamples of the 30 m source, not independent measurements.
+Each source derivative has its own content hash.
 
 For authoritative physics, the DEM is converted to a watertight collision mesh.
 The exact source and mesh hashes used by the validator become part of every
