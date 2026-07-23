@@ -34,6 +34,18 @@ function snapshot(stones: StoneState[] = []): PhysicsSnapshot {
   return { worldHash: "world-head", stones, terrain: [floor] };
 }
 
+function canonicalWorld(stones: StoneState[] = []): CanonicalWorld {
+  return {
+    ...snapshot(stones),
+    terrainHash: "terrain-head",
+    baseCamp: { x: 0, y: 0, z: 0 },
+    extractionZones: [],
+    identities: [],
+    tombstones: [],
+    expeditions: [],
+  };
+}
+
 function routeSample(
   x: number,
   y: number,
@@ -93,6 +105,52 @@ test("a centered stack holds but an excessive cantilever does not", async () => 
   assert.equal(cantilevered.code, "PLACEMENT_DID_NOT_HOLD");
 });
 
+test("contact dynamics allow a stable partial overhang", async () => {
+  const base = stone("stone-base", 0, 0.1, 0);
+  const result = await simulateMutation(snapshot([base]), {
+    kind: "ADD",
+    stoneId: "stone-top",
+    releasePose: pose(0.075, 0.31, 0),
+  });
+
+  assert.equal(result.valid, true);
+  assert.equal(result.contactModel, "RAPIER_COULOMB_FRICTION");
+});
+
+test("low-friction tangential load makes a stone slide", async () => {
+  const angle = (10 * Math.PI) / 180;
+  const slopeWorld: PhysicsSnapshot = {
+    worldHash: "slope",
+    stones: [],
+    terrain: [
+      {
+        kind: "cuboid",
+        center: { x: 0, y: 0, z: 0 },
+        halfExtents: { x: 4, y: 0.05, z: 4 },
+        rotation: {
+          x: 0,
+          y: 0,
+          z: Math.sin(angle / 2),
+          w: Math.cos(angle / 2),
+        },
+        friction: 0.08,
+      },
+    ],
+  };
+  const result = await simulateMutation(slopeWorld, {
+    kind: "ADD",
+    stoneId: "stone-shear",
+    releasePose: pose(0, 0.16, 0),
+  });
+
+  assert.equal(result.valid, false);
+  assert.ok(
+    result.code === "PLACEMENT_DID_NOT_HOLD" ||
+      result.code === "SETTLING_TIMEOUT",
+  );
+  assert.ok(result.maxLinearSpeed > 0.1);
+});
+
 test("return status is inferred from the terminal position", () => {
   const oneWayProof: ExpeditionProof = {
     route: [
@@ -111,7 +169,7 @@ test("return status is inferred from the terminal position", () => {
   };
   const oneWay = validateRoute(oneWayProof, { x: 0, y: 0, z: 0 });
   assert.equal(oneWay.valid, true);
-  assert.equal(oneWay.outcome, "RETIRED");
+  assert.equal(oneWay.outcome, "DEAD");
 
   const returnedProof: ExpeditionProof = {
     ...oneWayProof,
@@ -165,7 +223,7 @@ test("a pickup target is excluded without making other stones passable", async (
 
 test("a stale candidate is replayed against HEAD and accepted when still valid", async () => {
   const world: CanonicalWorld = {
-    ...snapshot(),
+    ...canonicalWorld(),
     worldHash: "new-head",
     identities: [{ id: "agent-7", status: "ACTIVE" }],
   };
@@ -184,8 +242,10 @@ test("a stale candidate is replayed against HEAD and accepted when still valid",
   };
   const result = await validateCandidateCommit(
     {
+      protocol: "0.3.0",
       id: "candidate-7",
       parentWorldHash: "old-head",
+      terrainHash: "terrain-head",
       agentId: "agent-7",
       proof,
     },
@@ -196,4 +256,55 @@ test("a stale candidate is replayed against HEAD and accepted when still valid",
   assert.equal(result.accepted, true);
   assert.equal(result.revalidatedAgainstHead, true);
   assert.equal(result.canonicalParent, "new-head");
+});
+
+test("an action point cannot teleport a stone", async () => {
+  const world = canonicalWorld();
+  const proof: ExpeditionProof = {
+    route: [
+      routeSample(0, 0),
+      routeSample(0.5, 0.02),
+      routeSample(0, 0, true),
+    ],
+    mutation: {
+      kind: "ADD",
+      stoneId: "stone-remote",
+      releasePose: pose(5, 0.11, 0),
+    },
+    releaseIndex: 1,
+  };
+  const result = await validateCandidateCommit(
+    {
+      protocol: "0.3.0",
+      id: "remote-action",
+      parentWorldHash: world.worldHash,
+      terrainHash: world.terrainHash,
+      agentId: "agent-remote",
+      proof,
+    },
+    world,
+  );
+
+  assert.equal(result.accepted, false);
+  assert.equal(result.route?.code, "ACTION_POSITION_MISMATCH");
+});
+
+test("a loaded route cannot exceed 400 oxygen units", () => {
+  const route = Array.from({ length: 447 }, (_, index) =>
+    routeSample(index * 45, 0, index === 446),
+  );
+  const proof: ExpeditionProof = {
+    route,
+    mutation: {
+      kind: "ADD",
+      stoneId: "stone-too-far",
+      releasePose: pose(route.at(-1)!.x, 0.11, 0),
+    },
+    releaseIndex: route.length - 1,
+  };
+  const result = validateRoute(proof, { x: 0, y: 0, z: 0 });
+
+  assert.equal(result.valid, false);
+  assert.equal(result.code, "OXYGEN_EXHAUSTED");
+  assert.ok(result.oxygenUsed > 400);
 });

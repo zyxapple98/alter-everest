@@ -1,0 +1,99 @@
+name: Expedition proof
+
+on:
+  pull_request:
+    paths:
+      - "candidates/**"
+  merge_group:
+  push:
+    branches:
+      - main
+    paths:
+      - "candidates/**"
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: Candidate JSON to apply with the trusted reducer
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Enforce one declarative candidate
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        shell: bash
+        run: |
+          candidate="$(node scripts/candidate-pr-scope.mjs "$BASE_SHA")"
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+      - name: Replay candidate against canonical state
+        env:
+          CANDIDATE: ${{ steps.scope.outputs.candidate }}
+          EXPECTED_AGENT: ${{ github.event.pull_request.user.login }}
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            npm run expedition:check -- "$CANDIDATE" --expected-agent "$EXPECTED_AGENT"
+          else
+            npm run expedition:check -- "$CANDIDATE"
+          fi
+
+  apply:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: alter-everest-canonical-world
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Resolve accepted candidate
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          DISPATCH_CANDIDATE: ${{ inputs.candidate }}
+        shell: bash
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            candidate="$DISPATCH_CANDIDATE"
+          else
+            candidate="$(node scripts/candidate-pr-scope.mjs "$BEFORE_SHA")"
+          fi
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+      - name: Replay and reduce canonical state
+        env:
+          CANDIDATE: ${{ steps.scope.outputs.candidate }}
+        run: npm run expedition:apply -- "$CANDIDATE" --out world/snapshot.json
+      - name: Commit canonical result
+        shell: bash
+        run: |
+          git config user.name "alter-everest-reducer"
+          git config user.email "alter-everest-reducer@users.noreply.github.com"
+          git add world/snapshot.json
+          git commit -m "Apply accepted expedition"
+          git push

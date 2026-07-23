@@ -1,6 +1,6 @@
 import type { CandidateCommit, StoneMutation } from "../engine/types";
 
-export const PROTOCOL_VERSION = "0.2.0";
+export const PROTOCOL_VERSION = "0.3.0";
 
 export interface ShapeValidationResult {
   valid: boolean;
@@ -11,6 +11,14 @@ function isFiniteVec3(value: unknown) {
   if (!value || typeof value !== "object") return false;
   const point = value as Record<string, unknown>;
   return ["x", "y", "z"].every((key) => Number.isFinite(point[key]));
+}
+
+function isFiniteQuaternion(value: unknown) {
+  if (!value || typeof value !== "object") return false;
+  const rotation = value as Record<string, unknown>;
+  return ["x", "y", "z", "w"].every((key) =>
+    Number.isFinite(rotation[key]),
+  );
 }
 
 function validMutation(value: unknown): value is StoneMutation {
@@ -25,8 +33,7 @@ function validMutation(value: unknown): value is StoneMutation {
   return Boolean(
     releasePose &&
       isFiniteVec3(releasePose.translation) &&
-      releasePose.rotation &&
-      typeof releasePose.rotation === "object",
+      isFiniteQuaternion(releasePose.rotation),
   );
 }
 
@@ -50,6 +57,9 @@ export function validateCandidateShape(
   if (!candidate.parentWorldHash || typeof candidate.parentWorldHash !== "string") {
     errors.push("parentWorldHash is required");
   }
+  if (!candidate.terrainHash || typeof candidate.terrainHash !== "string") {
+    errors.push("terrainHash is required");
+  }
   if (!candidate.agentId || typeof candidate.agentId !== "string") {
     errors.push("agentId is required");
   }
@@ -58,6 +68,17 @@ export function validateCandidateShape(
   } else {
     if (!Array.isArray(candidate.proof.route) || candidate.proof.route.length < 2) {
       errors.push("proof.route must contain at least two samples");
+    } else if (
+      candidate.proof.route.some(
+        (sample) =>
+          !isFiniteVec3(sample) ||
+          !Number.isFinite(sample.altitudeM) ||
+          !Number.isFinite(sample.slopeDegrees) ||
+          !["ROCK", "SNOW", "ICE"].includes(String(sample.surface)) ||
+          !["WALK", "SCRAMBLE", "CLIMB"].includes(String(sample.mode)),
+      )
+    ) {
+      errors.push("proof.route contains an invalid sample");
     }
     if (!validMutation(candidate.proof.mutation)) {
       errors.push("proof.mutation is invalid");
@@ -66,4 +87,3 @@ export function validateCandidateShape(
 
   return { valid: errors.length === 0, errors };
 }
-

@@ -13,13 +13,15 @@ export const PHYSICS = {
   placementToleranceM: 0.025,
   linearSleepThresholdMps: 0.018,
   angularSleepThresholdRps: 0.04,
-  worldBoundsM: 256,
+  worldBoundsM: 50_000,
 } as const;
 
 export const CLIMBER = {
   bodyMassKg: 78,
   baseCampRadiusM: 2,
-  maxProofSegmentM: 1,
+  extractionRadiusM: 3,
+  interactionReachM: 1.25,
+  maxProofSegmentM: 45,
   maxWalkStepM: 0.42,
   maxWalkSlopeDegrees: 35,
   maxLoadedWalkSlopeDegrees: 32,
@@ -29,9 +31,12 @@ export const CLIMBER = {
   walkSpeedMps: 0.78,
   scrambleSpeedMps: 0.34,
   climbSpeedMps: 0.16,
-  maximumEnergyKj: 18_500,
+  maximumEnergyKj: 65_000,
+  oxygenCapacity: 400,
+  oxygenUnitDistanceM: 100,
+  unloadedOxygenPerUnit: 1,
+  loadedOxygenPerUnit: 2,
   rockTerrainFactor: 1.15,
   snowTerrainFactor: 1.62,
   iceTerrainFactor: 1.36,
 } as const;
-

@@ -94,6 +94,8 @@ function prepareMutation(
         affectedStoneIds: [],
         simulatedSeconds: 0,
         maxLinearSpeed: 0,
+        maxAngularSpeed: 0,
+        contactModel: "RAPIER_COULOMB_FRICTION",
       },
     };
   }
@@ -108,6 +110,8 @@ function prepareMutation(
         affectedStoneIds: [],
         simulatedSeconds: 0,
         maxLinearSpeed: 0,
+        maxAngularSpeed: 0,
+        contactModel: "RAPIER_COULOMB_FRICTION",
       },
     };
   }
@@ -157,7 +161,13 @@ export async function simulateMutation(
             terrain.halfExtents.x,
             terrain.halfExtents.y,
             terrain.halfExtents.z,
-          ).setTranslation(terrain.center.x, terrain.center.y, terrain.center.z)
+          )
+            .setTranslation(
+              terrain.center.x,
+              terrain.center.y,
+              terrain.center.z,
+            )
+            .setRotation(terrain.rotation ?? IDENTITY_QUATERNION)
         : RAPIER.ColliderDesc.trimesh(terrain.vertices, terrain.indices);
     descriptor
       .setFriction(terrain.friction ?? PHYSICS.dryRockFriction)
@@ -208,6 +218,7 @@ export async function simulateMutation(
   let settled = false;
   let completedSteps = 0;
   let maxLinearSpeed = 0;
+  let maxAngularSpeed = 0;
 
   for (let step = 0; step < maxSteps; step += 1) {
     world.step();
@@ -218,6 +229,7 @@ export async function simulateMutation(
       const linearSpeed = vectorMagnitude(body.linvel());
       const angularSpeed = vectorMagnitude(body.angvel());
       maxLinearSpeed = Math.max(maxLinearSpeed, linearSpeed);
+      maxAngularSpeed = Math.max(maxAngularSpeed, angularSpeed);
       if (
         linearSpeed > PHYSICS.linearSleepThresholdMps ||
         angularSpeed > PHYSICS.angularSleepThresholdRps
@@ -290,6 +302,8 @@ export async function simulateMutation(
       affectedStoneIds,
       simulatedSeconds,
       maxLinearSpeed,
+      maxAngularSpeed,
+      contactModel: "RAPIER_COULOMB_FRICTION",
     };
   }
   if (!settled) {
@@ -300,6 +314,8 @@ export async function simulateMutation(
       affectedStoneIds,
       simulatedSeconds,
       maxLinearSpeed,
+      maxAngularSpeed,
+      contactModel: "RAPIER_COULOMB_FRICTION",
     };
   }
   if (!placementHeld) {
@@ -310,6 +326,8 @@ export async function simulateMutation(
       affectedStoneIds,
       simulatedSeconds,
       maxLinearSpeed,
+      maxAngularSpeed,
+      contactModel: "RAPIER_COULOMB_FRICTION",
     };
   }
 
@@ -320,5 +338,7 @@ export async function simulateMutation(
     affectedStoneIds,
     simulatedSeconds,
     maxLinearSpeed,
+    maxAngularSpeed,
+    contactModel: "RAPIER_COULOMB_FRICTION",
   };
 }

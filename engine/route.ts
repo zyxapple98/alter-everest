@@ -24,13 +24,28 @@ function validIndex(index: number | undefined, length: number) {
 function invalid(
   code: RouteFailureCode,
   terminalDistanceFromBaseM = Number.POSITIVE_INFINITY,
+  diagnostics: Partial<
+    Pick<
+      RouteVerdict,
+      | "energyKj"
+      | "elapsedSeconds"
+      | "distanceM"
+      | "loadedDistanceM"
+      | "oxygenUsed"
+    >
+  > = {},
 ): RouteVerdict {
+  const oxygenUsed = diagnostics.oxygenUsed ?? 0;
   return {
     valid: false,
     code,
-    outcome: "RETIRED",
-    energyKj: 0,
-    elapsedSeconds: 0,
+    outcome: "DEAD",
+    energyKj: diagnostics.energyKj ?? 0,
+    elapsedSeconds: diagnostics.elapsedSeconds ?? 0,
+    distanceM: diagnostics.distanceM ?? 0,
+    loadedDistanceM: diagnostics.loadedDistanceM ?? 0,
+    oxygenUsed,
+    oxygenRemaining: Math.max(0, CLIMBER.oxygenCapacity - oxygenUsed),
     terminalDistanceFromBaseM,
   };
 }
@@ -124,6 +139,7 @@ function validateActionIndices(proof: ExpeditionProof) {
 export function validateRoute(
   proof: ExpeditionProof,
   baseCamp: Vec3,
+  extractionZones: readonly Vec3[] = [],
 ): RouteVerdict {
   if (proof.route.length < 2) return invalid("ROUTE_TOO_SHORT");
   const terminalDistanceFromBaseM = distance(
@@ -139,6 +155,9 @@ export function validateRoute(
 
   const returnsToBase =
     terminalDistanceFromBaseM <= CLIMBER.baseCampRadiusM;
+  const reachesExtraction = extractionZones.some(
+    (zone) => distance(proof.route.at(-1)!, zone) <= CLIMBER.extractionRadiusM,
+  );
   if (proof.mutation.kind === "RECOVER" && !returnsToBase) {
     return invalid("RECOVERY_MUST_RETURN", terminalDistanceFromBaseM);
   }
@@ -146,6 +165,7 @@ export function validateRoute(
   const terminal = proof.route.at(-1)!;
   if (
     !returnsToBase &&
+    !reachesExtraction &&
     (!terminal.safeStop ||
       terminal.slopeDegrees > CLIMBER.maxWalkSlopeDegrees)
   ) {
@@ -154,12 +174,16 @@ export function validateRoute(
 
   let energyKj = 0;
   let elapsedSeconds = 0;
+  let distanceM = 0;
+  let loadedDistanceM = 0;
+  let oxygenUsed = 0;
 
   for (let index = 1; index < proof.route.length; index += 1) {
     const from = proof.route[index - 1];
     const to = proof.route[index];
     const lengthM = distance(from, to);
-    if (lengthM > CLIMBER.maxProofSegmentM + 1e-6) {
+    const horizontalM = Math.max(0.05, horizontalDistance(from, to));
+    if (horizontalM > CLIMBER.maxProofSegmentM + 1e-6) {
       return invalid("SEGMENT_TOO_LONG", terminalDistanceFromBaseM);
     }
 
@@ -167,6 +191,7 @@ export function validateRoute(
     const climb = to.y - from.y;
     if (
       to.mode === "WALK" &&
+      horizontalM <= 1.01 &&
       climb > CLIMBER.maxWalkStepM
     ) {
       return invalid("VERTICAL_STEP_EXCEEDED", terminalDistanceFromBaseM);
@@ -180,7 +205,6 @@ export function validateRoute(
 
     const speedMps = speedFor(to.mode);
     const seconds = lengthM / speedMps;
-    const horizontalM = Math.max(0.05, horizontalDistance(from, to));
     const gradePercent = ((to.y - from.y) / horizontalM) * 100;
     const loadMassKg = carrying ? PHYSICS.stoneMassKg : 0;
     const watts = pandolfWatts(
@@ -194,19 +218,45 @@ export function validateRoute(
     energyKj +=
       (watts * altitudeMultiplier(altitudeM) * seconds) / 1000;
     elapsedSeconds += seconds;
+    distanceM += lengthM;
+    if (carrying) loadedDistanceM += lengthM;
+    oxygenUsed +=
+      (lengthM / CLIMBER.oxygenUnitDistanceM) *
+      (carrying
+        ? CLIMBER.loadedOxygenPerUnit
+        : CLIMBER.unloadedOxygenPerUnit);
+
+    if (oxygenUsed > CLIMBER.oxygenCapacity + 1e-9) {
+      return invalid("OXYGEN_EXHAUSTED", terminalDistanceFromBaseM, {
+        energyKj,
+        elapsedSeconds,
+        distanceM,
+        loadedDistanceM,
+        oxygenUsed,
+      });
+    }
   }
 
   if (energyKj > CLIMBER.maximumEnergyKj) {
-    return invalid("ENERGY_BUDGET_EXCEEDED", terminalDistanceFromBaseM);
+    return invalid("ENERGY_BUDGET_EXCEEDED", terminalDistanceFromBaseM, {
+      energyKj,
+      elapsedSeconds,
+      distanceM,
+      loadedDistanceM,
+      oxygenUsed,
+    });
   }
 
   return {
     valid: true,
     code: "ROUTE_VALID",
-    outcome: returnsToBase ? "ACTIVE" : "RETIRED",
+    outcome: returnsToBase || reachesExtraction ? "ACTIVE" : "DEAD",
     energyKj,
     elapsedSeconds,
+    distanceM,
+    loadedDistanceM,
+    oxygenUsed,
+    oxygenRemaining: CLIMBER.oxygenCapacity - oxygenUsed,
     terminalDistanceFromBaseM,
   };
 }
-

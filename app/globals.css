@@ -116,7 +116,7 @@ a {
   height: 70px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding: 0 28px;
   pointer-events: none;
   border-bottom: 1px solid var(--line);
@@ -168,6 +168,7 @@ a {
   color: rgba(232, 238, 235, 0.64);
   font: 570 8px/1 var(--mono);
   letter-spacing: 0.15em;
+  margin-left: auto;
 }
 
 .live-state i {
@@ -177,6 +178,30 @@ a {
   background: #7af0a2;
   box-shadow: 0 0 12px rgba(122, 240, 162, 0.82);
   animation: breathe 2.4s steps(2, end) infinite;
+}
+
+.rank-trigger {
+  width: 48px;
+  height: 26px;
+  margin-left: 18px;
+  color: rgba(239, 241, 235, 0.58);
+  pointer-events: auto;
+  cursor: pointer;
+  border: 1px solid rgba(225, 235, 232, 0.16);
+  background: rgba(5, 15, 21, 0.24);
+  font: 560 7px/1 var(--mono);
+  letter-spacing: 0.12em;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.rank-trigger:hover,
+.rank-trigger[aria-expanded="true"] {
+  color: rgba(249, 246, 236, 0.92);
+  border-color: rgba(255, 113, 56, 0.65);
+  background: rgba(20, 27, 28, 0.64);
 }
 
 .world-id {
@@ -272,6 +297,60 @@ a {
   letter-spacing: 0.08em;
 }
 
+.rankings {
+  position: absolute;
+  z-index: 7;
+  top: 82px;
+  right: 28px;
+  width: 238px;
+  padding: 15px 14px 11px;
+  border: 1px solid rgba(226, 235, 231, 0.16);
+  background: rgba(5, 15, 21, 0.76);
+  box-shadow: 0 18px 60px rgba(1, 7, 11, 0.28);
+  backdrop-filter: blur(13px);
+  font-family: var(--mono);
+}
+
+.rankings > small {
+  display: block;
+  margin-bottom: 11px;
+  color: rgba(231, 237, 234, 0.36);
+  font-size: 7px;
+  letter-spacing: 0.16em;
+}
+
+.rankings > div {
+  display: grid;
+  grid-template-columns: 21px 1fr auto 5px;
+  align-items: center;
+  min-height: 30px;
+  border-top: 1px solid rgba(225, 234, 231, 0.08);
+}
+
+.rankings span,
+.rankings em {
+  color: rgba(231, 237, 234, 0.38);
+  font-size: 7px;
+  font-style: normal;
+}
+
+.rankings strong {
+  color: rgba(247, 245, 237, 0.84);
+  font-size: 9px;
+  font-weight: 540;
+}
+
+.rankings i {
+  width: 4px;
+  height: 4px;
+  background: #78e9a0;
+}
+
+.rankings i.dead {
+  background: var(--orange);
+  box-shadow: 0 0 9px rgba(255, 113, 56, 0.55);
+}
+
 @keyframes breathe {
   50% {
     opacity: 0.35;
@@ -286,6 +365,11 @@ a {
   .observatory-header {
     height: 62px;
     padding: 0 17px;
+  }
+
+  .rank-trigger {
+    width: 42px;
+    margin-left: 12px;
   }
 
   .wordmark strong {
@@ -321,6 +405,12 @@ a {
 
   .dem-credit {
     display: none;
+  }
+
+  .rankings {
+    top: 73px;
+    right: 17px;
+    width: 220px;
   }
 
   .voxel-sky::before {

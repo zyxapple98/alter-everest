@@ -15,6 +15,7 @@ export interface TerrainCuboid {
   kind: "cuboid";
   center: Vec3;
   halfExtents: Vec3;
+  rotation?: Quaternion;
   friction?: number;
 }
 
@@ -63,6 +64,8 @@ export interface PhysicsVerdict {
   affectedStoneIds: string[];
   simulatedSeconds: number;
   maxLinearSpeed: number;
+  maxAngularSpeed: number;
+  contactModel: "RAPIER_COULOMB_FRICTION";
 }
 
 export type LocomotionMode = "WALK" | "SCRAMBLE" | "CLIMB";
@@ -84,7 +87,7 @@ export interface ExpeditionProof {
   releaseIndex?: number;
 }
 
-export type IdentityOutcome = "ACTIVE" | "RETIRED";
+export type IdentityOutcome = "ACTIVE" | "DEAD";
 
 export type RouteFailureCode =
   | "ROUTE_TOO_SHORT"
@@ -95,8 +98,12 @@ export type RouteFailureCode =
   | "SLOPE_EXCEEDED"
   | "CLIMB_UNPROTECTED"
   | "ACTION_INDEX_INVALID"
+  | "ACTION_POSITION_MISMATCH"
   | "RECOVERY_MUST_RETURN"
   | "UNSAFE_TERMINAL"
+  | "OUTSIDE_TERRAIN"
+  | "TERRAIN_MISMATCH"
+  | "OXYGEN_EXHAUSTED"
   | "ENERGY_BUDGET_EXCEEDED";
 
 export interface RouteVerdict {
@@ -105,6 +112,10 @@ export interface RouteVerdict {
   outcome: IdentityOutcome;
   energyKj: number;
   elapsedSeconds: number;
+  distanceM: number;
+  loadedDistanceM: number;
+  oxygenUsed: number;
+  oxygenRemaining: number;
   terminalDistanceFromBaseM: number;
 }
 
@@ -114,21 +125,49 @@ export interface IdentityState {
 }
 
 export interface CandidateCommit {
+  protocol: string;
   id: string;
   parentWorldHash: string;
+  terrainHash: string;
   agentId: string;
   proof: ExpeditionProof;
 }
 
+export interface TombstoneState {
+  id: string;
+  agentId: string;
+  expeditionId: string;
+  position: Vec3;
+  altitudeM: number;
+  oxygenUsed: number;
+}
+
+export interface ExpeditionRecord {
+  id: string;
+  agentId: string;
+  action: StoneMutation["kind"];
+  outcome: IdentityOutcome;
+  altitudeM: number;
+  oxygenUsed: number;
+  energyKj: number;
+  score: number;
+}
+
 export interface CanonicalWorld extends PhysicsSnapshot {
+  terrainHash: string;
+  baseCamp: Vec3;
+  extractionZones: Vec3[];
   identities: IdentityState[];
+  tombstones: TombstoneState[];
+  expeditions: ExpeditionRecord[];
 }
 
 export interface CommitVerdict {
   accepted: boolean;
   code:
     | "ACCEPTED"
-    | "IDENTITY_RETIRED"
+    | "CANDIDATE_ALREADY_APPLIED"
+    | "IDENTITY_DEAD"
     | "ROUTE_INVALID"
     | "PHYSICS_INVALID"
     | "STALE_CONFLICT";
@@ -137,6 +176,7 @@ export interface CommitVerdict {
   route: RouteVerdict | null;
   physics: PhysicsVerdict | null;
   nextIdentityStatus: IdentityOutcome | null;
+  score: number | null;
 }
 
 export const IDENTITY_QUATERNION: Quaternion = { x: 0, y: 0, z: 0, w: 1 };

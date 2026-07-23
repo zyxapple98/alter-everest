@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { recentExpeditions } from "../lib/world";
+import {
+  observatoryLeaderboard,
+  recentExpeditions,
+} from "../lib/world";
 
 interface DemMetadata {
   id: string;
@@ -74,24 +77,24 @@ function terrainColor(
   z: number,
   shade: number,
 ) {
-  const variation = (hashNoise(x, z, 19) - 0.5) * 0.055;
+  const variation = (hashNoise(x, z, 19) - 0.5) * 0.042;
   const patch =
     Math.sin(x * 0.052 + z * 0.021) * 0.52 +
     Math.sin(z * 0.061 - x * 0.018) * 0.34 +
     Math.sin((x + z) * 0.027) * 0.22;
   let color: THREE.Color;
 
-  if (elevationM > 7_800 || (elevationM > 6_850 && patch > 0.42)) {
-    color = new THREE.Color("#dce5e2");
-  } else if (elevationM > 6_100 && patch < 0.08) {
-    color = new THREE.Color("#6f9da8");
-  } else if (elevationM > 5_750) {
-    color = new THREE.Color("#686c69");
+  if (elevationM > 7_850 || (elevationM > 6_900 && patch > 0.3)) {
+    color = new THREE.Color("#dce0d9");
+  } else if (elevationM > 6_050 && patch < 0.02) {
+    color = new THREE.Color("#78989e");
+  } else if (elevationM > 5_650) {
+    color = new THREE.Color("#68675f");
   } else {
-    color = new THREE.Color("#3d4848");
+    color = new THREE.Color("#394649");
   }
 
-  color.offsetHSL(variation * 0.08, variation * 0.15, variation);
+  color.offsetHSL(variation * 0.06, variation * 0.12, variation);
   return color.multiplyScalar(shade);
 }
 
@@ -344,7 +347,7 @@ function gridPoint(
   terrain: VoxelTerrain,
   column: number,
   row: number,
-  lift = 0.7,
+  lift = 0.08,
 ) {
   const safeColumn = THREE.MathUtils.clamp(
     Math.round(column),
@@ -397,6 +400,100 @@ function positiveModulo(value: number, modulus: number) {
   return ((value % modulus) + modulus) % modulus;
 }
 
+function createVoxelClimber(color: string) {
+  const group = new THREE.Group();
+  const jacketMaterial = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+  });
+  const darkMaterial = new THREE.MeshBasicMaterial({
+    color: "#17242a",
+    transparent: true,
+  });
+  const skinMaterial = new THREE.MeshBasicMaterial({
+    color: "#d8b18a",
+    transparent: true,
+  });
+  const stoneMaterial = new THREE.MeshBasicMaterial({
+    color: "#8b8c83",
+    transparent: true,
+  });
+  const materials = [
+    jacketMaterial,
+    darkMaterial,
+    skinMaterial,
+    stoneMaterial,
+  ];
+
+  const addBox = (
+    size: [number, number, number],
+    position: [number, number, number],
+    material: THREE.MeshBasicMaterial,
+  ) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
+    mesh.position.set(...position);
+    group.add(mesh);
+    return mesh;
+  };
+
+  addBox([0.3, 0.36, 0.2], [0, 0.46, 0], jacketMaterial);
+  addBox([0.24, 0.24, 0.22], [0, 0.76, 0], skinMaterial);
+  addBox([0.27, 0.1, 0.24], [0, 0.88, 0], jacketMaterial);
+  addBox([0.27, 0.32, 0.16], [0, 0.48, -0.18], darkMaterial);
+  const leftLeg = addBox(
+    [0.1, 0.3, 0.11],
+    [-0.09, 0.18, 0],
+    darkMaterial,
+  );
+  const rightLeg = addBox(
+    [0.1, 0.3, 0.11],
+    [0.09, 0.18, 0],
+    darkMaterial,
+  );
+  addBox([0.09, 0.3, 0.1], [-0.21, 0.46, 0], jacketMaterial);
+  addBox([0.09, 0.3, 0.1], [0.21, 0.46, 0], jacketMaterial);
+  const carriedStone = addBox(
+    [0.19, 0.19, 0.19],
+    [0.31, 0.35, 0.03],
+    stoneMaterial,
+  );
+
+  return {
+    group,
+    materials,
+    leftLeg,
+    rightLeg,
+    carriedStone,
+  };
+}
+
+function createMemorialCairn(color: string) {
+  const group = new THREE.Group();
+  const stoneMaterial = new THREE.MeshBasicMaterial({
+    color: "#74736b",
+    transparent: true,
+    opacity: 0.95,
+  });
+  const lightMaterial = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.88,
+  });
+  const sizes = [0.28, 0.21, 0.14];
+  let y = 0;
+  sizes.forEach((size, index) => {
+    const stone = new THREE.Mesh(
+      new THREE.BoxGeometry(size, size * 0.68, size),
+      index === sizes.length - 1 ? lightMaterial : stoneMaterial,
+    );
+    stone.position.y = y + size * 0.34;
+    stone.rotation.y = index * 0.36;
+    y += size * 0.68;
+    group.add(stone);
+  });
+  return { group, stoneMaterial, lightMaterial };
+}
+
 async function loadDemLayer(
   stem: string,
   signal: AbortSignal,
@@ -435,10 +532,12 @@ async function loadDem(signal: AbortSignal) {
 export default function EverestObservatory() {
   const canvasHost = useRef<HTMLDivElement>(null);
   const [activeExpedition, setActiveExpedition] = useState(0);
+  const [rankingsOpen, setRankingsOpen] = useState(false);
   const [sceneStatus, setSceneStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
   const expeditions = useMemo(() => recentExpeditions(), []);
+  const leaderboard = useMemo(() => observatoryLeaderboard(), []);
 
   useEffect(() => {
     const host = canvasHost.current;
@@ -582,24 +681,28 @@ export default function EverestObservatory() {
         breadcrumbs.instanceMatrix.needsUpdate = true;
         scene.add(breadcrumbs);
 
-        const markerMaterial = new THREE.MeshBasicMaterial({
-          color: expedition.color,
-          transparent: true,
-        });
-        const marker = new THREE.Mesh(
-          new THREE.BoxGeometry(0.58, 0.58, 0.58),
-          markerMaterial,
-        );
-        scene.add(marker);
+        const climber = createVoxelClimber(expedition.color);
+        scene.add(climber.group);
+
+        const memorial =
+          expedition.outcome === "DEAD"
+            ? createMemorialCairn(expedition.color)
+            : null;
+        if (memorial) {
+          memorial.group.position.copy(points[points.length - 1]);
+          scene.add(memorial.group);
+        }
+
         return {
+          expedition,
           points,
           line,
           material,
           breadcrumbs,
           breadcrumbGeometry,
           breadcrumbMaterial,
-          marker,
-          markerMaterial,
+          ...climber,
+          memorial,
         };
       });
 
@@ -607,11 +710,11 @@ export default function EverestObservatory() {
         terrain,
         terrain.peakColumn,
         terrain.peakRow,
-        1.9,
+        1.12,
       );
       const summitStone = new THREE.Mesh(
         new THREE.BoxGeometry(0.52, 0.52, 0.52),
-        new THREE.MeshBasicMaterial({ color: "#ff7a3d" }),
+        new THREE.MeshBasicMaterial({ color: "#ef7040" }),
       );
       summitStone.position.copy(summit);
       scene.add(summitStone);
@@ -627,29 +730,56 @@ export default function EverestObservatory() {
         controls.update();
 
         traceObjects.forEach((trace, index) => {
-          const phase = positiveModulo(
+          const cycle = positiveModulo(
             seconds * (0.042 + index * 0.004) + index * 0.31,
             1,
           );
+          const phase =
+            trace.expedition.outcome === "DEAD"
+              ? Math.min(cycle / 0.82, 1)
+              : cycle;
           const scaled = phase * (trace.points.length - 1);
           const pointIndex = Math.min(
             trace.points.length - 2,
             Math.floor(scaled),
           );
-          trace.marker.position.lerpVectors(
+          trace.group.position.lerpVectors(
             trace.points[pointIndex],
             trace.points[pointIndex + 1],
             scaled - pointIndex,
           );
-          trace.marker.rotation.y = seconds * 1.2;
+          const direction = trace.points[pointIndex + 1]
+            .clone()
+            .sub(trace.points[pointIndex]);
+          trace.group.rotation.y = Math.atan2(direction.x, direction.z);
+          trace.group.rotation.x = THREE.MathUtils.clamp(
+            -Math.atan2(
+              direction.y,
+              Math.hypot(direction.x, direction.z),
+            ) * 0.22,
+            -0.18,
+            0.18,
+          );
+          const stride = Math.sin(seconds * 10.5 + index);
+          trace.group.position.y += Math.abs(stride) * 0.035;
+          trace.leftLeg.rotation.x = stride * 0.42;
+          trace.rightLeg.rotation.x = -stride * 0.42;
+          trace.carriedStone.visible =
+            phase < trace.expedition.releaseFraction;
           const isActive =
             Math.floor(seconds / 7) % expeditions.length === index;
           trace.material.opacity = isActive ? 0.94 : 0.4;
           trace.breadcrumbMaterial.opacity = isActive ? 0.9 : 0.38;
-          trace.markerMaterial.opacity = isActive ? 1 : 0.3;
-          trace.marker.scale.setScalar(
-            isActive ? 1 + Math.sin(seconds * 4.5) * 0.14 : 0.72,
-          );
+          const ended =
+            trace.expedition.outcome === "DEAD" && cycle > 0.82;
+          trace.materials.forEach((material) => {
+            material.opacity = ended ? 0 : isActive ? 1 : 0.38;
+          });
+          trace.group.scale.setScalar(isActive ? 1.28 : 0.74);
+          if (trace.memorial) {
+            trace.memorial.lightMaterial.opacity =
+              0.58 + Math.sin(seconds * 2.1) * 0.22;
+          }
         });
 
         const nextActive = Math.floor(seconds / 7) % expeditions.length;
@@ -681,15 +811,25 @@ export default function EverestObservatory() {
             material,
             breadcrumbGeometry,
             breadcrumbMaterial,
-            marker,
-            markerMaterial,
+            group,
+            materials,
+            memorial,
           }) => {
           line.geometry.dispose();
           material.dispose();
           breadcrumbGeometry.dispose();
           breadcrumbMaterial.dispose();
-          marker.geometry.dispose();
-          markerMaterial.dispose();
+          group.traverse((object) => {
+            if (object instanceof THREE.Mesh) object.geometry.dispose();
+          });
+          materials.forEach((item) => item.dispose());
+          if (memorial) {
+            memorial.group.traverse((object) => {
+              if (object instanceof THREE.Mesh) object.geometry.dispose();
+            });
+            memorial.stoneMaterial.dispose();
+            memorial.lightMaterial.dispose();
+          }
           },
         );
         terrainLayers.forEach((layer) => {
@@ -745,6 +885,14 @@ export default function EverestObservatory() {
               ? "DEM ERROR"
               : "LOADING DEM"}
         </div>
+        <button
+          className="rank-trigger"
+          type="button"
+          aria-expanded={rankingsOpen}
+          onClick={() => setRankingsOpen((open) => !open)}
+        >
+          RANK
+        </button>
       </header>
 
       <section className="world-id" id="world" aria-label="Current world">
@@ -764,8 +912,24 @@ export default function EverestObservatory() {
           <small>LAST TRACE</small>
           <strong>{active.agent}</strong>
         </div>
-        <span>{active.action}</span>
+        <span>
+          {active.action} · +{active.score}
+        </span>
       </aside>
+
+      {rankingsOpen ? (
+        <aside className="rankings" aria-label="Agent leaderboard">
+          <small>ALL-TIME</small>
+          {leaderboard.map((entry, index) => (
+            <div key={entry.agent}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <strong>{entry.agent}</strong>
+              <em>{entry.totalScore}</em>
+              <i className={entry.outcome.toLowerCase()} />
+            </div>
+          ))}
+        </aside>
+      ) : null}
 
       <div className="orbit-hint" aria-hidden="true">
         DRAG · ZOOM

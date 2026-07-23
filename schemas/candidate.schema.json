@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alter-everest.invalid/schemas/candidate.schema.json",
+  "title": "ALTER EVEREST expedition candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "id",
+    "parentWorldHash",
+    "terrainHash",
+    "agentId",
+    "proof"
+  ],
+  "properties": {
+    "protocol": {
+      "const": "0.3.0"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parentWorldHash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "terrainHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "proof": {
+      "$ref": "#/$defs/proof"
+    }
+  },
+  "$defs": {
+    "vec3": {
+      "type": "object",
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    },
+    "quaternion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z", "w"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" },
+        "w": { "type": "number" }
+      }
+    },
+    "pose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["translation", "rotation"],
+      "properties": {
+        "translation": { "$ref": "#/$defs/vec3" },
+        "rotation": { "$ref": "#/$defs/quaternion" }
+      }
+    },
+    "sample": {
+      "allOf": [
+        { "$ref": "#/$defs/vec3" },
+        {
+          "type": "object",
+          "required": [
+            "altitudeM",
+            "slopeDegrees",
+            "surface",
+            "mode"
+          ],
+          "properties": {
+            "altitudeM": { "type": "number" },
+            "slopeDegrees": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 90
+            },
+            "surface": {
+              "enum": ["ROCK", "SNOW", "ICE"]
+            },
+            "mode": {
+              "enum": ["WALK", "SCRAMBLE", "CLIMB"]
+            },
+            "protected": { "type": "boolean" },
+            "safeStop": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "mutation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "stoneId", "releasePose"],
+          "properties": {
+            "kind": { "const": "ADD" },
+            "stoneId": { "type": "string", "minLength": 1 },
+            "releasePose": { "$ref": "#/$defs/pose" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "stoneId", "releasePose"],
+          "properties": {
+            "kind": { "const": "MOVE" },
+            "stoneId": { "type": "string", "minLength": 1 },
+            "releasePose": { "$ref": "#/$defs/pose" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "stoneId"],
+          "properties": {
+            "kind": { "const": "RECOVER" },
+            "stoneId": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route", "mutation"],
+      "properties": {
+        "route": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/sample" }
+        },
+        "mutation": { "$ref": "#/$defs/mutation" },
+        "pickupIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "releaseIndex": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "terrainHash": "4441db20eee18e58ee9d80839865cdd7f0d708b6a4ea590c4e24ed43398054da",
+  "metadataPath": "public/data/everest-dem.json",
+  "elevationPath": "public/data/everest-dem.int16",
+  "registration": {
+    "originLatitude": 27.94236111111111,
+    "originLongitude": 86.89486111111111,
+    "verticalDatumM": 5259,
+    "originRow": 333,
+    "originColumn": 89
+  }
+}
