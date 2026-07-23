@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   observatoryStones,
   recentExpeditions,
@@ -11,14 +12,15 @@ import {
 const BASE_POINT = new THREE.Vector3(-34, terrainHeight(-34, 32) + 0.8, 32);
 
 function createMountain(scene: THREE.Scene) {
-  const divisions = 112;
+  const divisions = 144;
   const size = 92;
   const positions: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
-  const deepRock = new THREE.Color("#11181c");
-  const granite = new THREE.Color("#4c5354");
-  const snow = new THREE.Color("#d4d4cc");
+  const shadowRock = new THREE.Color("#172832");
+  const warmRock = new THREE.Color("#746c62");
+  const alpineIce = new THREE.Color("#8eabb1");
+  const summitSnow = new THREE.Color("#f4f1e7");
 
   for (let row = 0; row <= divisions; row += 1) {
     for (let column = 0; column <= divisions; column += 1) {
@@ -27,12 +29,24 @@ function createMountain(scene: THREE.Scene) {
       const y = terrainHeight(x, z);
       positions.push(x, y, z);
 
-      const normalized = Math.min(1, y / 43.5);
-      const color = deepRock.clone().lerp(granite, Math.min(1, normalized * 1.6));
-      if (normalized > 0.58) {
-        const snowAmount = Math.min(1, (normalized - 0.58) / 0.3);
-        const exposed = Math.sin(x * 0.7 + z * 0.24) * 0.18;
-        color.lerp(snow, Math.max(0, snowAmount + exposed));
+      const elevation = Math.min(1, y / 43.5);
+      const ridgeLight = Math.max(
+        0,
+        Math.sin(x * 0.47 + z * 0.18) * 0.12 +
+          Math.sin(z * 0.34 - x * 0.12) * 0.08,
+      );
+      const color = shadowRock.clone().lerp(warmRock, elevation * 0.82);
+      if (elevation > 0.42) {
+        color.lerp(
+          alpineIce,
+          Math.min(0.72, (elevation - 0.42) * 1.18 + ridgeLight),
+        );
+      }
+      if (elevation > 0.68) {
+        color.lerp(
+          summitSnow,
+          Math.min(1, (elevation - 0.68) * 2.8 + ridgeLight),
+        );
       }
       colors.push(color.r, color.g, color.b);
     }
@@ -52,17 +66,27 @@ function createMountain(scene: THREE.Scene) {
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
 
-  const mountain = new THREE.Mesh(
-    geometry,
+  const material = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.93,
+    metalness: 0.02,
+  });
+  const mountain = new THREE.Mesh(geometry, material);
+  mountain.receiveShadow = true;
+  scene.add(mountain);
+
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(48, 54, 3.2, 96),
     new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.96,
-      metalness: 0.01,
-      flatShading: true,
+      color: "#101b21",
+      roughness: 1,
+      metalness: 0,
     }),
   );
-  scene.add(mountain);
-  return mountain;
+  base.position.y = -1.22;
+  scene.add(base);
+
+  return { mountain, base };
 }
 
 function routePoints(
@@ -71,21 +95,27 @@ function routePoints(
   returned: boolean,
 ) {
   const outward: THREE.Vector3[] = [];
-  for (let index = 0; index <= 28; index += 1) {
-    const t = index / 28;
-    const x = THREE.MathUtils.lerp(BASE_POINT.x, target.x, t) + offset * Math.sin(t * Math.PI);
+  for (let index = 0; index <= 32; index += 1) {
+    const t = index / 32;
+    const x =
+      THREE.MathUtils.lerp(BASE_POINT.x, target.x, t) +
+      offset * Math.sin(t * Math.PI);
     const z =
       THREE.MathUtils.lerp(BASE_POINT.z, target.z, t) +
       Math.sin(t * Math.PI) * (5.6 + offset);
     const y =
-      index === 28
+      index === 32
         ? target.y
-        : terrainHeight(x, z) + 0.64 + Math.sin(t * Math.PI) * 0.16;
+        : terrainHeight(x, z) + 0.7 + Math.sin(t * Math.PI) * 0.14;
     outward.push(new THREE.Vector3(x, y, z));
   }
   return returned
     ? [...outward, ...outward.slice(0, -1).reverse()]
     : outward;
+}
+
+function positiveModulo(value: number, modulus: number) {
+  return ((value % modulus) + modulus) % modulus;
 }
 
 export default function EverestObservatory() {
@@ -99,47 +129,74 @@ export default function EverestObservatory() {
     if (!host) return;
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2("#081117", 0.009);
+    scene.fog = new THREE.FogExp2("#0b151c", 0.0068);
+
     const camera = new THREE.PerspectiveCamera(
-      33,
+      43,
       host.clientWidth / host.clientHeight,
       0.1,
       360,
     );
+    camera.position.set(82, 56, 96);
+
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
       powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.7));
+    renderer.setClearColor(0x000000, 0);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     renderer.setSize(host.clientWidth, host.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.88;
+    renderer.toneMappingExposure = 1.16;
     renderer.domElement.setAttribute(
       "aria-label",
-      "Live observatory rendering of the current ALTER EVEREST world",
+      "Interactive three-dimensional ALTER EVEREST world. Drag to orbit and scroll to zoom.",
     );
-    renderer.domElement.setAttribute("role", "img");
+    renderer.domElement.setAttribute("role", "application");
+    renderer.domElement.tabIndex = 0;
     host.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight("#aac6cf", "#030608", 1.35));
-    const sunrise = new THREE.DirectionalLight("#ffb070", 4.8);
-    sunrise.position.set(-45, 72, 18);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 22, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.045;
+    controls.enablePan = false;
+    controls.minDistance = 58;
+    controls.maxDistance = 142;
+    controls.minPolarAngle = 0.52;
+    controls.maxPolarAngle = 1.43;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.22;
+
+    const stopAutoRotate = () => {
+      controls.autoRotate = false;
+    };
+    renderer.domElement.addEventListener("pointerdown", stopAutoRotate);
+    renderer.domElement.addEventListener("wheel", stopAutoRotate, {
+      passive: true,
+    });
+
+    scene.add(new THREE.HemisphereLight("#c4e2ec", "#071015", 2.25));
+    const sunrise = new THREE.DirectionalLight("#ffc08a", 5.6);
+    sunrise.position.set(-52, 76, 31);
     scene.add(sunrise);
-    const coldRim = new THREE.DirectionalLight("#7fb4c0", 2.1);
-    coldRim.position.set(58, 28, -62);
+    const coldRim = new THREE.DirectionalLight("#7dc4dc", 3.4);
+    coldRim.position.set(56, 34, -63);
     scene.add(coldRim);
-    const summitGlow = new THREE.PointLight("#ff7338", 7.5, 28, 1.7);
-    summitGlow.position.set(0, 47, 0);
+    const summitGlow = new THREE.PointLight("#ff6a2d", 9, 30, 1.55);
+    summitGlow.position.set(0, 47, 1);
     scene.add(summitGlow);
 
-    createMountain(scene);
+    const { mountain, base } = createMountain(scene);
 
-    const cubeGeometry = new THREE.BoxGeometry(0.22, 0.22, 0.22);
+    const cubeGeometry = new THREE.BoxGeometry(0.34, 0.34, 0.34);
     const cubeMaterial = new THREE.MeshStandardMaterial({
-      color: "#deded7",
-      roughness: 0.86,
+      color: "#fff7e6",
+      emissive: "#ff7a3d",
+      emissiveIntensity: 0.42,
+      roughness: 0.78,
       metalness: 0.01,
     });
     const stoneMesh = new THREE.InstancedMesh(
@@ -164,78 +221,94 @@ export default function EverestObservatory() {
         expedition.returned,
       );
       const curve = new THREE.CatmullRomCurve3(points, false, "centripetal");
-      const material = new THREE.LineBasicMaterial({
+      const material = new THREE.MeshBasicMaterial({
         color: expedition.color,
         transparent: true,
-        opacity: index === 0 ? 0.8 : 0.33,
+        opacity: index === 0 ? 0.92 : 0.36,
+        depthWrite: false,
       });
-      const line = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(curve.getPoints(260)),
+      const trail = new THREE.Mesh(
+        new THREE.TubeGeometry(curve, 300, 0.075, 7, false),
         material,
       );
-      scene.add(line);
+      scene.add(trail);
 
+      const markerMaterial = new THREE.MeshStandardMaterial({
+        color: "#fff9ed",
+        emissive: expedition.color,
+        emissiveIntensity: 3.2,
+        transparent: true,
+      });
       const marker = new THREE.Mesh(
-        new THREE.SphereGeometry(0.34, 16, 12),
-        new THREE.MeshStandardMaterial({
-          color: "#f4f1e8",
-          emissive: expedition.color,
-          emissiveIntensity: 2.4,
-        }),
+        new THREE.SphereGeometry(0.38, 18, 14),
+        markerMaterial,
       );
       scene.add(marker);
-      return { curve, line, marker, material };
+      return { curve, trail, marker, material, markerMaterial };
     });
 
-    const summitPin = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.035, 0.035, 3.8, 6),
+    const summitBeacon = new THREE.Group();
+    const beaconLine = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.04, 4.3, 8),
       new THREE.MeshBasicMaterial({
         color: "#ff7138",
         transparent: true,
-        opacity: 0.72,
+        opacity: 0.74,
       }),
     );
-    summitPin.position.set(0, terrainHeight(0, 0) + 2, 0);
-    scene.add(summitPin);
+    const beaconRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.72, 0.035, 10, 48),
+      new THREE.MeshBasicMaterial({
+        color: "#ffb18c",
+        transparent: true,
+        opacity: 0.76,
+      }),
+    );
+    beaconRing.rotation.x = Math.PI / 2;
+    summitBeacon.add(beaconLine, beaconRing);
+    summitBeacon.position.set(0, terrainHeight(0, 0) + 2.1, 0);
+    scene.add(summitBeacon);
 
-    const target = new THREE.Vector3(0, 18, 0);
+    controls.update();
+    renderer.render(scene, camera);
+
     let frame = 0;
     const started = performance.now();
-
     const render = (time: number) => {
-      const seconds = (time - started) / 1000;
-      const orbit = -0.72 + Math.sin(seconds * 0.045) * 0.075;
-      const distance = 118;
-      camera.position.set(
-        Math.cos(orbit) * distance,
-        59 + Math.sin(seconds * 0.06) * 1.4,
-        Math.sin(orbit) * distance,
-      );
-      camera.lookAt(target);
+      const seconds = Math.max(0, (time - started) / 1000);
+      controls.update();
 
       routeObjects.forEach((route, index) => {
-        const phase = (seconds * (0.026 + index * 0.003) + index * 0.29) % 1;
+        const phase = positiveModulo(
+          seconds * (0.028 + index * 0.003) + index * 0.29,
+          1,
+        );
         route.marker.position.copy(route.curve.getPoint(phase));
-        const isActive = Math.floor(seconds / 7) % expeditions.length === index;
-        route.material.opacity = isActive ? 0.82 : 0.24;
-        (route.marker.material as THREE.MeshStandardMaterial).opacity = isActive
-          ? 1
-          : 0.42;
-        (route.marker.material as THREE.MeshStandardMaterial).transparent = true;
+        const isActive =
+          Math.floor(seconds / 7) % expeditions.length === index;
+        route.material.opacity = isActive ? 0.94 : 0.26;
+        route.markerMaterial.opacity = isActive ? 1 : 0.34;
+        route.marker.scale.setScalar(
+          isActive ? 1 + Math.sin(seconds * 4.2) * 0.12 : 0.72,
+        );
       });
 
       const nextActive = Math.floor(seconds / 7) % expeditions.length;
       setActiveExpedition((current) =>
         current === nextActive ? current : nextActive,
       );
+      summitBeacon.rotation.y = seconds * 0.22;
       renderer.render(scene, camera);
       frame = requestAnimationFrame(render);
     };
     frame = requestAnimationFrame(render);
 
     const observer = new ResizeObserver(() => {
-      renderer.setSize(host.clientWidth, host.clientHeight);
-      camera.aspect = host.clientWidth / host.clientHeight;
+      const width = host.clientWidth;
+      const height = host.clientHeight;
+      if (width === 0 || height === 0) return;
+      renderer.setSize(width, height);
+      camera.aspect = width / height;
       camera.updateProjectionMatrix();
     });
     observer.observe(host);
@@ -243,14 +316,25 @@ export default function EverestObservatory() {
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
-      routeObjects.forEach(({ line, marker }) => {
-        line.geometry.dispose();
-        (line.material as THREE.Material).dispose();
+      renderer.domElement.removeEventListener("pointerdown", stopAutoRotate);
+      renderer.domElement.removeEventListener("wheel", stopAutoRotate);
+      controls.dispose();
+      routeObjects.forEach(({ trail, marker, material, markerMaterial }) => {
+        trail.geometry.dispose();
+        material.dispose();
         marker.geometry.dispose();
-        (marker.material as THREE.Material).dispose();
+        markerMaterial.dispose();
       });
+      mountain.geometry.dispose();
+      (mountain.material as THREE.Material).dispose();
+      base.geometry.dispose();
+      (base.material as THREE.Material).dispose();
       cubeGeometry.dispose();
       cubeMaterial.dispose();
+      beaconLine.geometry.dispose();
+      (beaconLine.material as THREE.Material).dispose();
+      beaconRing.geometry.dispose();
+      (beaconRing.material as THREE.Material).dispose();
       renderer.dispose();
       host.removeChild(renderer.domElement);
     };
@@ -274,71 +358,35 @@ export default function EverestObservatory() {
         </a>
         <div className="live-state">
           <i />
-          LIVE WORLD
-          <span>HEAD 8f2c91a</span>
-        </div>
-        <div className="header-meta">
-          <span>27.9881° N</span>
-          <span>86.9250° E</span>
+          LIVE
         </div>
       </header>
 
-      <section className="observatory-title" id="world">
-        <p>THE MOUNTAIN, AS OF COMMIT 6,318</p>
-        <h1>
-          Matter moves.
-          <span>History stays.</span>
-        </h1>
-        <div className="world-measure">
-          <span>
-            CURRENT EXTENSION
-            <strong>+0.62 m</strong>
-          </span>
-          <span>
-            HIGHEST STONE
-            <strong>8,849.48 m</strong>
-          </span>
-        </div>
+      <section className="world-id" id="world" aria-label="Current world">
+        <span>WORLD 6,318</span>
+        <strong>8,849.48 M</strong>
       </section>
 
-      <aside className="recent-expeditions" aria-label="Recent expeditions">
-        <p>RECENT EXPEDITIONS</p>
-        <div className="active-expedition">
-          <span
-            className="route-swatch"
-            style={{ background: active.color, boxShadow: `0 0 18px ${active.color}` }}
-          />
-          <div>
-            <strong>{active.agent}</strong>
-            <span>
-              {active.action.toLowerCase()} one stone at{" "}
-              {active.altitudeM.toLocaleString("en-US")} m
-            </span>
-          </div>
-          <code>{active.commit}</code>
+      <aside className="last-trace" aria-label="Last expedition trace">
+        <span
+          className="route-swatch"
+          style={{
+            background: active.color,
+            boxShadow: `0 0 18px ${active.color}`,
+          }}
+        />
+        <div>
+          <small>LAST TRACE</small>
+          <strong>{active.agent}</strong>
         </div>
-        <div className="expedition-index">
-          {expeditions.map((expedition, index) => (
-            <div
-              key={expedition.id}
-              className={activeExpedition === index ? "active" : ""}
-            >
-              <span>{expedition.id}</span>
-              <b>{expedition.agent}</b>
-              <i style={{ background: expedition.color }} />
-            </div>
-          ))}
-        </div>
+        <span>
+          {active.action} · {active.altitudeM.toLocaleString("en-US")} M
+        </span>
       </aside>
 
-      <footer className="observatory-footer">
-        <span>PHYSICS v0.2 · 120 HZ · WORLD LOCKED</span>
-        <span>
-          Everest photograph by Slava Auchynnikau / Unsplash
-        </span>
-        <span>AUTONOMOUS EXPEDITIONS · PERMANENT PROVENANCE</span>
-      </footer>
+      <div className="orbit-hint" aria-hidden="true">
+        DRAG · ZOOM
+      </div>
     </main>
   );
 }
-

@@ -1,6 +1,6 @@
 export const EVEREST_ALTITUDE_M = 8848.86;
 export const BASE_ALTITUDE_M = 5200;
-export const SCENE_PEAK_HEIGHT = 43.5;
+export const SCENE_PEAK_HEIGHT = 62.17515739979742;
 
 export interface ObservatoryStone {
   id: string;
@@ -121,4 +121,3 @@ export function recentExpeditions(): ObservatoryExpedition[] {
     };
   });
 }
-

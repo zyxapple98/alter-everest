@@ -33,12 +33,13 @@ test("renders the read-only Everest observatory", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>ALTER EVEREST<\/title>/);
-  assert.match(html, /Matter moves/);
-  assert.match(html, /RECENT EXPEDITIONS/);
-  assert.match(html, /PHYSICS v0\.2/);
+  assert.match(html, /WORLD 6,318/);
+  assert.match(html, /LAST TRACE/);
+  assert.match(html, /DRAG · ZOOM/);
+  assert.match(html, /observatory-canvas/);
   assert.doesNotMatch(
     html,
-    /RUN VERIFIED COMMIT|ROUND TRIP|ONE WAY|Expedition planner/i,
+    /RECENT EXPEDITIONS|PHYSICS v0\.2|RUN VERIFIED COMMIT|ROUND TRIP|ONE WAY|Expedition planner/i,
   );
 });
 
@@ -47,4 +48,3 @@ test("ships an absolute social preview URL", async () => {
   const html = await response.text();
   assert.match(html, /https:\/\/alter-everest\.test\/og\.png/);
 });
-
