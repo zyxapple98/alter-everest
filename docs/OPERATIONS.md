@@ -30,7 +30,7 @@ workflow dispatch rather than an App server.
 Store the App ID and generated private key as Actions secrets:
 
 ```text
-REDUCER_APP_ID
+REDUCER_APP_CLIENT_ID
 REDUCER_APP_PRIVATE_KEY
 ```
 
