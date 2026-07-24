@@ -35,6 +35,9 @@ export interface ObservatoryFeed {
   currentHighestPoint?: {
     kind: "TERRAIN" | "STONE";
     id: string;
+    x?: number;
+    y?: number;
+    z?: number;
     latitude: number;
     longitude: number;
     altitudeM: number;

@@ -59,9 +59,9 @@ hovers around a boundary.
 
 | View | Typical camera distance | Representation | Source/detail |
 | --- | ---: | --- | --- |
-| Mountain silhouette | more than 8 km | far terrain mesh | 300 m display LOD |
-| Massif | 2–8 km | mid terrain mesh | 90 m display LOD |
-| Expedition route | 300 m–2 km | core terrain mesh | 30 m public DEM |
+| Mountain silhouette | more than 8 km | far terrain mesh | 300 m source / 900 m initial render |
+| Massif | 2–8 km | mid terrain mesh | 90 m source / 270 m initial render |
+| Expedition route | 300 m–2 km | core terrain mesh | 30 m source / 60 m initial render |
 | Local entry | 60–300 m | streamed surface proxy | 2 m visual derivative |
 | Structure | 12–80 m | occupancy/silhouette mesh plus important stones | 0.8 m proxy |
 | Inspect | 3–25 m | canonical modifications and stones | full 20 cm cells |
@@ -69,6 +69,12 @@ hovers around a boundary.
 The 2 m and 0.8 m levels are visual derivatives, never claims of measured
 terrain accuracy. Canonical terrain height and matter remain governed by the
 public DEM and deterministic surface rules.
+
+The initial overview render deliberately samples more coarsely than the stored
+source LODs. A screen cannot resolve every 30 m cell while showing the whole
+massif, and drawing those cells would compete with interaction and replay. The
+source remains available for later screen-space-error refinement and local
+transition work.
 
 At a 43 degree vertical field of view and 1080 px viewport height, a 20 cm
 stone projects to roughly 27 px at 10 m and 11 px at 25 m. Full stone geometry
@@ -144,6 +150,28 @@ GPU frame time controls dynamic resolution and the width of the detailed chunk
 ring. It must not change canonical world state, route animation time, or
 Endurance presentation.
 
+## Current Browser Implementation
+
+The first dual-scale slice is now available in the observatory:
+
+- Mountain Observatory uses 60/270/900 m initial render sampling from the
+  checked-in 30/90/300 m data, caps device pixel ratio, and adapts internal
+  resolution from measured frame time.
+- While the user drags or zooms, the core mountain, routes, climbers, sites, and
+  Endurance remain visible; the mid and far context layers pause and return
+  120 ms after interaction ends.
+- Site labels update every second frame, resolve collisions by priority, and
+  clamp to the viewport instead of becoming unreadable beyond an edge.
+- Local Inspection uses a surface-normal coordinate frame, one unit per meter,
+  and an 8.2 × 8.2 m window containing 41 × 41 canonical 20 cm surface cells.
+- The local surface is split into three instanced material batches. The current
+  highest stone is rendered separately at its true 0.20 m size for selection
+  and close inspection.
+
+This is a working inspection slice, not yet the final streaming system. It
+proves the metric camera, canonical relief, batching, true stone size, and
+overview-to-local interaction contract before hashed chunk payloads are added.
+
 ## World Feature Rules
 
 - **Famous sites**: persistent beacon and collision-managed label in the
@@ -167,4 +195,3 @@ Endurance presentation.
 4. Add the floating-origin Local Inspection scene and the overview cross-fade.
 5. Add 0.8 m structure proxies and 20 cm instanced stones.
 6. Benchmark desktop and mobile budgets, then tune thresholds from GPU time.
-

@@ -6,7 +6,9 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   fallbackObservatoryFeed,
   loadObservatoryFeed,
+  type ObservatoryFeed,
 } from "../lib/world";
+import { syntheticReliefM } from "../engine/surface";
 
 interface DemMetadata {
   id: string;
@@ -71,6 +73,7 @@ interface TerrainOptions {
   overlapCells?: number;
   yOffset?: number;
   detailedSides?: boolean;
+  minimumSideLevels?: number;
   edgeFeatherCells?: number;
 }
 
@@ -82,9 +85,12 @@ const ORIGIN_LATITUDE = 27.9881;
 const ORIGIN_LONGITUDE = 86.925;
 const REPLAY_SECONDS = 21;
 const ENDURANCE_SEGMENTS = 28;
+const INSPECTION_CELL_M = 0.2;
+const INSPECTION_GRID_CELLS = 41;
 const EMPTY_MEMORIAL_CLUSTERS: MemorialCluster[] = [];
 
 type SkyPhase = "night" | "dawn" | "day" | "dusk";
+type ViewMode = "mountain" | "inspect";
 
 const SKY_PHASES: Record<
   SkyPhase,
@@ -103,52 +109,52 @@ const SKY_PHASES: Record<
     fog: "#071522",
     ground: "#090f16",
     exposure: 0.74,
-    terrainTint: "#9aa7b4",
+    terrainTint: "#aebac4",
     skyLight: "#8aa9ca",
     sunLight: "#a9c9e9",
-    ambientIntensity: 1.28,
-    sunIntensity: 1.35,
+    ambientIntensity: 1.7,
+    sunIntensity: 1.15,
   },
   dawn: {
     fog: "#1d3143",
     ground: "#121820",
     exposure: 0.88,
-    terrainTint: "#d5c8bf",
+    terrainTint: "#e4d6cb",
     skyLight: "#8fa7c0",
     sunLight: "#ffc39b",
-    ambientIntensity: 1.42,
-    sunIntensity: 2.35,
+    ambientIntensity: 1.85,
+    sunIntensity: 1.65,
   },
   day: {
     fog: "#56758a",
     ground: "#20282b",
-    exposure: 0.93,
-    terrainTint: "#e4e5df",
+    exposure: 0.9,
+    terrainTint: "#ffffff",
     skyLight: "#abc8db",
     sunLight: "#fff1d4",
-    ambientIntensity: 1.55,
-    sunIntensity: 2.7,
+    ambientIntensity: 2.05,
+    sunIntensity: 1.85,
   },
   dusk: {
     fog: "#132b40",
     ground: "#15191f",
     exposure: 0.82,
-    terrainTint: "#b7bcc5",
+    terrainTint: "#ced0d2",
     skyLight: "#839db8",
     sunLight: "#ffae7e",
-    ambientIntensity: 1.34,
-    sunIntensity: 1.95,
+    ambientIntensity: 1.78,
+    sunIntensity: 1.4,
   },
 };
 
 const MOUNTAIN_MATERIALS = {
-  valleyRock: new THREE.Color("#20272a"),
-  weatheredGranite: new THREE.Color("#454c4e"),
-  summitGranite: new THREE.Color("#5c6261"),
-  sedimentBand: new THREE.Color("#343a3b"),
-  sunWarmedBand: new THREE.Color("#625c54"),
-  blueIce: new THREE.Color("#718f98"),
-  snow: new THREE.Color("#bcc7c6"),
+  valleyRock: new THREE.Color("#394345"),
+  weatheredGranite: new THREE.Color("#595652"),
+  summitGranite: new THREE.Color("#6b6861"),
+  sedimentBand: new THREE.Color("#303a3c"),
+  sunWarmedBand: new THREE.Color("#695f55"),
+  blueIce: new THREE.Color("#7897a0"),
+  snow: new THREE.Color("#d0d8d6"),
   placedGranite: "#898982",
   freshCut: "#756a62",
   summitSignal: "#ffc86b",
@@ -202,10 +208,13 @@ function terrainColor(
     Math.sin(elevationM * 0.006 - x * 0.003 + z * 0.004) * 0.32;
   const strataStrength = smoothstep(-0.45, 0.55, strataWave);
   altitudeRock
-    .lerp(MOUNTAIN_MATERIALS.sedimentBand, strataStrength * 0.2)
+    .lerp(
+      MOUNTAIN_MATERIALS.sedimentBand,
+      strataStrength * 0.28 + smoothstep(43, 61, slopeDegrees) * 0.16,
+    )
     .lerp(
       MOUNTAIN_MATERIALS.sunWarmedBand,
-      smoothstep(0.48, 0.92, strataWave) * 0.11,
+      smoothstep(0.42, 0.9, strataWave) * 0.19,
     );
 
   const broadExposure =
@@ -213,13 +222,13 @@ function terrainColor(
     Math.sin(z * 0.003 - x * 0.0014) * 0.42;
   const localSnowLine = 5_850 + broadExposure * 130;
   const snowAltitude = smoothstep(localSnowLine, 7_650, elevationM);
-  const gentleSlope = 1 - smoothstep(27, 49, slopeDegrees);
+  const gentleSlope = 1 - smoothstep(31, 54, slopeDegrees);
   const pocketRetention = smoothstep(-0.12, 0.34, curvature);
   const windScour = smoothstep(0.28, 0.94, Math.abs(broadExposure));
   const snowRetention = THREE.MathUtils.clamp(
-    0.05 + gentleSlope * 0.68 + pocketRetention * 0.24 - windScour * 0.13,
-    0.035,
-    0.92,
+    0.08 + gentleSlope * 0.64 + pocketRetention * 0.24 - windScour * 0.1,
+    0.05,
+    0.94,
   );
   const snowAmount = THREE.MathUtils.clamp(
     snowAltitude * snowRetention,
@@ -245,6 +254,46 @@ function terrainColor(
   return color.multiplyScalar(shade);
 }
 
+function downsampleDemLayer(layer: DemLayer, stride: number): DemLayer {
+  if (stride <= 1) return layer;
+  const source = layer.metadata;
+  const width = Math.floor(source.width / stride);
+  const height = Math.floor(source.height / stride);
+  const elevations = new Int16Array(width * height);
+
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      let total = 0;
+      for (let sampleRow = 0; sampleRow < stride; sampleRow += 1) {
+        for (
+          let sampleColumn = 0;
+          sampleColumn < stride;
+          sampleColumn += 1
+        ) {
+          const sourceRow = row * stride + sampleRow;
+          const sourceColumn = column * stride + sampleColumn;
+          total +=
+            layer.elevations[sourceRow * source.width + sourceColumn];
+        }
+      }
+      elevations[row * width + column] = Math.round(
+        total / (stride * stride),
+      );
+    }
+  }
+
+  return {
+    elevations,
+    metadata: {
+      ...source,
+      displayResolutionM: source.displayResolutionM * stride,
+      sampleSpacingArcSeconds: source.sampleSpacingArcSeconds * stride,
+      width,
+      height,
+    },
+  };
+}
+
 function createVoxelTerrain(
   elevations: Int16Array,
   metadata: DemMetadata,
@@ -256,6 +305,7 @@ function createVoxelTerrain(
     overlapCells = 1.25,
     yOffset = 0,
     detailedSides = true,
+    minimumSideLevels = 1,
     edgeFeatherCells = 0,
   } = options;
   const blockSize =
@@ -331,7 +381,12 @@ function createVoxelTerrain(
       for (const neighborIndex of neighborIndices) {
         if (neighborIndex < 0 || !included[neighborIndex]) continue;
         const difference = Math.max(0, level - levels[neighborIndex]);
-        faceCount += detailedSides ? difference : Number(difference > 0);
+        faceCount +=
+          difference < minimumSideLevels
+            ? 0
+            : detailedSides
+              ? difference
+              : 1;
       }
     }
   }
@@ -420,8 +475,7 @@ function createVoxelTerrain(
         0,
         1,
       );
-      const topShade = 0.76 + sunDot * 0.24;
-
+      const topShade = 0.82 + sunDot * 0.18;
       writeFace(
         [x0, yTop, z0, x0, yTop, z1, x1, yTop, z1, x1, yTop, z0],
         terrainColor(
@@ -437,25 +491,25 @@ function createVoxelTerrain(
       const sides = [
         {
           neighborIndex: column < width - 1 ? index + 1 : -1,
-          shade: 0.72,
+          shade: 0.86,
           vertices: (y0: number, y1: number) =>
             [x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1] as const,
         },
         {
           neighborIndex: column > 0 ? index - 1 : -1,
-          shade: 0.56,
+          shade: 0.76,
           vertices: (y0: number, y1: number) =>
             [x0, y0, z1, x0, y1, z1, x0, y1, z0, x0, y0, z0] as const,
         },
         {
           neighborIndex: row < height - 1 ? index + width : -1,
-          shade: 0.64,
+          shade: 0.81,
           vertices: (y0: number, y1: number) =>
             [x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1] as const,
         },
         {
           neighborIndex: row > 0 ? index - width : -1,
-          shade: 0.48,
+          shade: 0.7,
           vertices: (y0: number, y1: number) =>
             [x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0] as const,
         },
@@ -470,6 +524,7 @@ function createVoxelTerrain(
           continue;
         }
         const neighborLevel = levels[side.neighborIndex];
+        if (level - neighborLevel < minimumSideLevels) continue;
         if (detailedSides) {
           for (let layer = neighborLevel + 1; layer <= level; layer += 1) {
             const y0 = layer * blockSize + yOffset;
@@ -508,17 +563,13 @@ function createVoxelTerrain(
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
 
   const mesh = new THREE.Mesh(
     geometry,
-    new THREE.MeshStandardMaterial({
+    new THREE.MeshBasicMaterial({
       vertexColors: true,
       fog: true,
-      flatShading: true,
-      roughness: 0.94,
-      metalness: 0,
     }),
   );
 
@@ -534,6 +585,186 @@ function createVoxelTerrain(
     peakRow: Math.floor(peakIndex / width),
     xOrigin,
     zOrigin,
+  };
+}
+
+function createMetricInspection(
+  core: DemLayer,
+  feed: ObservatoryFeed,
+) {
+  const { metadata } = core;
+  const center = feed.currentHighestPoint;
+  const degreesPerSample = metadata.sampleSpacingArcSeconds / 3600;
+  const centerColumn = THREE.MathUtils.clamp(
+    Math.round(
+      ((center?.longitude ?? ORIGIN_LONGITUDE) - metadata.bounds.west) /
+        degreesPerSample -
+        0.5,
+    ),
+    1,
+    metadata.width - 2,
+  );
+  const centerRow = THREE.MathUtils.clamp(
+    Math.round(
+      (metadata.bounds.north - (center?.latitude ?? ORIGIN_LATITUDE)) /
+        degreesPerSample -
+        0.5,
+    ),
+    1,
+    metadata.height - 2,
+  );
+  const centerIndex = centerRow * metadata.width + centerColumn;
+  const gradientX =
+    (core.elevations[centerIndex + 1] -
+      core.elevations[centerIndex - 1]) /
+    Math.max(1, metadata.displayResolutionM * 2);
+  const gradientZ =
+    (core.elevations[centerIndex + metadata.width] -
+      core.elevations[centerIndex - metadata.width]) /
+    Math.max(1, metadata.displayResolutionM * 2);
+  const slopeDegrees =
+    (Math.atan(Math.hypot(gradientX, gradientZ)) * 180) / Math.PI;
+  const centerWorldX = center?.x ?? 0;
+  const centerWorldZ = center?.z ?? 0;
+  const centerRelief = syntheticReliefM(centerWorldX, centerWorldZ);
+  const group = new THREE.Group();
+  const cellCount = INSPECTION_GRID_CELLS * INSPECTION_GRID_CELLS;
+  const cellGeometry = new THREE.BoxGeometry(
+    INSPECTION_CELL_M * 0.965,
+    INSPECTION_CELL_M,
+    INSPECTION_CELL_M * 0.965,
+  );
+  const dummy = new THREE.Object3D();
+  const halfGrid = Math.floor(INSPECTION_GRID_CELLS / 2);
+  const snowMatrices: THREE.Matrix4[] = [];
+  const iceMatrices: THREE.Matrix4[] = [];
+  const scouredMatrices: THREE.Matrix4[] = [];
+
+  for (let row = 0; row < INSPECTION_GRID_CELLS; row += 1) {
+    for (let column = 0; column < INSPECTION_GRID_CELLS; column += 1) {
+      const localX = (column - halfGrid) * INSPECTION_CELL_M;
+      const localZ = (row - halfGrid) * INSPECTION_CELL_M;
+      const worldX = centerWorldX + localX;
+      const worldZ = centerWorldZ + localZ;
+      const relief =
+        syntheticReliefM(worldX, worldZ) -
+        centerRelief;
+      const topY =
+        Math.floor(relief / INSPECTION_CELL_M) * INSPECTION_CELL_M;
+      dummy.position.set(localX, topY - INSPECTION_CELL_M / 2, localZ);
+      dummy.updateMatrix();
+
+      const deposition =
+        0.38 +
+        Math.sin(worldX * 0.72 - worldZ * 0.34) * 0.2 +
+        smoothstep(-0.18, 0.12, -relief) * 0.38;
+      const targetMatrices =
+        deposition > 0.72
+          ? snowMatrices
+          : deposition > 0.38
+            ? iceMatrices
+            : scouredMatrices;
+      targetMatrices.push(dummy.matrix.clone());
+    }
+  }
+  const surfaceMeshes = [
+    {
+      matrices: scouredMatrices,
+      material: new THREE.MeshLambertMaterial({
+        color: "#445456",
+      }),
+    },
+    {
+      matrices: iceMatrices,
+      material: new THREE.MeshLambertMaterial({
+        color: "#76949b",
+      }),
+    },
+    {
+      matrices: snowMatrices,
+      material: new THREE.MeshLambertMaterial({
+        color: "#b9c4c1",
+      }),
+    },
+  ].map(({ matrices, material }) => {
+    const mesh = new THREE.InstancedMesh(
+      cellGeometry,
+      material,
+      matrices.length,
+    );
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    matrices.forEach((matrix, index) => mesh.setMatrixAt(index, matrix));
+    mesh.instanceMatrix.needsUpdate = true;
+    group.add(mesh);
+    return mesh;
+  });
+
+  const stoneGeometry = new THREE.BoxGeometry(
+    INSPECTION_CELL_M,
+    INSPECTION_CELL_M,
+    INSPECTION_CELL_M,
+  );
+  const stoneMaterial = new THREE.MeshBasicMaterial({
+    color: MOUNTAIN_MATERIALS.placedGranite,
+  });
+  const stone = new THREE.Mesh(stoneGeometry, stoneMaterial);
+  stone.position.set(0, INSPECTION_CELL_M / 2, 0);
+  group.add(stone);
+
+  const stoneOutlineGeometry = new THREE.EdgesGeometry(stoneGeometry);
+  const stoneOutlineMaterial = new THREE.LineBasicMaterial({
+    color: MOUNTAIN_MATERIALS.summitSignal,
+    transparent: true,
+    opacity: 0.9,
+  });
+  const stoneOutline = new THREE.LineSegments(
+    stoneOutlineGeometry,
+    stoneOutlineMaterial,
+  );
+  stone.add(stoneOutline);
+
+  const scaleGroup = new THREE.Group();
+  const scaleMaterial = new THREE.MeshBasicMaterial({ color: "#72e9ff" });
+  const scaleBar = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 0.025, 0.025),
+    scaleMaterial,
+  );
+  scaleBar.position.set(0, 0, 0);
+  scaleGroup.add(scaleBar);
+  for (let tick = 0; tick <= 5; tick += 1) {
+    const marker = new THREE.Mesh(
+      new THREE.BoxGeometry(0.018, tick % 5 === 0 ? 0.14 : 0.08, 0.018),
+      scaleMaterial,
+    );
+    marker.position.set(-0.5 + tick * INSPECTION_CELL_M, 0.04, 0);
+    scaleGroup.add(marker);
+  }
+  scaleGroup.position.set(0, 1.15, 2.8);
+  group.add(scaleGroup);
+
+  return {
+    group,
+    cellCount,
+    slopeDegrees,
+    dispose() {
+      const geometries = new Set<THREE.BufferGeometry>();
+      const materials = new Set<THREE.Material>();
+      group.traverse((object) => {
+        if (
+          object instanceof THREE.Mesh ||
+          object instanceof THREE.LineSegments
+        ) {
+          geometries.add(object.geometry);
+          const objectMaterials = Array.isArray(object.material)
+            ? object.material
+            : [object.material];
+          objectMaterials.forEach((material) => materials.add(material));
+        }
+      });
+      geometries.forEach((geometry) => geometry.dispose());
+      materials.forEach((material) => material.dispose());
+      surfaceMeshes.length = 0;
+    },
   };
 }
 
@@ -891,11 +1122,13 @@ export default function EverestObservatory() {
   const canvasHost = useRef<HTMLDivElement>(null);
   const siteOverlayHost = useRef<HTMLDivElement>(null);
   const replayProgressHost = useRef<HTMLDivElement>(null);
+  const renderMetricsHost = useRef<HTMLSpanElement>(null);
   const activeExpeditionRef = useRef(0);
   const manualReplayUntil = useRef(0);
   const manualReplayStarted = useRef(0);
   const [activeExpedition, setActiveExpedition] = useState(0);
   const [rankingsOpen, setRankingsOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("mountain");
   const [skyPhase, setSkyPhase] = useState<SkyPhase>(() =>
     kathmanduSkyPhase(),
   );
@@ -970,23 +1203,36 @@ export default function EverestObservatory() {
 
       const scene = new THREE.Scene();
       const alpinePalette = SKY_PHASES[skyPhase];
-      scene.fog = new THREE.FogExp2(alpinePalette.fog, 0.00415);
+      scene.fog = new THREE.FogExp2(
+        alpinePalette.fog,
+        viewMode === "inspect" ? 0.018 : 0.0032,
+      );
 
       const camera = new THREE.PerspectiveCamera(
         43,
         host.clientWidth / host.clientHeight,
-        0.1,
-        1_400,
+        viewMode === "inspect" ? 0.02 : 0.1,
+        viewMode === "inspect" ? 80 : 1_400,
       );
-      camera.position.set(50, 110, 124);
+      camera.position.set(
+        viewMode === "inspect" ? 4.4 : 60,
+        viewMode === "inspect" ? 3.5 : 118,
+        viewMode === "inspect" ? 5.6 : 145,
+      );
 
       const renderer = new THREE.WebGLRenderer({
-        antialias: true,
+        antialias: viewMode === "inspect",
         alpha: true,
         powerPreference: "high-performance",
       });
       renderer.setClearColor(0x000000, 0);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.55));
+      const maximumPixelRatio = viewMode === "inspect" ? 1.4 : 1.25;
+      const minimumPixelRatio = viewMode === "inspect" ? 0.8 : 0.62;
+      let adaptivePixelRatio = Math.min(
+        window.devicePixelRatio,
+        maximumPixelRatio,
+      );
+      renderer.setPixelRatio(adaptivePixelRatio);
       renderer.setSize(host.clientWidth, host.clientHeight);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -998,6 +1244,37 @@ export default function EverestObservatory() {
       renderer.domElement.setAttribute("role", "application");
       renderer.domElement.tabIndex = 0;
       host.appendChild(renderer.domElement);
+
+      let performanceWindowStarted = 0;
+      let performanceFrames = 0;
+      const sampleFramePerformance = (time: number, detailLabel: string) => {
+        if (performanceWindowStarted === 0) performanceWindowStarted = time;
+        performanceFrames += 1;
+        const elapsed = time - performanceWindowStarted;
+        if (elapsed < 1_000) return;
+        const fps = Math.round((performanceFrames * 1_000) / elapsed);
+        const targetPixelRatio =
+          fps < 48
+            ? Math.max(minimumPixelRatio, adaptivePixelRatio - 0.1)
+            : fps > 58
+              ? Math.min(maximumPixelRatio, adaptivePixelRatio + 0.05)
+              : adaptivePixelRatio;
+        if (Math.abs(targetPixelRatio - adaptivePixelRatio) > 0.01) {
+          adaptivePixelRatio = targetPixelRatio;
+          renderer.setPixelRatio(adaptivePixelRatio);
+        }
+        if (renderMetricsHost.current) {
+          const triangles = renderer.info.render.triangles;
+          const triangleLabel =
+            triangles >= 1_000_000
+              ? `${(triangles / 1_000_000).toFixed(1)}M TRI`
+              : `${Math.round(triangles / 1_000)}K TRI`;
+          renderMetricsHost.current.dataset.fps = String(fps);
+          renderMetricsHost.current.textContent = `${detailLabel} · ${triangleLabel} · AUTO ${adaptivePixelRatio.toFixed(2)}X`;
+        }
+        performanceWindowStarted = time;
+        performanceFrames = 0;
+      };
 
       const ambientLight = new THREE.HemisphereLight(
         alpinePalette.skyLight,
@@ -1012,21 +1289,81 @@ export default function EverestObservatory() {
       sunLight.target.position.set(-12, 26, -18);
       scene.add(ambientLight, sunLight, sunLight.target);
 
+      if (viewMode === "inspect") {
+        const inspection = createMetricInspection(core, feed);
+        scene.add(inspection.group);
+        ambientLight.intensity = 1.2;
+        sunLight.intensity = 1.3;
+        sunLight.position.set(5, 9, 6);
+        sunLight.target.position.set(0, 0, 0);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 0.05, 0);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.07;
+        controls.enablePan = true;
+        controls.screenSpacePanning = true;
+        controls.minDistance = 0.65;
+        controls.maxDistance = 13;
+        controls.minPolarAngle = 0.18;
+        controls.maxPolarAngle = 1.48;
+        controls.update();
+        renderer.render(scene, camera);
+        setSceneStatus("ready");
+
+        let frame = 0;
+        const render = (time: number) => {
+          controls.update();
+          sampleFramePerformance(
+            time,
+            `20 CM · ${inspection.cellCount.toLocaleString("en-US")} CELLS · ${Math.round(inspection.slopeDegrees)}° DEM`,
+          );
+          renderer.render(scene, camera);
+          frame = requestAnimationFrame(render);
+        };
+        frame = requestAnimationFrame(render);
+
+        const observer = new ResizeObserver(() => {
+          const width = host.clientWidth;
+          const height = host.clientHeight;
+          if (width === 0 || height === 0) return;
+          renderer.setSize(width, height);
+          camera.aspect = width / height;
+          camera.updateProjectionMatrix();
+        });
+        observer.observe(host);
+
+        cleanupScene = () => {
+          cancelAnimationFrame(frame);
+          observer.disconnect();
+          controls.dispose();
+          inspection.dispose();
+          renderer.dispose();
+          if (host.contains(renderer.domElement)) {
+            host.removeChild(renderer.domElement);
+          }
+        };
+        return;
+      }
+
+      const renderedCore = downsampleDemLayer(core, 2);
+      const renderedMid = downsampleDemLayer(mid, 3);
+      const renderedFar = downsampleDemLayer(far, 3);
       const farTerrain = createVoxelTerrain(
-        far.elevations,
-        far.metadata,
+        renderedFar.elevations,
+        renderedFar.metadata,
         {
-          holeBounds: mid.metadata.bounds,
+          holeBounds: renderedMid.metadata.bounds,
           overlapCells: 3.5,
           yOffset: -0.08,
           detailedSides: false,
         },
       );
       const midTerrain = createVoxelTerrain(
-        mid.elevations,
-        mid.metadata,
+        renderedMid.elevations,
+        renderedMid.metadata,
         {
-          holeBounds: core.metadata.bounds,
+          holeBounds: renderedCore.metadata.bounds,
           overlapCells: 5.5,
           yOffset: -0.035,
           detailedSides: false,
@@ -1034,13 +1371,16 @@ export default function EverestObservatory() {
         },
       );
       const terrain = createVoxelTerrain(
-        core.elevations,
-        core.metadata,
-        { edgeFeatherCells: 12 },
+        renderedCore.elevations,
+        renderedCore.metadata,
+        {
+          edgeFeatherCells: 12,
+          detailedSides: false,
+        },
       );
       const terrainLayers = [farTerrain, midTerrain, terrain];
       terrainLayers.forEach((layer) => {
-        (layer.mesh.material as THREE.MeshStandardMaterial).color.set(
+        (layer.mesh.material as THREE.MeshBasicMaterial).color.set(
           alpinePalette.terrainTint,
         );
         scene.add(layer.mesh);
@@ -1054,14 +1394,14 @@ export default function EverestObservatory() {
               site.latitude,
               site.longitude,
             )
-              ? { terrain, metadata: core.metadata }
+              ? { terrain, metadata: renderedCore.metadata }
               : containsCoordinate(
-                    mid.metadata.bounds,
+                    renderedMid.metadata.bounds,
                     site.latitude,
                     site.longitude,
                   )
-                ? { terrain: midTerrain, metadata: mid.metadata }
-                : { terrain: farTerrain, metadata: far.metadata };
+                ? { terrain: midTerrain, metadata: renderedMid.metadata }
+                : { terrain: farTerrain, metadata: renderedFar.metadata };
           const point = coordinatePoint(
             layer.terrain,
             layer.metadata,
@@ -1144,7 +1484,7 @@ export default function EverestObservatory() {
         terrain,
         terrain.peakColumn,
         terrain.peakRow,
-        -Math.round(peakLevel * 0.42),
+        -Math.round(peakLevel * 0.36),
       );
       const controls = new OrbitControls(camera, renderer.domElement);
       controls.target.copy(target);
@@ -1152,10 +1492,27 @@ export default function EverestObservatory() {
       controls.dampingFactor = 0.055;
       controls.enablePan = false;
       controls.minDistance = 22;
-      controls.maxDistance = 225;
+      controls.maxDistance = 280;
       controls.minPolarAngle = 0.48;
       controls.maxPolarAngle = 1.42;
       controls.autoRotate = false;
+      let interactionRestore = 0;
+      const reduceInteractionLoad = () => {
+        window.clearTimeout(interactionRestore);
+        farTerrain.mesh.visible = false;
+        midTerrain.mesh.visible = false;
+        renderer.setPixelRatio(Math.min(adaptivePixelRatio, 0.68));
+      };
+      const restoreInteractionContext = () => {
+        window.clearTimeout(interactionRestore);
+        interactionRestore = window.setTimeout(() => {
+          farTerrain.mesh.visible = true;
+          midTerrain.mesh.visible = true;
+          renderer.setPixelRatio(adaptivePixelRatio);
+        }, 120);
+      };
+      controls.addEventListener("start", reduceInteractionLoad);
+      controls.addEventListener("end", restoreInteractionContext);
 
       const traceObjects = expeditions.map((expedition, index) => {
         const points = createRoute(
@@ -1245,14 +1602,14 @@ export default function EverestObservatory() {
             cluster.latitude,
             cluster.longitude,
           )
-            ? { terrain, metadata: core.metadata }
-            : containsCoordinate(
-                  mid.metadata.bounds,
-                  cluster.latitude,
-                  cluster.longitude,
-                )
-              ? { terrain: midTerrain, metadata: mid.metadata }
-              : { terrain: farTerrain, metadata: far.metadata };
+            ? { terrain, metadata: renderedCore.metadata }
+              : containsCoordinate(
+                    renderedMid.metadata.bounds,
+                    cluster.latitude,
+                    cluster.longitude,
+                  )
+                ? { terrain: midTerrain, metadata: renderedMid.metadata }
+                : { terrain: farTerrain, metadata: renderedFar.metadata };
         return coordinatePoint(
           layer.terrain,
           layer.metadata,
@@ -1286,10 +1643,12 @@ export default function EverestObservatory() {
       setSceneStatus("ready");
 
       let frame = 0;
+      let labelFrame = 0;
       const started = performance.now();
       const render = (time: number) => {
         const seconds = Math.max(0, (time - started) / 1000);
         controls.update();
+        sampleFramePerformance(time, "60 / 270 / 900 M");
 
         const manualPlayback = time < manualReplayUntil.current;
         const nextActive = manualPlayback
@@ -1393,70 +1752,81 @@ export default function EverestObservatory() {
           );
         }
 
-        const cameraDistance = camera.position.distanceTo(controls.target);
-        const minimumPriority =
-          cameraDistance > 145 ? 2 : cameraDistance > 82 ? 1 : 0;
-        const occupied: Array<{
-          left: number;
-          right: number;
-          top: number;
-          bottom: number;
-        }> = [];
-        prioritizedSiteObjects.forEach((siteObject) => {
-          const priority = sitePriority(siteObject.site);
-          const projected = siteObject.labelPoint.clone().project(camera);
-          const inView =
-            projected.z > -1 &&
-            projected.z < 1 &&
-            projected.x > -1.08 &&
-            projected.x < 1.08 &&
-            projected.y > -1.08 &&
-            projected.y < 1.08;
-          if (!inView || priority < minimumPriority) {
-            siteObject.label.style.opacity = "0";
-            siteObject.label.style.visibility = "hidden";
-            return;
-          }
-          const x = (projected.x * 0.5 + 0.5) * host.clientWidth;
-          const y = (-projected.y * 0.5 + 0.5) * host.clientHeight;
-          const width =
-            siteObject.site.kind === "SUMMIT"
-              ? 198
-              : siteObject.site.name.length > 18
-                ? 188
-                : 150;
-          const height = 50;
-          const rectangle = {
-            left: x - width / 2,
-            right: x + width / 2,
-            top: y - height,
-            bottom: y,
-          };
-          const collides = occupied.some(
-            (other) =>
-              rectangle.left < other.right + 10 &&
-              rectangle.right > other.left - 10 &&
-              rectangle.top < other.bottom + 8 &&
-              rectangle.bottom > other.top - 8,
-          );
-          if (collides && priority < 3) {
-            siteObject.label.style.opacity = "0";
-            siteObject.label.style.visibility = "hidden";
-            return;
-          }
-          occupied.push(rectangle);
-          siteObject.label.style.visibility = "visible";
-          siteObject.label.style.opacity = "1";
-          siteObject.label.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -100%)`;
-          siteObject.label.dataset.lod =
-            cameraDistance < 54
-              ? "near"
-              : cameraDistance < 118
-                ? "mid"
-                : "far";
-          siteObject.ringMaterial.opacity =
-            0.18 + Math.sin(seconds * 1.6 + priority) * 0.08;
-        });
+        labelFrame += 1;
+        if (labelFrame % 2 === 0) {
+          const cameraDistance = camera.position.distanceTo(controls.target);
+          const minimumPriority =
+            cameraDistance > 145 ? 2 : cameraDistance > 82 ? 1 : 0;
+          const occupied: Array<{
+            left: number;
+            right: number;
+            top: number;
+            bottom: number;
+          }> = [];
+          prioritizedSiteObjects.forEach((siteObject) => {
+            const priority = sitePriority(siteObject.site);
+            const projected = siteObject.labelPoint.clone().project(camera);
+            const inView =
+              projected.z > -1 &&
+              projected.z < 1 &&
+              projected.x > -1.08 &&
+              projected.x < 1.08 &&
+              projected.y > -1.08 &&
+              projected.y < 1.08;
+            if (!inView || priority < minimumPriority) {
+              siteObject.label.style.opacity = "0";
+              siteObject.label.style.visibility = "hidden";
+              return;
+            }
+            const width =
+              siteObject.site.kind === "SUMMIT"
+                ? 198
+                : siteObject.site.name.length > 18
+                  ? 188
+                  : 150;
+            const height = 50;
+            const x = THREE.MathUtils.clamp(
+              (projected.x * 0.5 + 0.5) * host.clientWidth,
+              width / 2 + 12,
+              host.clientWidth - width / 2 - 12,
+            );
+            const y = THREE.MathUtils.clamp(
+              (-projected.y * 0.5 + 0.5) * host.clientHeight,
+              height + 88,
+              host.clientHeight - 120,
+            );
+            const rectangle = {
+              left: x - width / 2,
+              right: x + width / 2,
+              top: y - height,
+              bottom: y,
+            };
+            const collides = occupied.some(
+              (other) =>
+                rectangle.left < other.right + 10 &&
+                rectangle.right > other.left - 10 &&
+                rectangle.top < other.bottom + 8 &&
+                rectangle.bottom > other.top - 8,
+            );
+            if (collides && priority < 3) {
+              siteObject.label.style.opacity = "0";
+              siteObject.label.style.visibility = "hidden";
+              return;
+            }
+            occupied.push(rectangle);
+            siteObject.label.style.visibility = "visible";
+            siteObject.label.style.opacity = "1";
+            siteObject.label.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -100%)`;
+            siteObject.label.dataset.lod =
+              cameraDistance < 54
+                ? "near"
+                : cameraDistance < 118
+                  ? "mid"
+                  : "far";
+            siteObject.ringMaterial.opacity =
+              0.18 + Math.sin(seconds * 1.6 + priority) * 0.08;
+          });
+        }
 
         renderer.render(scene, camera);
         frame = requestAnimationFrame(render);
@@ -1476,6 +1846,9 @@ export default function EverestObservatory() {
       cleanupScene = () => {
         cancelAnimationFrame(frame);
         observer.disconnect();
+        window.clearTimeout(interactionRestore);
+        controls.removeEventListener("start", reduceInteractionLoad);
+        controls.removeEventListener("end", restoreInteractionContext);
         controls.dispose();
         traceObjects.forEach(
           ({
@@ -1544,7 +1917,7 @@ export default function EverestObservatory() {
       abortController.abort();
       cleanupScene();
     };
-  }, [expeditions, memorialClusters, skyPhase]);
+  }, [expeditions, feed, memorialClusters, skyPhase, viewMode]);
 
   const active = expeditions[activeExpedition % expeditions.length];
   const selectReplay = (index: number, now: number) => {
@@ -1555,7 +1928,11 @@ export default function EverestObservatory() {
   };
 
   return (
-    <main className="observatory" data-sky={skyPhase}>
+    <main
+      className="observatory"
+      data-sky={skyPhase}
+      data-view={viewMode}
+    >
       <div className="voxel-sky" aria-hidden="true">
         <i />
         <span />
@@ -1592,6 +1969,20 @@ export default function EverestObservatory() {
               : "LOADING DEM"}
         </div>
         <button
+          className="inspect-trigger"
+          type="button"
+          aria-pressed={viewMode === "inspect"}
+          onClick={() => {
+            setSceneStatus("loading");
+            setRankingsOpen(false);
+            setViewMode((mode) =>
+              mode === "mountain" ? "inspect" : "mountain",
+            );
+          }}
+        >
+          {viewMode === "inspect" ? "MOUNTAIN" : "20 CM"}
+        </button>
+        <button
           className="rank-trigger"
           type="button"
           aria-expanded={rankingsOpen}
@@ -1610,6 +2001,23 @@ export default function EverestObservatory() {
           ).toLocaleString("en-US")} M`}
         </strong>
       </section>
+
+      {viewMode === "inspect" ? (
+        <section className="inspection-readout" aria-label="Metric inspection">
+          <small>LOCAL INSPECTION</small>
+          <strong>CURRENT HIGHEST STONE</strong>
+          <span>
+            TRUE SIZE <b>0.20 M</b>
+          </span>
+          <span>
+            WINDOW <b>8.20 × 8.20 M</b>
+          </span>
+          <p>
+            SURFACE-NORMAL FRAME · CANONICAL RELIEF · ONE THREE.JS UNIT
+            EQUALS ONE METER
+          </p>
+        </section>
+      ) : null}
 
       <aside className="expedition-card" aria-label="Last expedition trace">
         <div className="expedition-card-heading">
@@ -1682,15 +2090,30 @@ export default function EverestObservatory() {
       ) : null}
 
       <div className="orbit-hint" aria-hidden="true">
-        <span>DRAG · ZOOM</span>
+        <span>
+          {viewMode === "inspect"
+            ? "DRAG · PAN · INSPECT STONE"
+            : "DRAG · ZOOM"}
+        </span>
         <i />
+      </div>
+
+      <div className="render-metrics" aria-live="off">
+        <i />
+        <span ref={renderMetricsHost}>
+          {viewMode === "inspect"
+            ? "20 CM · CALIBRATING"
+            : "60 / 270 / 900 M · CALIBRATING"}
+        </span>
       </div>
 
       <div
         className="dem-credit"
         title="produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"
       >
-        COPERNICUS GLO-30 · 30 / 90 / 300 M TERRAIN LOD
+        {viewMode === "inspect"
+          ? "AE-SURFACE-V1 · 20 CM CANONICAL CELL"
+          : "COPERNICUS GLO-30 · 30 M SOURCE · 60 / 270 / 900 M RENDER LOD"}
       </div>
     </main>
   );
