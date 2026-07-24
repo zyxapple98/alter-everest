@@ -279,6 +279,7 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
         cwd: projectRoot,
         env: {
           ...process.env,
+          GITHUB_RUN_ID: "",
           GITHUB_TOKEN: "test-token",
           GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
         },
@@ -305,6 +306,7 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
           cwd: projectRoot,
           env: {
             ...process.env,
+            GITHUB_RUN_ID: "",
             GITHUB_TOKEN: "test-token",
             GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
           },

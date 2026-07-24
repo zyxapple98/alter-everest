@@ -34,10 +34,10 @@ export async function computeVerifierHash(root = PROJECT_ROOT) {
   const digest = createHash("sha256");
 
   for (const path of paths) {
-    const bytes = await readFile(resolve(root, path));
+    const source = await readFile(resolve(root, path), "utf8");
     digest.update(path);
     digest.update("\0");
-    digest.update(bytes);
+    digest.update(source.replaceAll("\r\n", "\n"));
     digest.update("\0");
   }
 
