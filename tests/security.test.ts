@@ -393,6 +393,35 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
   }
 });
 
+test("README badge stats match the canonical world", async () => {
+  const [world, badges] = await Promise.all(
+    ["world/snapshot.json", "public/data/world/badges.json"].map((path) =>
+      readFile(join(projectRoot, path), "utf8").then(JSON.parse),
+    ),
+  );
+  assert.equal(badges.schemaVersion, "1.0.0");
+  assert.equal(badges.expeditions, world.expeditions.length);
+  assert.equal(
+    badges.highestAltitudeM,
+    Math.round(
+      Math.max(
+        0,
+        ...world.expeditions.map(
+          (expedition: { altitudeM: number }) => expedition.altitudeM,
+        ),
+      ),
+    ),
+  );
+  assert.equal(badges.liveStones, world.stones.length);
+  assert.equal(
+    badges.livingIdentities,
+    world.identities.filter(
+      (identity: { status: string }) => identity.status === "ACTIVE",
+    ).length,
+  );
+  assert.equal(badges.worldSequence, world.sequence);
+});
+
 test("R2 manifests bind immutable artifacts and publish latest last", async () => {
   const directory = await mkdtemp(join(tmpdir(), "alter-everest-r2-"));
   const manifestPath = join(directory, "manifest.json");
@@ -416,6 +445,11 @@ test("R2 manifests bind immutable artifacts and publish latest last", async () =
         /^[a-f0-9]{64}$/.test(artifact.sha256 ?? ""),
       ),
     );
+    assert.ok(
+      manifest.mutable.some(
+        (artifact: { key?: string }) => artifact.key === "world/badges.json",
+      ),
+    );
     assert.equal(manifest.mutable.at(-1).key, "world/latest.json");
 
     const dryRun = await execute(
@@ -431,6 +465,7 @@ test("R2 manifests bind immutable artifacts and publish latest last", async () =
       { cwd: projectRoot },
     );
     assert.match(dryRun.stdout, /"dryRun": true/);
+    assert.match(dryRun.stdout, /"key": "world\/badges.json"/);
     assert.match(dryRun.stdout, /"key": "world\/latest.json"/);
   } finally {
     await rm(directory, { recursive: true, force: true });

@@ -51,6 +51,7 @@ const eventsDirectory = resolve("world/events");
 const receiptsDirectory = resolve("world/receipts");
 const proofsDirectory = resolve("world/proofs");
 const snapshotPath = resolve("world/snapshot.json");
+const badgesPath = resolve("public/data/world/badges.json");
 const latestPath = resolve("public/data/world/latest.json");
 const eventNames = (await readdir(eventsDirectory))
   .filter((name) => name.endsWith(".json"))
@@ -116,6 +117,12 @@ const manifest = {
       key: "world/snapshot.json",
       contentType: "application/json",
       cacheControl: "public, max-age=15, must-revalidate",
+    },
+    {
+      source: repositoryPath(badgesPath),
+      key: "world/badges.json",
+      contentType: "application/json",
+      cacheControl: "public, max-age=300, must-revalidate",
     },
     {
       source: repositoryPath(latestPath),

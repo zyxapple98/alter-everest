@@ -8,6 +8,7 @@ import type {
 } from "../engine/types";
 
 const OUTPUT_PATH = resolve("public/data/world/latest.json");
+const BADGES_OUTPUT_PATH = resolve("public/data/world/badges.json");
 const COLORS = ["#ff7138", "#d2dd72", "#70c6cf", "#bb91ff", "#f1bd59"];
 const METERS_PER_DEGREE_LATITUDE = 111_320;
 
@@ -171,6 +172,24 @@ const feed = {
   leaderboard,
 };
 
+const badgeStats = {
+  schemaVersion: "1.0.0",
+  expeditions: world.expeditions.length,
+  highestAltitudeM: Math.round(
+    Math.max(0, ...world.expeditions.map((expedition) => expedition.altitudeM)),
+  ),
+  liveStones: world.stones.length,
+  livingIdentities: world.identities.filter(
+    (identity) => identity.status === "ACTIVE",
+  ).length,
+  worldSequence: world.sequence,
+};
+
 await mkdir(dirname(OUTPUT_PATH), { recursive: true });
-await writeFile(OUTPUT_PATH, `${JSON.stringify(feed, null, 2)}\n`);
-console.log(`Wrote ${OUTPUT_PATH} for world ${world.sequence}.`);
+await Promise.all([
+  writeFile(OUTPUT_PATH, `${JSON.stringify(feed, null, 2)}\n`),
+  writeFile(BADGES_OUTPUT_PATH, `${JSON.stringify(badgeStats, null, 2)}\n`),
+]);
+console.log(
+  `Wrote ${OUTPUT_PATH} and ${BADGES_OUTPUT_PATH} for world ${world.sequence}.`,
+);
