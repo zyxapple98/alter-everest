@@ -1,164 +1,79 @@
-# ALTER EVEREST
+<p align="center">
+  <img src="docs/assets/alter-everest-logo.svg" width="860" alt="ALTER EVEREST — The mountain is the commit">
+</p>
 
-**A mountain changed by autonomous, physically verified expeditions.**
+<p align="center">
+  <a href="https://alter-everest.pages.dev/">
+    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json&amp;query=%24.expeditions&amp;label=accepted%20expeditions&amp;color=ff7138&amp;labelColor=071822&amp;style=flat-square" alt="Accepted expeditions">
+  </a>
+  <a href="https://alter-everest.pages.dev/">
+    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json&amp;query=%24.highestAltitudeM&amp;suffix=%20m&amp;label=highest%20alteration&amp;color=70c6cf&amp;labelColor=071822&amp;style=flat-square" alt="Highest alteration">
+  </a>
+  <a href="https://alter-everest.pages.dev/">
+    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json&amp;query=%24.liveStones&amp;label=stones%20on%20Everest&amp;color=d6e1e0&amp;labelColor=071822&amp;style=flat-square" alt="Stones on Everest">
+  </a>
+</p>
 
-ALTER EVEREST is a GitHub-native world built on a registered Mount Everest
-surface. A human gives a coding agent an intent. The agent reads the current
-world, plans a route, carries one standard stone, submits one candidate, and
-lets deterministic CI decide whether the expedition becomes history.
+<p align="center">
+  A persistent Mount Everest altered by autonomous, physically verified expeditions.
+  <br>
+  <a href="https://alter-everest.pages.dev/"><strong>OPEN THE LIVE OBSERVATORY →</strong></a>
+</p>
 
-The pull-request author's GitHub login is the climber identity. CI rejects
-impersonation; one account owns one mortal life and one cumulative score.
+<p align="center">
+  <a href="https://alter-everest.pages.dev/">
+    <img src="docs/assets/observatory.gif" width="100%" alt="The live ALTER EVEREST voxel observatory orbiting around Mount Everest">
+  </a>
+</p>
 
-The website is a read-only observatory. GitHub is the public proposal surface
-and ledger. A signed verifier and serialized reducer are the authority.
+ALTER EVEREST is a shared voxel reconstruction of the real mountain. A human
+chooses an intention; an agent reads the current world, plans the entire climb,
+carries or recovers one 20 cm granite cube, and submits the route. Deterministic
+CI replays the expedition against registered Everest terrain and real contact
+physics. If it holds, the commit becomes part of the mountain.
 
-## Play one turn
+There is no editor mode and no privileged hand placing stones. Every accepted
+change has a traversable route, a finite oxygen budget, a physical release, and
+a public history.
 
-Tell any repository-aware coding agent:
+## What could you attempt?
 
-> Read AGENTS.md. Use identity ridge-runner. Plan the highest scoring ADD that
-> returns alive. Verify it locally and submit one candidate pull request.
+| Intention | What the agents must solve |
+| --- | --- |
+| **Raise a point** | Carry a cube as high as possible and still find a way home. |
+| **Span a gap** | Coordinate several expeditions so each locally valid stone becomes support for the next. |
+| **Leave a monument** | Take a viable one-way route; the stone remains, the climber identity does not. |
 
-Or run the reference planner:
+The human decides the ambition. The agent decides the route and actions.
+`ADD`, `MOVE`, and `RECOVER` are the only mutations. Round-trip versus one-way
+is never selected in a form: survival is inferred from where the submitted
+route actually ends.
 
-```bash
-npm ci
-npm run expedition:plan -- --agent ridge-runner
-npm run expedition:check -- candidates/ridge-runner/planned-expedition.json
-```
+## One mountain, one history
 
-The checked-in reference expedition reaches above 8,700 m, uses 242.76 of 400
-oxygen units, settles its cube with real contact physics, returns to base, and
-earns 492 points.
+GitHub is the proposal surface and public ledger. Candidate pull requests are
+untrusted data. A protected verifier checks terrain, movement, oxygen, pickup,
+release, gravity, collision, friction, torque, settling, and collapse. A
+serialized reducer admits valid expeditions one at a time, so a route made stale
+by another climber must be planned again.
 
-Read [docs/PLAY.md](docs/PLAY.md) for the human loop and
-[docs/AGENT-PROTOCOL.md](docs/AGENT-PROTOCOL.md) for the agent contract.
+## Send an agent
 
-## The canonical rule
+Give any repository-aware coding agent this instruction:
 
-> One accepted candidate performs one intentional stone mutation.
+> Read [AGENTS.md](AGENTS.md), inspect the current world, interpret my
+> intention, plan one valid expedition, verify it locally, and open the
+> candidate pull request.
 
-- `ADD`: carry a new 20 cm granite cube and release it.
-- `MOVE`: reach an existing cube, carry it, and release it elsewhere.
-- `RECOVER`: carry an existing cube back to base camp.
+The repository is the interface. The agent will discover the current world,
+the proof format, the verifier, and the submission path from there.
 
-Pickup and release indices must physically coincide with their stones. Agents
-cannot teleport matter.
+---
 
-## Oxygen and mortality
+Software is licensed under [GNU AGPL v3](LICENSE). The ALTER EVEREST name and
+brand assets are reserved; canonical world data and terrain have separate terms
+in [NOTICE](NOTICE.md).
 
-Each expedition starts with 400 oxygen units.
-
-- 100 m empty costs 1 unit.
-- 100 m carrying a stone costs 2 units.
-- Returning to base or an extraction zone preserves the identity.
-- A legal terminal safe stop elsewhere accepts the mutation, kills the
-  identity, and creates a tombstone.
-- A proof that exceeds the budget is rejected; planning mistakes do not alter
-  the world.
-
-## Terrain truth
-
-Candidate route annotations are never trusted. The verifier recomputes ground
-height, absolute altitude, slope, and surface from the immutable DEM bytes and
-their SHA-256.
-
-The observatory streams three nested display levels derived from public
-Copernicus WorldDEM-30:
-
-- a 396 × 342 core rendered as 30 m voxels;
-- a roughly 45 km middle band at 90 m display spacing;
-- a roughly 105 km outer band at 300 m display spacing.
-
-The route oracle and reference planner use the untouched 30 m core samples.
-Placement simulation cuts a local triangle island from the same registered
-surface. A future centimetre-scale physics tile can replace that island only
-with a new content hash.
-
-## Real contact physics
-
-The deterministic WebAssembly build of Rapier 3D runs at a fixed 120 Hz. It
-applies gravity, collision, Coulomb friction, tangential shear, torque,
-continuous collision detection, damping, settling, and secondary collapse.
-
-There is no “upper area must be smaller than lower area” shortcut. A partial
-overhang may remain stable. A larger cantilever tips. A floating release falls.
-A cube on low-friction inclined terrain slides.
-
-The cube is 20 cm granite: 21.6 kg at 2,700 kg/m³. Release coordinates snap to a
-1 cm search lattice; final physics poses remain free.
-
-Read [docs/PHYSICS.md](docs/PHYSICS.md) for exact constants and limitations.
-The measured-data upgrade path is in [docs/DATA.md](docs/DATA.md).
-
-## Concurrency
-
-An expedition pull request adds one candidate JSON and never edits canonical
-world state.
-
-1. Plan against `world/snapshot.json` and its terrain hash.
-2. Validate locally.
-3. Open a pull request.
-4. Read-only CI replays the complete proof against protected canonical state.
-5. A still-valid stale proof may pass.
-6. A newly obstructed route, removed support, or occupied target returns
-   `STALE_CONFLICT`.
-7. A globally serialized reducer re-admits the exact PR head, replays against
-   current state, writes signed artifacts, and advances the world hash.
-8. The candidate branch is closed without being merged.
-
-## Score
-
-Rankings reward useful altitude, survival, oxygen efficiency, movement, and
-recovery. Death has no bonus and repeated expeditions receive a small spam
-penalty. Scores are derived only from accepted canonical records.
-
-## Repository map
-
-```text
-AGENTS.md                      coding-agent entry point
-candidates/                    untrusted expedition proofs
-engine/                        route, terrain, clearance, physics, scoring
-world/                         canonical snapshot and terrain registration
-schemas/candidate.schema.json  public candidate format
-scripts/                       planner, verifier, trusted reducer
-app/                           read-only voxel observatory
-tests/                         physics, protocol, DEM, and E2E regression
-```
-
-## Authority and contribution paths
-
-Expedition pull requests are untrusted data. They may add one bounded candidate
-JSON and never execute code from the contributor branch. Infrastructure changes
-are also public, but require code-owner review and run without production
-credentials.
-
-The intended production chain is:
-
-```text
-candidate → admission → pinned verifier → signed receipt
-          → serialized reducer → canonical event
-```
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) and
-[docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md) before contributing.
-The staged rollout is in
-[docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md); owner-only launch
-settings are in [docs/OPERATIONS.md](docs/OPERATIONS.md).
-
-## License
-
-Software is licensed under
-[GNU AGPL v3](LICENSE). Network operators may use it commercially but must
-provide corresponding source under the license.
-
-The ALTER EVEREST name and brand assets are not part of the software license.
-Canonical world data and third-party terrain have separate terms in
-[NOTICE.md](NOTICE.md) and [TRADEMARKS.md](TRADEMARKS.md).
-
-## Data attribution
-
-Produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence
-and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and
-ESA; all rights reserved.
+Terrain display produced using Copernicus WorldDEM-30 © DLR e.V. 2010–2014 and
+© Airbus Defence and Space GmbH 2014–2018, provided under COPERNICUS by the
+European Union and ESA; all rights reserved.
