@@ -27,9 +27,6 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
-      - name: Build protected verifier sandbox
-        run: docker build --file Dockerfile.verifier --tag alter-everest-verifier .
-
       - name: Admit one declarative candidate
         id: admission
         env:
@@ -38,6 +35,9 @@ jobs:
           node scripts/admit-candidate-pr.mjs
           --event "$GITHUB_EVENT_PATH"
           --out "$RUNNER_TEMP/candidate.json"
+
+      - name: Build protected verifier sandbox
+        run: docker build --file Dockerfile.verifier --tag alter-everest-verifier .
 
       - name: Replay candidate in a bounded offline sandbox
         env:

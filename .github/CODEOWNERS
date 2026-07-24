@@ -2,6 +2,8 @@
 # accepted without a human code review. Every authoritative implementation
 # surface is owned by the repository maintainer.
 
+* @zyxapple98
+
 /.github/ @zyxapple98
 /app/ @zyxapple98
 /build/ @zyxapple98

@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { createServer } from "node:http";
 import {
   copyFile,
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -207,6 +208,7 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
   const directory = await mkdtemp(join(tmpdir(), "alter-everest-admission-"));
   const eventPath = join(directory, "event.json");
   const outputPath = join(directory, "candidate.json");
+  const eventsDirectory = join(directory, "events");
   const candidateBytes = await readFile(
     resolve("candidates/example-agent/everest-roundtrip.json"),
   );
@@ -249,6 +251,7 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
   });
 
   try {
+    await mkdir(eventsDirectory);
     await writeFile(
       eventPath,
       JSON.stringify({
@@ -288,6 +291,36 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
     assert.match(accepted.stdout, /"admitted": true/);
     assert.deepEqual(await readFile(outputPath), candidateBytes);
 
+    const candidateHash = JSON.parse(accepted.stdout).candidateHash;
+    await writeFile(
+      join(eventsDirectory, "accepted.json"),
+      JSON.stringify({ candidateHash }),
+    );
+    await assert.rejects(
+      execute(
+        process.execPath,
+        [
+          "scripts/admit-candidate-pr.mjs",
+          "--event",
+          eventPath,
+          "--events-dir",
+          eventsDirectory,
+          "--out",
+          join(directory, "duplicate.json"),
+        ],
+        {
+          cwd: projectRoot,
+          env: {
+            ...process.env,
+            GITHUB_RUN_ID: "",
+            GITHUB_TOKEN: "test-token",
+            GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+        },
+      ),
+      /exact candidate bytes are already part/,
+    );
+
     changedFiles = [
       ...changedFiles,
       { filename: ".github/workflows/pwn.yml", status: "added" },
@@ -320,6 +353,50 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
         error ? rejectClose(error) : resolveClose(),
       ),
     );
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("R2 manifests bind immutable artifacts and publish latest last", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "alter-everest-r2-"));
+  const manifestPath = join(directory, "manifest.json");
+
+  try {
+    await execute(
+      process.execPath,
+      [
+        "scripts/build-r2-publish-manifest.mjs",
+        "--all",
+        "--out",
+        manifestPath,
+      ],
+      { cwd: projectRoot },
+    );
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    assert.equal(manifest.schemaVersion, "1.0.0");
+    assert.ok(manifest.immutable.length >= 4);
+    assert.ok(
+      manifest.immutable.every((artifact: { sha256?: string }) =>
+        /^[a-f0-9]{64}$/.test(artifact.sha256 ?? ""),
+      ),
+    );
+    assert.equal(manifest.mutable.at(-1).key, "world/latest.json");
+
+    const dryRun = await execute(
+      process.execPath,
+      [
+        "scripts/publish-world-r2.mjs",
+        "--manifest",
+        manifestPath,
+        "--bucket",
+        "alter-everest-world",
+        "--dry-run",
+      ],
+      { cwd: projectRoot },
+    );
+    assert.match(dryRun.stdout, /"dryRun": true/);
+    assert.match(dryRun.stdout, /"key": "world\/latest.json"/);
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });

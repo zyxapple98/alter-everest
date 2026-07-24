@@ -1,0 +1,50 @@
+name: Reconcile R2 world mirror
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: canonical-world-pipeline
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Rebuild the R2 mirror from Git
+    if: vars.R2_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out protected canonical branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up pinned Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.19.0
+
+      - name: Install protected publisher dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Rebuild the bounded public read model
+        run: npm run world:feed
+
+      - name: Describe every canonical artifact
+        run: >-
+          npm run world:r2:manifest --
+          --all
+          --out "$RUNNER_TEMP/r2-publish-manifest.json"
+
+      - name: Reconcile immutable objects and advance pointers last
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORLD_BUCKET: ${{ vars.WORLD_BUCKET }}
+        run: >-
+          npm run world:r2:publish --
+          --manifest "$RUNNER_TEMP/r2-publish-manifest.json"
