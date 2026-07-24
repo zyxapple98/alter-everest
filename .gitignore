@@ -42,6 +42,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+HMA_DEM8m_MOS_*.tif
 /.openai/*.tar.gz
 .devserver.log
 .devserver.*.log

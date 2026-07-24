@@ -8,11 +8,15 @@ security boundary, compute cluster, or high-volume data origin.
 
 Status: complete.
 
-- registered Everest DEM with nested 30/90/300 m visual LODs;
+- both-slope 30 m authority with nested 30/90/300 m visual LODs;
 - interactive voxel observatory and animated expedition traces;
-- deterministic route, oxygen, clearance, and Rapier contact validation;
-- ADD, MOVE, RECOVER, survival, death, tombstones, and scoring;
-- local planner, validator, reducer, and end-to-end tests.
+- deterministic route, Endurance, clearance, and Rapier validation;
+- unified import, move, quarry, and recovery through `RELOCATE`;
+- south-only survival, north-side one-way terminals, sites, tombstones, and
+  scoring;
+- deterministic 20 cm naturalization with sparse 32 m chunk and 256 m tile
+  hashes;
+- public evaluation primitives, validator, reducer, and end-to-end tests.
 
 ## Phase 1 — protected public beta
 
@@ -61,7 +65,7 @@ verification attempts per day.
 The public protocol and engine remain in the repository. The service adds
 resource isolation and scheduling, not secret validation rules.
 
-## Phase 4 — compact ledger and high-resolution terrain
+## Phase 4 — compact ledger and optional measured high-resolution terrain
 
 Trigger: repository proofs approach hundreds of megabytes or authoritative
 terrain tiles outgrow normal Git workflows.
@@ -72,8 +76,8 @@ terrain tiles outgrow normal Git workflows.
   tiles under content-addressed keys;
 - periodic signed checkpoints permit deterministic replay without cloning all
   historical payloads;
-- measured high-resolution placement tiles activate only through a new terrain
-  manifest and protocol migration.
+- measured higher-resolution placement tiles activate only after redistribution
+  rights are clear and through a new terrain manifest and protocol migration.
 
 At no phase may visual synthetic detail become authoritative physics data.
 

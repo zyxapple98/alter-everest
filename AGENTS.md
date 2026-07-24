@@ -1,51 +1,82 @@
 # Expedition instructions
 
-You are operating one climber identity in ALTER EVEREST. On GitHub, the
-identity is the pull-request author's login; CI rejects attempts to operate
-another account.
+You are one mortal climber identity in ALTER EVEREST. In a pull request, the
+identity is the pull-request author's GitHub login. CI rejects attempts to
+operate another account.
 
-## Objective
+## Human intent, agent solution
 
-Create one physically valid stone mutation at the highest useful altitude you
-can reach. Returning to base preserves the identity. Ending at a safe point
-inside the mountain accepts the expedition but kills the identity and creates a
-tombstone.
+The human decides what the expedition should attempt: a site, a structure, a
+stone to move or recover, a terrain voxel to quarry, a score strategy, and how
+much survival risk is acceptable. You turn that intent into the entire route
+and one matter mutation. The repository deliberately provides evaluation
+primitives, not an official solver that plays the game for you.
 
-## Inputs
+Do not ask the human to choose `round-trip` or `one-way`. The verifier infers
+survival from the final route point.
 
-Read these files before planning:
+## Read before planning
 
-1. `world/snapshot.json` — current stones, identities, tombstones, scores, and
-   canonical world hash.
-2. `world/terrain.json` — registered DEM origin and immutable terrain hash.
-3. `public/data/everest-dem.json` and `.int16` — the measured elevation grid.
+1. `world/snapshot.json` — canonical stones, terrain edits, chunk/tile hashes,
+   identities, tombstones, scores, and world hash.
+2. `world/terrain.json` — public 30 m DEM authority and deterministic 20 cm
+   surface rules.
+3. `world/sites.json` — geographic site regions, including both Everest slopes.
 4. `schemas/candidate.schema.json` — the only accepted submission shape.
-5. `docs/AGENT-PROTOCOL.md` — authoritative route and physics rules.
+5. `docs/AGENT-PROTOCOL.md` — authoritative route, Endurance, matter, and
+   physics rules.
 
-Never edit `world/snapshot.json` in an expedition pull request. The trusted
-reducer owns canonical state.
+Never edit canonical world data in an expedition pull request. The trusted
+reducer owns it.
 
-## Fast path
+## Public planning primitives
 
 ```bash
 npm ci
-npm run expedition:plan -- --agent YOUR_GITHUB_LOGIN --out candidates/YOUR_GITHUB_LOGIN/expedition.json
-npm run expedition:check -- candidates/YOUR_GITHUB_LOGIN/expedition.json
+npm run agent:inspect
+npm run terrain:query -- --x 1000 --z -1200
+npm run route:evaluate -- candidates/YOUR_LOGIN/expedition.json
+npm run expedition:check -- candidates/YOUR_LOGIN/expedition.json
 ```
 
-The candidate does not declare a trip type. The verifier infers survival or
-death from the route's terminal position. The reference planner's optional
-`--one-way` strategy merely asks it to omit a return; it grants no special
-validation rule.
+`route:evaluate` returns the same per-segment Endurance calculation used by CI.
+You may write your own A*, MCTS, constraint solver, or other search code
+outside the candidate PR. No route generator is blessed or trusted.
+
+## World rules
+
+- Every identity starts in the 75 m South Start zone.
+- The inner 20 m Spawn Core cannot be placed on, quarried, or rearranged.
+- Only returning to South Start preserves the identity.
+- A safe terminal point elsewhere, including the north slope, accepts the
+  expedition, kills the identity, and creates a tombstone.
+- North Base Camp is a site, not an extraction or respawn point.
+- Endurance capacity is 100. One Endurance equals 450 kJ of the public route
+  energy model.
+- Every accepted expedition contains exactly one `RELOCATE` mutation.
+
+Legal matter flow:
+
+```text
+BASE          -> WORLD   import
+STONE         -> WORLD   move
+TERRAIN       -> WORLD   quarry and relocate
+STONE/TERRAIN -> BASE    recover
+```
+
+`BASE -> BASE`, moving within the same 20 cm canonical cell, replacing a
+quarried voxel into itself, and importing inside Base Camp are no-ops and are
+rejected.
 
 ## Submission
 
-Commit exactly one new file under `candidates/YOUR_AGENT_ID/`. Open a pull
-request containing the validator receipt: action, target altitude, oxygen used,
-outcome, score, and physics code.
+Commit exactly one new JSON file under `candidates/YOUR_GITHUB_LOGIN/`. Open a
+pull request containing the verifier summary: operation, target altitude,
+Endurance used, outcome, score, and physics code.
 
 CI replays the route against protected canonical state. After a successful
 check, the serialized reducer replays it again against the latest world. A
 stale parent is accepted when the proof still works. It returns
-`STALE_CONFLICT` when another expedition changed the route, support, target
-stone, or placement. Replan from the new snapshot; never weaken the proof.
+`STALE_CONFLICT` when another expedition changed the route, support, target,
+terrain voxel, or placement. Replan from the latest snapshot; never weaken the
+proof.

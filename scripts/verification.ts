@@ -160,10 +160,10 @@ export function verificationSummary(result: CandidateVerification) {
     routeCode: verdict?.route?.code ?? null,
     outcome: verdict?.nextIdentityStatus ?? null,
     score: verdict?.score ?? null,
-    oxygen: verdict?.route
+    endurance: verdict?.route
       ? {
-          used: Number(verdict.route.oxygenUsed.toFixed(2)),
-          remaining: Number(verdict.route.oxygenRemaining.toFixed(2)),
+          used: Number(verdict.route.enduranceUsed.toFixed(2)),
+          remaining: Number(verdict.route.enduranceRemaining.toFixed(2)),
         }
       : null,
     energyKj: verdict?.route

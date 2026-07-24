@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import type { CanonicalExpeditionEvent } from "../engine/types";
+import { mutationStoneId, operationLabel } from "../engine/mutation";
 import { applyAcceptedCandidate } from "../engine/world";
 import {
   canonicalJson,
@@ -109,7 +110,7 @@ if (
     ? signReceiptBody(body, privateKey)
     : unsignedReceipt(body);
   const actionIndex =
-    candidate.proof.mutation.kind === "RECOVER"
+    candidate.proof.mutation.destination.kind === "BASE"
       ? candidate.proof.pickupIndex!
       : candidate.proof.releaseIndex!;
   const actionSample = candidate.proof.route[actionIndex];
@@ -129,11 +130,11 @@ if (
     worldHash: nextWorld.worldHash,
     terrainHash: candidate.terrainHash,
     engineHash,
-    action: candidate.proof.mutation.kind,
-    stoneId: candidate.proof.mutation.stoneId,
+    action: operationLabel(candidate.proof.mutation),
+    stoneId: mutationStoneId(candidate.proof.mutation),
     outcome: verdict.nextIdentityStatus!,
     altitudeM: actionSample.altitudeM,
-    oxygenUsed: verdict.route!.oxygenUsed,
+    enduranceUsed: verdict.route!.enduranceUsed,
     energyKj: verdict.route!.energyKj,
     score: verdict.score!,
     proofArtifact,

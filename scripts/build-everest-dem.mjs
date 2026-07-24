@@ -10,6 +10,14 @@ const imageCache = new Map();
 
 const layers = [
   {
+    stem: "everest-dem-authority",
+    id: "COP-DEM-GLO-30-EVEREST-AUTHORITY-001",
+    lod: "authority",
+    displayResolutionM: 30,
+    sampleSpacingArcSeconds: 1,
+    bounds: { north: 28.2, south: 27.9, west: 86.78, east: 87.07 },
+  },
+  {
     stem: "everest-dem",
     id: "COP-DEM-GLO-30-EVEREST-CORE-001",
     lod: "core",

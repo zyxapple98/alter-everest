@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "coordinateStatus": "Canonical game anchors; camp positions are approximate and may move in the physical world.",
+  "sites": [
+    { "id": "south-start", "name": "South Start", "kind": "BASE", "side": "SOUTH", "latitude": 27.94236111111111, "longitude": 86.89486111111111, "radiusM": 75 },
+    { "id": "south-base-camp", "name": "Everest Base Camp", "kind": "LANDMARK", "side": "SOUTH", "latitude": 28.0026, "longitude": 86.8528, "radiusM": 140 },
+    { "id": "khumbu-icefall", "name": "Khumbu Icefall", "kind": "LANDMARK", "side": "SOUTH", "latitude": 27.997, "longitude": 86.872, "radiusM": 180 },
+    { "id": "south-col", "name": "South Col", "kind": "LANDMARK", "side": "SOUTH", "latitude": 27.972, "longitude": 86.93, "radiusM": 110 },
+    { "id": "everest-summit", "name": "Everest Summit", "kind": "SUMMIT", "side": "BOTH", "latitude": 27.9881, "longitude": 86.925, "radiusM": 35 },
+    { "id": "north-col", "name": "North Col", "kind": "LANDMARK", "side": "NORTH", "latitude": 28.015, "longitude": 86.931, "radiusM": 120 },
+    { "id": "north-advanced-base", "name": "North Advanced Base", "kind": "LANDMARK", "side": "NORTH", "latitude": 28.075, "longitude": 86.9, "radiusM": 160 },
+    { "id": "north-base-camp", "name": "North Base Camp", "kind": "LANDMARK", "side": "NORTH", "latitude": 28.142, "longitude": 86.852, "radiusM": 180 }
+  ]
+}

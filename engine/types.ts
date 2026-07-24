@@ -34,25 +34,37 @@ export interface PhysicsSnapshot {
   terrain: TerrainCollider[];
 }
 
-export type StoneMutation =
-  | {
-      kind: "ADD";
-      stoneId: string;
-      releasePose: Pose;
-    }
-  | {
-      kind: "MOVE";
-      stoneId: string;
-      releasePose: Pose;
-    }
-  | {
-      kind: "RECOVER";
-      stoneId: string;
-    };
+export interface VoxelCoordinate {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export type MatterSource =
+  | { kind: "BASE" }
+  | { kind: "STONE"; stoneId: string }
+  | { kind: "TERRAIN"; voxel: VoxelCoordinate };
+
+export type MatterDestination =
+  | { kind: "BASE" }
+  | { kind: "WORLD"; releasePose: Pose };
+
+export interface MatterMutation {
+  kind: "RELOCATE";
+  matterId: string;
+  source: MatterSource;
+  destination: MatterDestination;
+}
+
+export type LegacyActionKind = "ADD" | "MOVE" | "RECOVER";
+export type MutationOperation = LegacyActionKind | "QUARRY";
 
 export type PhysicsFailureCode =
   | "STONE_ALREADY_EXISTS"
   | "STONE_NOT_FOUND"
+  | "TERRAIN_VOXEL_NOT_EXPOSED"
+  | "NO_STATE_CHANGE"
+  | "SPAWN_CORE_PROTECTED"
   | "PLACEMENT_DID_NOT_HOLD"
   | "SETTLING_TIMEOUT"
   | "CONTACT_ISLAND_TOO_LARGE"
@@ -83,7 +95,7 @@ export interface RouteSample extends Vec3 {
 
 export interface ExpeditionProof {
   route: RouteSample[];
-  mutation: StoneMutation;
+  mutation: MatterMutation;
   pickupIndex?: number;
   releaseIndex?: number;
 }
@@ -100,23 +112,24 @@ export type RouteFailureCode =
   | "CLIMB_UNPROTECTED"
   | "ACTION_INDEX_INVALID"
   | "ACTION_POSITION_MISMATCH"
-  | "RECOVERY_MUST_RETURN"
+  | "SPAWN_CORE_PROTECTED"
+  | "BASE_IMPORT_INSIDE_CAMP"
+  | "BASE_DELIVERY_MUST_RETURN"
   | "UNSAFE_TERMINAL"
   | "OUTSIDE_TERRAIN"
   | "TERRAIN_MISMATCH"
-  | "OXYGEN_EXHAUSTED"
-  | "ENERGY_BUDGET_EXCEEDED";
+  | "ENDURANCE_EXHAUSTED";
 
 export interface RouteVerdict {
   valid: boolean;
   code: "ROUTE_VALID" | RouteFailureCode;
   outcome: IdentityOutcome;
+  enduranceUsed: number;
+  enduranceRemaining: number;
   energyKj: number;
   elapsedSeconds: number;
   distanceM: number;
   loadedDistanceM: number;
-  oxygenUsed: number;
-  oxygenRemaining: number;
   terminalDistanceFromBaseM: number;
 }
 
@@ -140,18 +153,36 @@ export interface TombstoneState {
   expeditionId: string;
   position: Vec3;
   altitudeM: number;
-  oxygenUsed: number;
+  enduranceUsed: number;
 }
 
 export interface ExpeditionRecord {
   id: string;
   agentId: string;
-  action: StoneMutation["kind"];
+  action: MutationOperation;
   outcome: IdentityOutcome;
   altitudeM: number;
-  oxygenUsed: number;
+  enduranceUsed?: number;
+  oxygenUsed?: number;
   energyKj: number;
   score: number;
+}
+
+export interface ModifiedChunkState {
+  id: string;
+  x: number;
+  z: number;
+  removedTerrainVoxels: VoxelCoordinate[];
+  stoneIds: string[];
+  hash: string;
+}
+
+export interface ModifiedTileState {
+  id: string;
+  x: number;
+  z: number;
+  chunkHashes: string[];
+  hash: string;
 }
 
 export interface CanonicalWorld extends PhysicsSnapshot {
@@ -159,6 +190,9 @@ export interface CanonicalWorld extends PhysicsSnapshot {
   terrainHash: string;
   baseCamp: Vec3;
   extractionZones: Vec3[];
+  removedTerrainVoxels: VoxelCoordinate[];
+  modifiedChunks: ModifiedChunkState[];
+  modifiedTiles: ModifiedTileState[];
   identities: IdentityState[];
   tombstones: TombstoneState[];
   expeditions: ExpeditionRecord[];
@@ -175,11 +209,12 @@ export interface CanonicalExpeditionEvent {
   worldHash: string;
   terrainHash: string;
   engineHash: string;
-  action: StoneMutation["kind"];
+  action: MutationOperation;
   stoneId: string;
   outcome: IdentityOutcome;
   altitudeM: number;
-  oxygenUsed: number;
+  enduranceUsed?: number;
+  oxygenUsed?: number;
   energyKj: number;
   score: number;
   proofArtifact: string;

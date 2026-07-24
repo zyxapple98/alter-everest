@@ -3,6 +3,7 @@ import { validateRouteClearance } from "./clearance";
 import { simulateMutation } from "./physics";
 import { validateRoute } from "./route";
 import { calculateReward } from "./scoring";
+import { isExposedTerrainVoxel } from "./surface";
 import {
   validateRouteTerrain,
   type TerrainOracle,
@@ -104,7 +105,6 @@ export async function validateCandidateCommit(
   let route = validateRoute(
     candidate.proof,
     context.baseCamp,
-    context.extractionZones,
   );
   if (!route.valid) {
     return rejected(
@@ -137,7 +137,10 @@ export async function validateCandidateCommit(
 
   const action = validateActionBinding(candidate.proof, currentWorld);
   if (!action.valid) {
-    route = invalidateRoute(route, "ACTION_POSITION_MISMATCH");
+    route = invalidateRoute(
+      route,
+      action.code as Exclude<typeof action.code, "ACTION_BOUND">,
+    );
     return rejected(
       stale ? "STALE_CONFLICT" : "ROUTE_INVALID",
       canonicalParent,
@@ -146,10 +149,37 @@ export async function validateCandidateCommit(
     );
   }
 
+  if (
+    candidate.proof.mutation.source.kind === "TERRAIN" &&
+    (!context.terrain ||
+      !isExposedTerrainVoxel(
+        context.terrain,
+        currentWorld.removedTerrainVoxels,
+        candidate.proof.mutation.source.voxel,
+      ))
+  ) {
+    return rejected(
+      stale ? "STALE_CONFLICT" : "PHYSICS_INVALID",
+      canonicalParent,
+      stale,
+      route,
+      {
+        valid: false,
+        code: "TERRAIN_VOXEL_NOT_EXPOSED",
+        finalStones: currentWorld.stones,
+        affectedStoneIds: [],
+        simulatedSeconds: 0,
+        maxLinearSpeed: 0,
+        maxAngularSpeed: 0,
+        contactModel: "RAPIER_COULOMB_FRICTION",
+      },
+    );
+  }
+
   const carriedStoneIds =
-    candidate.proof.mutation.kind === "ADD"
-      ? new Set<string>()
-      : new Set([candidate.proof.mutation.stoneId]);
+    candidate.proof.mutation.source.kind === "STONE"
+      ? new Set([candidate.proof.mutation.source.stoneId])
+      : new Set<string>();
   const clearance = await validateRouteClearance(
     currentWorld,
     candidate.proof.route,

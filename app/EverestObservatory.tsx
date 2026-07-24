@@ -35,6 +35,15 @@ interface DemLayer {
   elevations: Int16Array;
 }
 
+interface SiteAnchor {
+  id: string;
+  name: string;
+  kind: "BASE" | "LANDMARK" | "SUMMIT";
+  side: "SOUTH" | "NORTH" | "BOTH";
+  latitude: number;
+  longitude: number;
+}
+
 interface VoxelTerrain {
   mesh: THREE.Mesh;
   levels: Int16Array;
@@ -367,6 +376,56 @@ function gridPoint(
   );
 }
 
+function containsCoordinate(
+  bounds: DemBounds,
+  latitude: number,
+  longitude: number,
+) {
+  return (
+    latitude <= bounds.north &&
+    latitude >= bounds.south &&
+    longitude >= bounds.west &&
+    longitude <= bounds.east
+  );
+}
+
+function coordinatePoint(
+  terrain: VoxelTerrain,
+  metadata: DemMetadata,
+  latitude: number,
+  longitude: number,
+) {
+  const degrees = metadata.sampleSpacingArcSeconds / 3600;
+  return gridPoint(
+    terrain,
+    (longitude - metadata.bounds.west) / degrees - 0.5,
+    (metadata.bounds.north - latitude) / degrees - 0.5,
+    0.5,
+  );
+}
+
+function siteLabel(name: string) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 96;
+  const context = canvas.getContext("2d")!;
+  context.font = "600 30px monospace";
+  context.textAlign = "center";
+  context.fillStyle = "rgba(241, 240, 232, .88)";
+  context.fillText(name.toUpperCase(), 256, 53);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0.72,
+    depthTest: false,
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(12, 2.25, 1);
+  return { sprite, material, texture };
+}
+
 function createRoute(
   terrain: VoxelTerrain,
   lateralOffset: number,
@@ -527,12 +586,16 @@ async function loadDemLayer(
 }
 
 async function loadDem(signal: AbortSignal) {
-  const [core, mid, far] = await Promise.all([
+  const [core, mid, far, sites] = await Promise.all([
     loadDemLayer("everest-dem", signal),
     loadDemLayer("everest-dem-mid", signal),
     loadDemLayer("everest-dem-far", signal),
+    fetch("/data/sites.json", { signal }).then(async (response) => {
+      if (!response.ok) throw new Error("Site anchors could not be loaded.");
+      return (await response.json()) as { sites: SiteAnchor[] };
+    }),
   ]);
-  return { core, mid, far };
+  return { core, mid, far, sites: sites.sites };
 }
 
 export default function EverestObservatory() {
@@ -594,7 +657,9 @@ export default function EverestObservatory() {
     let cleanupScene = () => {};
 
     const start = async () => {
-      const { core, mid, far } = await loadDem(abortController.signal);
+      const { core, mid, far, sites } = await loadDem(
+        abortController.signal,
+      );
       if (disposed) return;
 
       const scene = new THREE.Scene();
@@ -655,6 +720,53 @@ export default function EverestObservatory() {
       );
       const terrainLayers = [farTerrain, midTerrain, terrain];
       terrainLayers.forEach((layer) => scene.add(layer.mesh));
+
+      const visibleSiteIds = new Set([
+        "south-start",
+        "south-col",
+        "everest-summit",
+        "north-col",
+        "north-base-camp",
+      ]);
+      const siteObjects = sites
+        .filter((site) => visibleSiteIds.has(site.id))
+        .map((site) => {
+          const layer =
+            containsCoordinate(
+              core.metadata.bounds,
+              site.latitude,
+              site.longitude,
+            )
+              ? { terrain, metadata: core.metadata }
+              : containsCoordinate(
+                    mid.metadata.bounds,
+                    site.latitude,
+                    site.longitude,
+                  )
+                ? { terrain: midTerrain, metadata: mid.metadata }
+                : { terrain: farTerrain, metadata: far.metadata };
+          const point = coordinatePoint(
+            layer.terrain,
+            layer.metadata,
+            site.latitude,
+            site.longitude,
+          );
+          const marker = new THREE.Mesh(
+            new THREE.BoxGeometry(0.42, 1.9, 0.42),
+            new THREE.MeshBasicMaterial({
+              color: site.kind === "SUMMIT" ? "#ef7040" : "#bbd9d7",
+              transparent: true,
+              opacity: 0.72,
+            }),
+          );
+          marker.position.copy(point);
+          marker.position.y += 0.8;
+          const label = siteLabel(site.name);
+          label.sprite.position.copy(point);
+          label.sprite.position.y += 2.25;
+          scene.add(marker, label.sprite);
+          return { marker, ...label };
+        });
 
       const ground = new THREE.Mesh(
         new THREE.PlaneGeometry(1_600, 1_600),
@@ -887,6 +999,12 @@ export default function EverestObservatory() {
         (ground.material as THREE.Material).dispose();
         summitStone.geometry.dispose();
         (summitStone.material as THREE.Material).dispose();
+        siteObjects.forEach(({ marker, material, texture }) => {
+          marker.geometry.dispose();
+          (marker.material as THREE.Material).dispose();
+          material.dispose();
+          texture.dispose();
+        });
         renderer.dispose();
         if (host.contains(renderer.domElement)) {
           host.removeChild(renderer.domElement);
@@ -944,7 +1062,11 @@ export default function EverestObservatory() {
 
       <section className="world-id" id="world" aria-label="Current world">
         <span>{`WORLD ${feed.sequence.toLocaleString("en-US")}`}</span>
-        <strong>{`${feed.summitHeightM.toLocaleString("en-US")} M`}</strong>
+        <strong>
+          {`${Math.round(
+            feed.currentHighestPoint?.altitudeM ?? feed.summitHeightM,
+          ).toLocaleString("en-US")} M`}
+        </strong>
       </section>
 
       <aside className="last-trace" aria-label="Last expedition trace">

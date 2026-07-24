@@ -31,6 +31,18 @@ function stone(id: string, x: number, y: number, z: number): StoneState {
   return { id, pose: pose(x, y, z) };
 }
 
+function importStone(id: string, releasePose: ReturnType<typeof pose>) {
+  return {
+    kind: "RELOCATE" as const,
+    matterId: id,
+    source: { kind: "BASE" as const },
+    destination: {
+      kind: "WORLD" as const,
+      releasePose,
+    },
+  };
+}
+
 function snapshot(stones: StoneState[] = []): PhysicsSnapshot {
   return { worldHash: "world-head", stones, terrain: [floor] };
 }
@@ -42,6 +54,9 @@ function canonicalWorld(stones: StoneState[] = []): CanonicalWorld {
     terrainHash: "terrain-head",
     baseCamp: { x: 0, y: 0, z: 0 },
     extractionZones: [],
+    removedTerrainVoxels: [],
+    modifiedChunks: [],
+    modifiedTiles: [],
     identities: [],
     tombstones: [],
     expeditions: [],
@@ -66,11 +81,10 @@ function routeSample(
 }
 
 test("a stone released on rock settles and remains at the intended placement", async () => {
-  const result = await simulateMutation(snapshot(), {
-    kind: "ADD",
-    stoneId: "stone-1",
-    releasePose: pose(0, 0.11, 0),
-  });
+  const result = await simulateMutation(
+    snapshot(),
+    importStone("stone-1", pose(0, 0.11, 0)),
+  );
 
   assert.equal(result.valid, true);
   assert.equal(result.code, "STABLE");
@@ -78,11 +92,10 @@ test("a stone released on rock settles and remains at the intended placement", a
 });
 
 test("a proposed floating stone falls and the placement is rejected", async () => {
-  const result = await simulateMutation(snapshot(), {
-    kind: "ADD",
-    stoneId: "stone-1",
-    releasePose: pose(0, 1.1, 0),
-  });
+  const result = await simulateMutation(
+    snapshot(),
+    importStone("stone-1", pose(0, 1.1, 0)),
+  );
 
   assert.equal(result.valid, false);
   assert.equal(result.code, "PLACEMENT_DID_NOT_HOLD");
@@ -91,29 +104,26 @@ test("a proposed floating stone falls and the placement is rejected", async () =
 
 test("a centered stack holds but an excessive cantilever does not", async () => {
   const base = stone("stone-base", 0, 0.1, 0);
-  const centered = await simulateMutation(snapshot([base]), {
-    kind: "ADD",
-    stoneId: "stone-top",
-    releasePose: pose(0, 0.31, 0),
-  });
+  const centered = await simulateMutation(
+    snapshot([base]),
+    importStone("stone-top", pose(0, 0.31, 0)),
+  );
   assert.equal(centered.valid, true);
 
-  const cantilevered = await simulateMutation(snapshot([base]), {
-    kind: "ADD",
-    stoneId: "stone-top",
-    releasePose: pose(0.13, 0.31, 0),
-  });
+  const cantilevered = await simulateMutation(
+    snapshot([base]),
+    importStone("stone-top", pose(0.13, 0.31, 0)),
+  );
   assert.equal(cantilevered.valid, false);
   assert.equal(cantilevered.code, "PLACEMENT_DID_NOT_HOLD");
 });
 
 test("contact dynamics allow a stable partial overhang", async () => {
   const base = stone("stone-base", 0, 0.1, 0);
-  const result = await simulateMutation(snapshot([base]), {
-    kind: "ADD",
-    stoneId: "stone-top",
-    releasePose: pose(0.075, 0.31, 0),
-  });
+  const result = await simulateMutation(
+    snapshot([base]),
+    importStone("stone-top", pose(0.075, 0.31, 0)),
+  );
 
   assert.equal(result.valid, true);
   assert.equal(result.contactModel, "RAPIER_COULOMB_FRICTION");
@@ -121,11 +131,10 @@ test("contact dynamics allow a stable partial overhang", async () => {
 
 test("physics preserves stones outside the mutation contact island", async () => {
   const remote = stone("remote-stone", 100, 42, 100);
-  const result = await simulateMutation(snapshot([remote]), {
-    kind: "ADD",
-    stoneId: "local-stone",
-    releasePose: pose(0, 0.11, 0),
-  });
+  const result = await simulateMutation(
+    snapshot([remote]),
+    importStone("local-stone", pose(0, 0.11, 0)),
+  );
 
   assert.equal(result.valid, true);
   assert.deepEqual(
@@ -140,15 +149,29 @@ test("physics rejects a contact island beyond the public resource bound", async 
     { length: PHYSICS.maxContactIslandStones + 1 },
     (_, index) => stone(`island-${index}`, 0, 0.1, 0),
   );
-  const result = await simulateMutation(snapshot(stones), {
-    kind: "ADD",
-    stoneId: "one-too-many",
-    releasePose: pose(0, 0.31, 0),
-  });
+  const result = await simulateMutation(
+    snapshot(stones),
+    importStone("one-too-many", pose(0, 0.31, 0)),
+  );
 
   assert.equal(result.valid, false);
   assert.equal(result.code, "CONTACT_ISLAND_TOO_LARGE");
   assert.equal(result.affectedStoneIds.length, 0);
+});
+
+test("moving a stone inside its existing 20 cm cell is a no-op", async () => {
+  const existing = stone("stone-noop", 0.1, 0.1, 0.1);
+  const result = await simulateMutation(snapshot([existing]), {
+    kind: "RELOCATE",
+    matterId: existing.id,
+    source: { kind: "STONE", stoneId: existing.id },
+    destination: {
+      kind: "WORLD",
+      releasePose: pose(0.19, 0.19, 0.19),
+    },
+  });
+  assert.equal(result.valid, false);
+  assert.equal(result.code, "NO_STATE_CHANGE");
 });
 
 test("low-friction tangential load makes a stone slide", async () => {
@@ -171,11 +194,10 @@ test("low-friction tangential load makes a stone slide", async () => {
       },
     ],
   };
-  const result = await simulateMutation(slopeWorld, {
-    kind: "ADD",
-    stoneId: "stone-shear",
-    releasePose: pose(0, 0.16, 0),
-  });
+  const result = await simulateMutation(
+    slopeWorld,
+    importStone("stone-shear", pose(0, 0.16, 0)),
+  );
 
   assert.equal(result.valid, false);
   assert.ok(
@@ -189,16 +211,12 @@ test("return status is inferred from the terminal position", () => {
   const oneWayProof: ExpeditionProof = {
     route: [
       routeSample(0, 0),
-      routeSample(0.75, 0.025),
-      routeSample(1.5, 0.05),
-      routeSample(2.25, 0.075),
-      routeSample(3, 0.1, true),
+      routeSample(25, 0.025),
+      routeSample(50, 0.05),
+      routeSample(75, 0.075),
+      routeSample(100, 0.1, true),
     ],
-    mutation: {
-      kind: "ADD",
-      stoneId: "stone-1",
-      releasePose: pose(1, 0.11, 0),
-    },
+    mutation: importStone("stone-1", pose(1, 0.11, 0)),
     releaseIndex: 4,
   };
   const oneWay = validateRoute(oneWayProof, { x: 0, y: 0, z: 0 });
@@ -209,13 +227,13 @@ test("return status is inferred from the terminal position", () => {
     ...oneWayProof,
     route: [
       routeSample(0, 0),
-      routeSample(0.75, 0.025),
-      routeSample(1.5, 0.05),
-      routeSample(2.25, 0.075),
-      routeSample(3, 0.1),
-      routeSample(2.25, 0.075),
-      routeSample(1.5, 0.05),
-      routeSample(0.75, 0.025),
+      routeSample(25, 0.025),
+      routeSample(50, 0.05),
+      routeSample(75, 0.075),
+      routeSample(100, 0.1),
+      routeSample(75, 0.075),
+      routeSample(50, 0.05),
+      routeSample(25, 0.025),
       routeSample(0, 0, true),
     ],
   };
@@ -259,24 +277,23 @@ test("a stale candidate is replayed against HEAD and accepted when still valid",
   const world: CanonicalWorld = {
     ...canonicalWorld(),
     worldHash: "new-head",
+    baseCamp: { x: -80, y: 0, z: 0 },
     identities: [{ id: "agent-7", status: "ACTIVE" }],
   };
   const proof: ExpeditionProof = {
     route: [
-      routeSample(0, 0),
-      routeSample(0.5, 0.02),
-      routeSample(0, 0, true),
+      routeSample(-80, 0),
+      routeSample(-40, 0.02),
+      routeSample(0, 0.02),
+      routeSample(-40, 0.02),
+      routeSample(-80, 0, true),
     ],
-    mutation: {
-      kind: "ADD",
-      stoneId: "stone-7",
-      releasePose: pose(0, 0.11, 0),
-    },
-    releaseIndex: 1,
+    mutation: importStone("stone-7", pose(0, 0.11, 0)),
+    releaseIndex: 2,
   };
   const result = await validateCandidateCommit(
     {
-      protocol: "0.3.0",
+      protocol: "0.4.0",
       id: "candidate-7",
       parentWorldHash: "old-head",
       terrainHash: "terrain-head",
@@ -284,10 +301,10 @@ test("a stale candidate is replayed against HEAD and accepted when still valid",
       proof,
     },
     world,
-    { x: 0, y: 0, z: 0 },
+    { x: -80, y: 0, z: 0 },
   );
 
-  assert.equal(result.accepted, true);
+  assert.equal(result.accepted, true, JSON.stringify(result, null, 2));
   assert.equal(result.revalidatedAgainstHead, true);
   assert.equal(result.canonicalParent, "new-head");
 });
@@ -300,16 +317,12 @@ test("an action point cannot teleport a stone", async () => {
       routeSample(0.5, 0.02),
       routeSample(0, 0, true),
     ],
-    mutation: {
-      kind: "ADD",
-      stoneId: "stone-remote",
-      releasePose: pose(5, 0.11, 0),
-    },
+    mutation: importStone("stone-remote", pose(80, 0.11, 0)),
     releaseIndex: 1,
   };
   const result = await validateCandidateCommit(
     {
-      protocol: "0.3.0",
+      protocol: "0.4.0",
       id: "remote-action",
       parentWorldHash: world.worldHash,
       terrainHash: world.terrainHash,
@@ -323,22 +336,21 @@ test("an action point cannot teleport a stone", async () => {
   assert.equal(result.route?.code, "ACTION_POSITION_MISMATCH");
 });
 
-test("a loaded route cannot exceed 400 oxygen units", () => {
-  const route = Array.from({ length: 447 }, (_, index) =>
-    routeSample(index * 45, 0, index === 446),
+test("a loaded route cannot exceed 100 Endurance", () => {
+  const route = Array.from({ length: 5001 }, (_, index) =>
+    routeSample(index * 45, 0, index === 5000),
   );
   const proof: ExpeditionProof = {
     route,
-    mutation: {
-      kind: "ADD",
-      stoneId: "stone-too-far",
-      releasePose: pose(route.at(-1)!.x, 0.11, 0),
-    },
+    mutation: importStone(
+      "stone-too-far",
+      pose(route.at(-1)!.x, 0.11, 0),
+    ),
     releaseIndex: route.length - 1,
   };
   const result = validateRoute(proof, { x: 0, y: 0, z: 0 });
 
   assert.equal(result.valid, false);
-  assert.equal(result.code, "OXYGEN_EXHAUSTED");
-  assert.ok(result.oxygenUsed > 400);
+  assert.equal(result.code, "ENDURANCE_EXHAUSTED");
+  assert.ok(result.enduranceUsed > 100);
 });

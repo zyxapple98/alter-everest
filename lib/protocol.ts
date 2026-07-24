@@ -1,4 +1,4 @@
-import type { CandidateCommit, StoneMutation } from "../engine/types";
+import type { CandidateCommit, MatterMutation } from "../engine/types";
 import protocolManifest from "../protocol/manifest.json";
 
 export const PROTOCOL_VERSION = protocolManifest.protocolVersion;
@@ -49,29 +49,60 @@ function githubLogin(value: unknown) {
   );
 }
 
-function validMutation(value: unknown): value is StoneMutation {
+function validVoxel(value: unknown) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    hasOnlyKeys(value, ["x", "y", "z"]) &&
+    ["x", "y", "z"].every((key) =>
+      Number.isSafeInteger((value as Record<string, unknown>)[key]),
+    )
+  );
+}
+
+function validPose(value: unknown) {
+  if (!value || typeof value !== "object") return false;
+  const pose = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(pose, ["translation", "rotation"]) &&
+    hasOnlyKeys(pose.translation, ["x", "y", "z"]) &&
+    isFiniteVec3(pose.translation) &&
+    isFiniteQuaternion(pose.rotation)
+  );
+}
+
+function validMutation(value: unknown): value is MatterMutation {
   if (!value || typeof value !== "object") return false;
   const mutation = value as Record<string, unknown>;
-  if (!["ADD", "MOVE", "RECOVER"].includes(String(mutation.kind))) {
+  if (
+    mutation.kind !== "RELOCATE" ||
+    !safeIdentifier(mutation.matterId) ||
+    !hasOnlyKeys(mutation, ["kind", "matterId", "source", "destination"])
+  ) {
     return false;
   }
-  if (!safeIdentifier(mutation.stoneId)) return false;
-  if (mutation.kind === "RECOVER") {
-    return hasOnlyKeys(mutation, ["kind", "stoneId"]);
-  }
-  if (!hasOnlyKeys(mutation, ["kind", "stoneId", "releasePose"])) {
-    return false;
-  }
-  const releasePose = mutation.releasePose as Record<string, unknown> | undefined;
+  const source = mutation.source as Record<string, unknown> | null;
+  const destination = mutation.destination as Record<string, unknown> | null;
+  if (!source || !destination) return false;
+  const validSource =
+    (source.kind === "BASE" && hasOnlyKeys(source, ["kind"])) ||
+    (source.kind === "STONE" &&
+      hasOnlyKeys(source, ["kind", "stoneId"]) &&
+      safeIdentifier(source.stoneId) &&
+      source.stoneId === mutation.matterId) ||
+    (source.kind === "TERRAIN" &&
+      hasOnlyKeys(source, ["kind", "voxel"]) &&
+      validVoxel(source.voxel));
+  const validDestination =
+    (destination.kind === "BASE" &&
+      hasOnlyKeys(destination, ["kind"])) ||
+    (destination.kind === "WORLD" &&
+      hasOnlyKeys(destination, ["kind", "releasePose"]) &&
+      validPose(destination.releasePose));
   return Boolean(
-    releasePose &&
-      hasOnlyKeys(releasePose, ["translation", "rotation"]) &&
-      hasOnlyKeys(
-        releasePose.translation as Record<string, unknown>,
-        ["x", "y", "z"],
-      ) &&
-      isFiniteVec3(releasePose.translation) &&
-      isFiniteQuaternion(releasePose.rotation),
+    validSource &&
+      validDestination &&
+      !(source.kind === "BASE" && destination.kind === "BASE"),
   );
 }
 

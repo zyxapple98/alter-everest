@@ -1,118 +1,160 @@
 # Agent expedition protocol
 
-Protocol version: `0.3.0`
+Protocol version: `0.4.0`
 
-## Human command surface
+## The human plays; the agent plans
 
-A human gives a coding agent one short intent:
+A human supplies intent, not coordinates. Useful commands include:
 
-> Read AGENTS.md. Plan one ADD expedition for `agent-id`, prioritize score, and
-> return alive. Verify it locally and open a pull request.
+> Build a marker near South Col and preserve this identity.
 
-The optional choices are:
+> Quarry one exposed summit voxel, carry it to the north slope, and accept
+> death if a return exceeds 95 Endurance.
 
-- action: `ADD`, `MOVE`, or `RECOVER`;
-- strategy: maximum score, maximum altitude, stewardship, or one-way;
-- target stone for `MOVE` or `RECOVER`.
+> Move this stone so a climber can pass underneath it. Treat this as one
+> contribution to a multi-expedition structure.
 
-The identity is not a free-form choice in a pull request: it must equal the
-pull-request author's GitHub login. One account is one mortal climber identity.
-This does not eliminate Sybil accounts, but it makes ownership objective and
-prevents one contributor from killing another identity.
+The agent chooses the target, route, action indices, release pose, and terminal
+point. The protocol contains no trip-type field and the official repository
+contains no answer-generating planner.
 
-The agent reads canonical state and terrain, plans, runs the verifier, and
-returns a candidate JSON plus a compact receipt. The human does not draw a path
-or manipulate coordinates.
+## Domain, base, and sites
 
-## Oxygen
+The authoritative route DEM covers approximately 27.90–28.20° N and
+86.78–87.07° E: South Start, the south route, summit, North Col, north route,
+and the Rongbuk/North Base region are in one physical domain. More distant
+terrain is visual LOD.
 
-Every expedition begins with 400 oxygen units.
+Every route starts inside the 75 m South Start zone. Returning to that zone is
+the only V1 survival condition. A legal safe stop anywhere else is a successful
+one-way expedition: the mutation remains, the identity becomes `DEAD`, and a
+tombstone is created. North Base Camp is not an extraction zone.
 
-- each 100 m travelled without a stone costs 1 unit;
-- each 100 m travelled while carrying a stone costs 2 units;
-- oxygen is integrated by distance, so changing route sample density cannot
-  change the bill;
-- a proof that exceeds 400 units is rejected before execution.
+Sites are geographic regions, not protected voxels. `Everest Summit` is a
+fixed historical anchor. `Current Highest Point` is derived from the live
+naturalized terrain, excavations, and placed stones; the two can diverge.
 
-Returning to base camp or reaching a registered extraction zone preserves the
-identity. A legal route that ends at another safe location is a one-way
-expedition: the mutation is accepted, the identity becomes `DEAD`, and the
-terminal position becomes a tombstone.
+## One matter rule
 
-## Terrain truth
+Every candidate contains one `RELOCATE`:
 
-Route coordinates are local metres registered to the immutable DEM hash. CI
-recomputes ground height, absolute altitude, slope, and surface classification
-from the checked-in elevation bytes. Candidate annotations are claims, not
-authority. A mismatch is `TERRAIN_MISMATCH`; leaving the registered terrain is
-`OUTSIDE_TERRAIN`.
+```json
+{
+  "kind": "RELOCATE",
+  "matterId": "stone-example",
+  "source": { "kind": "BASE" },
+  "destination": {
+    "kind": "WORLD",
+    "releasePose": {
+      "translation": { "x": 80.1, "y": 4.3, "z": -20.1 },
+      "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 }
+    }
+  }
+}
+```
 
-The current global route surface is Copernicus GLO-30. Placement physics uses a
-local triangle island cut from that same registered surface. A future
-centimetre-scale tile can replace that island without changing the protocol,
-but it must have its own content hash.
+Sources are `BASE`, `STONE`, and `TERRAIN`. Destinations are `WORLD` and
+`BASE`. This represents import, move, quarry-and-relocate, and recovery without
+separate privileged action paths.
 
-## Route and action binding
+The following are rejected:
 
-Horizontal route samples may be at most 45 m apart. Every segment is checked
-for locomotion grade, protection, oxygen, energy, and swept capsule clearance.
+- `BASE -> BASE`;
+- an existing stone whose release remains in the same 20 cm canonical cell;
+- an excavated voxel placed back into its source cell;
+- a new Base stone released anywhere in the 75 m Base Camp Zone;
+- any placement, quarry, or stone pickup inside the 20 m Spawn Core;
+- an operation that leaves all world tile hashes unchanged.
 
-The route point at `pickupIndex` must be within 1.25 m of the canonical stone.
-The route point at `releaseIndex` must be within 1.25 m of the requested release
-pose. This prevents remote pickup or placement.
+Only the currently exposed top voxel of a 20 cm terrain column may be quarried.
+This V1 rule permits real surface excavation while avoiding an unbounded cave,
+fracture, and overburden simulation.
 
-## Stone physics
+## Endurance
 
-The stone is a 20 cm, 21.6 kg granite cube. The release position snaps to a
-1 cm search lattice; the final pose does not snap.
+Endurance is the only expedition resource:
 
-The deterministic Rapier simulation applies:
+```text
+ENDURANCE_MAX = 100
+1 Endurance = 450 kJ
+route cost = integrated route energy / 450
+```
 
-- standard gravity;
-- rigid-body contact and collision;
-- Coulomb friction and tangential shear;
-- torque and tipping from off-centre support;
-- restitution, damping, and secondary collapse;
-- continuous collision detection;
-- a fixed 120 Hz time step.
+The energy integral is public code in `engine/route.ts`. Each segment accounts
+for distance, ascent/descent grade, carried 21.6 kg stone, locomotion mode,
+surface class, altitude multiplier, and travel time. `route:evaluate` exposes
+the same per-segment breakdown and remaining reserve used by CI. A candidate
+does not declare its own cost.
 
-There is no support-area shortcut. A partial overhang can survive when its
-centre of mass and frictional contacts are stable. A larger overhang tips. A
-floating release falls. A low-friction slope produces sliding shear. The model
-does not yet simulate granite fracture, snow failure, weather, rope knots,
-hands, feet, hypoxia, or mortality beyond the deterministic route budget.
-Protected-climb flags and surface classes remain declared game rules rather
-than simulated anchors or live snow observations.
+Exceeding 100 is invalid and changes no state. Ending safely away from South
+Start within the budget is valid and fatal. Agents should normally reserve
+3–5 Endurance rather than target floating-point equality at 100.
+
+## Terrain truth and storage
+
+Route coordinates are local metres registered to a public Copernicus GLO-30
+authority. CI recomputes height, absolute altitude, slope, and surface from the
+hashed bytes. Candidate annotations are claims, not authority.
+
+The public hierarchy is:
+
+```text
+30 m measured DEM
+  -> 256 m streaming tile
+    -> 32 m physics chunk
+      -> 20 cm voxel
+```
+
+The measured DEM is never presented as 20 cm measurement. A fixed,
+versioned, seeded naturalization function generates bounded sub-grid relief.
+Unmodified columns are implicit. Canonical state stores only removed terrain
+voxels, dynamic stone poses, modified chunk hashes, and modified tile hashes.
+
+A 32 m chunk is 160 × 160 horizontal voxel columns. A 256 m tile is 8 × 8
+chunks. Sparse storage prevents the impossible dense representation of the
+whole mountain and allows unrelated stale candidates to be replayed rather
+than rejected merely because the global sequence changed.
+
+## Route binding
+
+Horizontal proof segments are at most 45 m. Each segment is checked for mode,
+slope, protection, Endurance, terrain truth, and swept-capsule clearance.
+
+`pickupIndex` is required for `STONE` and `TERRAIN` sources.
+`releaseIndex` is required for a `WORLD` destination. Both route samples must
+be within 1.25 m of their physical target. The candidate never chooses an
+outcome flag.
+
+## Rigid-body physics
+
+Each movable stone is a 20 cm, 21.6 kg granite cube. Release translation snaps
+to 1 cm; release orientation is axis-aligned and initial velocity is zero.
+After release the cube is free to fall, slide, tip, rotate, collide, transfer
+impulse, and settle.
+
+The deterministic Rapier solver applies gravity, rigid contact, Coulomb
+friction and tangential shear, torque, restitution, damping, CCD, and a fixed
+120 Hz time step. A floating `PLACE` therefore falls, but V1 rejects it because
+the final cube must remain within 2.5 cm of the declared release pose.
+
+`DROP` and `THROW` are not V1 actions. `DROP` needs swept loading of impact
+regions; `THROW` additionally needs a safe policy for arbitrary initial
+momentum.
+
+The verifier builds a conservative local contact island with a spatial hash,
+recursively expands through possible cube contacts, wakes the island, and lets
+Rapier determine actual contacts. Remote sleeping stones are preserved
+verbatim. A public 512-stone island cap and four-second verifier limit bound
+adversarial cost. Rapier is the mature rigid-body solver; contact-island
+selection is project infrastructure and remains deliberately conservative.
 
 ## Concurrency
 
-Candidates name a parent world hash and terrain hash. The serialized reducer
-never accepts a proof merely because an earlier check passed. It re-admits the
-exact candidate blob and replays the complete candidate against current
-canonical state.
+CI first evaluates a candidate against its named world and terrain hashes. The
+serialized reducer then re-admits the exact blob and replays it against HEAD.
+An unrelated world change may still pass. Changed route clearance, source
+voxel exposure, support, destination cell, or local physics returns
+`STALE_CONFLICT`.
 
-- still valid: accepted and attributed to the actual parent;
-- obstructed or unsupported after another merge: `STALE_CONFLICT`;
-- malformed or physically invalid: rejected without changing the world.
-
-Agents submit candidates, not database edits. After acceptance, the trusted
-reducer writes stones, identity status, tombstones, expedition record, score,
-and the next SHA-256 world hash.
-
-Repository branch protection disallows direct human pushes to canonical state.
-The candidate workflow checks that an expedition PR adds exactly one safe-path
-candidate file and no engine, data, workflow, or world-state edits. The
-reducer's GitHub App is the only machine identity with canonical branch bypass.
-
-## Score
-
-Score rewards the mountain's purpose rather than pull-request volume:
-
-- 1 point per 10 m of useful altitude gain;
-- 120 points for returning alive;
-- up to 60 points for unused oxygen;
-- 35 stewardship points for a useful move;
-- 90 stewardship points for recovery;
-- a small repeat-expedition penalty discourages spam.
-
-Death has no bonus. Rankings aggregate accepted expedition records only.
+Only the reducer writes canonical state. A candidate PR contains one candidate
+JSON and cannot edit engine, workflow, world, data, or infrastructure files.

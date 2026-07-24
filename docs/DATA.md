@@ -1,53 +1,51 @@
-# Terrain data ladder
+# Terrain data and derivation
 
-ALTER EVEREST separates display detail from physical authority. A rendered
-voxel may be stylized; a route or stone placement may only depend on registered
-source data whose bytes and coordinate transform are content-hashed.
+## Public authority
 
-## Current layer
+The repository publishes a Copernicus GLO-30 authority clipped to approximately
+27.90–28.20° N and 86.78–87.07° E. It covers both Everest slopes. The measured
+source resolution is 30 m; the project never labels generated sub-grid detail
+as measurement.
 
-Copernicus GLO-30 is the checked-in global surface. It provides one arc-second
-spacing, worldwide continuity, and documented WGS 84 / EGM2008 registration.
-The observatory derives its 30 m, 90 m, and 300 m levels from those same bytes.
+`public/data/everest-dem-authority.int16` is the CI route authority. Separate
+30/90/300 m display LODs keep the interactive scene practical.
 
-This is sufficient for the world silhouette, strategic route search, altitude,
-and broad slope. It is not evidence of a 20 cm ledge. The local Rapier mesh is
-therefore mechanically real but geometrically limited by a 30 m measurement.
+Attribution:
 
-## Next measured layer
+> produced using Copernicus WorldDEM-30 © DLR e.V. 2010–2014 and © Airbus
+> Defence and Space GmbH 2014–2018 provided under COPERNICUS by the European
+> Union and ESA; all rights reserved
 
-[NASA NSIDC HMA_DEM8m_AT](https://nsidc.org/data/hma_dem8m_at/versions/1)
-contains 8 m DEM strips generated from high-resolution along-track optical
-imagery across High Mountain Asia. It is free with a NASA Earthdata Login and
-has varying dates and footprints.
+## Deterministic 20 cm surface
 
-An import is eligible only after it:
+`world/terrain.json` binds the source hash, local registration, and all
+naturalization constants into one terrain authority hash. `ae-surface-v1`
+uses seeded, bounded multi-scale value noise. The same `(x,z)` and terrain hash
+always produce the same 20 cm top column.
 
-1. covers the selected Everest physics region without unlabelled voids;
-2. is transformed into the canonical horizontal and vertical datum;
-3. is co-registered against stable bedrock, not snow or cloud artefacts;
-4. records acquisition time, uncertainty, source granules, and licence;
-5. produces immutable source, transform, mesh, and tile hashes;
-6. passes seam, altitude, route, and physics regression tests.
+Only actual edits are stored:
 
-At 8 m, route grades become materially better, but 20 cm stone contact is still
-not measured.
+- exposed voxels removed from native terrain;
+- imported or quarried dynamic stone poses;
+- modified 32 m chunk hashes;
+- modified 256 m tile hashes.
 
-## Placement layer
+The untouched mountain is regenerated from the source and rules. No dense
+20 cm mountain file exists.
 
-Decimetre contact needs an independently licensed survey: terrestrial or UAV
-photogrammetry, LiDAR, or a surveyed game surface tied to control points. It
-should exist only around mutable stone islands, never as a global grid.
+## Local 8 m research asset
+
+The exact HMA mosaic tile containing both slopes is:
 
 ```text
-300 m  horizon silhouette
- 90 m  regional continuity
- 30 m  global route surface (current authority)
-  8 m  high-mountain route refinement
-0.2 m  sparse placement islands
+HMA_DEM8m_MOS_20170716_tile-677.tif
+size:   388,214,180 bytes
+SHA256: c43a1b097c0e9d44815429469cd558fcd1ba0df3af9cf49b1206bd7e7a7d66e9
 ```
 
-The terrain interface already isolates this upgrade. A finer tile may replace a
-coarser local collision island only when its hash becomes part of the canonical
-world version. Procedural noise is allowed in the renderer and forbidden in the
-physics oracle.
+It is an 8 m Float32 GeoTIFF with `-9999` NoData and a custom Albers projection.
+The file may be used locally for research, comparison, and visual QA. Its
+redistribution terms are not explicit enough for this repository to publish
+the raw tile or a near-lossless derivative. It is therefore excluded from Git,
+build artifacts, Pages, Sites, R2, and release archives unless written
+permission or a clearly applicable redistribution grant is obtained.
