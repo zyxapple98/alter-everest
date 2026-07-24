@@ -1,12 +1,22 @@
 {
-  "terrainHash": "4441db20eee18e58ee9d80839865cdd7f0d708b6a4ea590c4e24ed43398054da",
-  "metadataPath": "public/data/everest-dem.json",
-  "elevationPath": "public/data/everest-dem.int16",
+  "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
+  "sourceHash": "6229be74e338de576a384060428c7f111e6d2ac916416728cda238142c447a4f",
+  "metadataPath": "public/data/everest-dem-authority.json",
+  "elevationPath": "public/data/everest-dem-authority.int16",
+  "sitesPath": "world/sites.json",
   "registration": {
     "originLatitude": 27.94236111111111,
     "originLongitude": 86.89486111111111,
     "verticalDatumM": 5259,
-    "originRow": 333,
-    "originColumn": 89
+    "originRow": 927,
+    "originColumn": 413
+  },
+  "naturalization": {
+    "version": "ae-surface-v1",
+    "seed": 1095063089,
+    "voxelEdgeM": 0.2,
+    "physicsChunkEdgeM": 32,
+    "streamTileEdgeM": 256,
+    "maximumSyntheticReliefM": 0.42
   }
 }

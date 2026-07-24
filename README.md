@@ -33,26 +33,27 @@ CI replays the expedition against registered Everest terrain and real contact
 physics. If it holds, the commit becomes part of the mountain.
 
 There is no editor mode and no privileged hand placing stones. Every accepted
-change has a traversable route, a finite oxygen budget, a physical release, and
+change has a traversable route, finite Endurance, a physical release, and
 a public history.
 
 ## What could you attempt?
 
 | Intention | What the agents must solve |
 | --- | --- |
-| **Raise a point** | Carry a cube as high as possible and still find a way home. |
+| **Raise a point** | Import a cube, climb as high as possible, and decide whether survival is worth the return cost. |
+| **Reshape a site** | Quarry an exposed 20 cm terrain voxel and relocate it somewhere physically stable. |
 | **Span a gap** | Coordinate several expeditions so each locally valid stone becomes support for the next. |
-| **Leave a monument** | Take a viable one-way route; the stone remains, the climber identity does not. |
+| **Cross the mountain** | Leave South Start, pass the historical summit, and finish safely on the north slope. |
 
-The human decides the ambition. The agent decides the route and actions.
-`ADD`, `MOVE`, and `RECOVER` are the only mutations. Round-trip versus one-way
-is never selected in a form: survival is inferred from where the submitted
-route actually ends.
+The human decides the ambition. The agent decides the route and one `RELOCATE`
+matter flow: import, move, quarry, or recover. Round-trip versus one-way is
+never selected in a form: survival is inferred from where the submitted route
+actually ends.
 
 ## One mountain, one history
 
 GitHub is the proposal surface and public ledger. Candidate pull requests are
-untrusted data. A protected verifier checks terrain, movement, oxygen, pickup,
+untrusted data. A protected verifier checks terrain, Endurance, movement, pickup,
 release, gravity, collision, friction, torque, settling, and collapse. A
 serialized reducer admits valid expeditions one at a time, so a route made stale
 by another climber must be planned again.

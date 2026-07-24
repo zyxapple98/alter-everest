@@ -1,10 +1,15 @@
 import { PHYSICS } from "./constants";
 import {
+  mutationReleasePose,
+  mutationStoneId,
+  voxelCenter,
+} from "./mutation";
+import {
   IDENTITY_QUATERNION,
   type PhysicsSnapshot,
   type PhysicsVerdict,
   type Pose,
-  type StoneMutation,
+  type MatterMutation,
   type StoneState,
 } from "./types";
 
@@ -47,35 +52,72 @@ function distance(a: Pose["translation"], b: Pose["translation"]) {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
+function canonicalCell(point: Pose["translation"]) {
+  return {
+    x: Math.floor(point.x / PHYSICS.stoneEdgeM),
+    y: Math.floor(point.y / PHYSICS.stoneEdgeM),
+    z: Math.floor(point.z / PHYSICS.stoneEdgeM),
+  };
+}
+
 function vectorMagnitude(vector: { x: number; y: number; z: number }) {
   return Math.hypot(vector.x, vector.y, vector.z);
 }
 
 function contactIslandIds(
   snapshot: PhysicsSnapshot,
-  mutation: StoneMutation,
+  mutation: MatterMutation,
 ) {
   const anchors: Pose["translation"][] = [];
-  const existing = snapshot.stones.find(
-    (stone) => stone.id === mutation.stoneId,
-  );
+  const sourceStoneId =
+    mutation.source.kind === "STONE" ? mutation.source.stoneId : null;
+  const existing = sourceStoneId
+    ? snapshot.stones.find((stone) => stone.id === sourceStoneId)
+    : null;
   if (existing) anchors.push(existing.pose.translation);
-  if (mutation.kind !== "RECOVER") {
-    anchors.push(mutation.releasePose.translation);
+  if (mutation.source.kind === "TERRAIN") {
+    anchors.push(voxelCenter(mutation.source.voxel));
   }
+  const releasePose = mutationReleasePose(mutation);
+  if (releasePose) anchors.push(releasePose.translation);
 
   const selected = new Set<string>();
   const frontier = [...anchors];
   const maximumDistance = PHYSICS.contactIslandLinkM;
+  const cellSize = maximumDistance;
+  const buckets = new Map<string, StoneState[]>();
+  const bucketCoordinate = (value: number) => Math.floor(value / cellSize);
+  const bucketKey = (x: number, y: number, z: number) => `${x}:${y}:${z}`;
+  for (const stone of snapshot.stones) {
+    const point = stone.pose.translation;
+    const key = bucketKey(
+      bucketCoordinate(point.x),
+      bucketCoordinate(point.y),
+      bucketCoordinate(point.z),
+    );
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(stone);
+    else buckets.set(key, [stone]);
+  }
+
   for (let index = 0; index < frontier.length; index += 1) {
     const point = frontier[index];
-    for (const stone of snapshot.stones) {
-      if (selected.has(stone.id)) continue;
-      if (distance(point, stone.pose.translation) <= maximumDistance) {
-        selected.add(stone.id);
-        frontier.push(stone.pose.translation);
-        if (selected.size > PHYSICS.maxContactIslandStones) {
-          return { ids: selected, exceeded: true };
+    const bx = bucketCoordinate(point.x);
+    const by = bucketCoordinate(point.y);
+    const bz = bucketCoordinate(point.z);
+    for (let dx = -1; dx <= 1; dx += 1) {
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dz = -1; dz <= 1; dz += 1) {
+          for (const stone of buckets.get(bucketKey(bx + dx, by + dy, bz + dz)) ?? []) {
+            if (selected.has(stone.id)) continue;
+            if (distance(point, stone.pose.translation) <= maximumDistance) {
+              selected.add(stone.id);
+              frontier.push(stone.pose.translation);
+              if (selected.size > PHYSICS.maxContactIslandStones) {
+                return { ids: selected, exceeded: true };
+              }
+            }
+          }
         }
       }
     }
@@ -107,16 +149,24 @@ function changedStoneIds(before: StoneState[], after: StoneState[]) {
 
 function prepareMutation(
   snapshot: PhysicsSnapshot,
-  mutation: StoneMutation,
+  mutation: MatterMutation,
 ):
   | { ok: true; stones: StoneState[]; intendedRelease: Pose | null }
   | {
       ok: false;
       verdict: PhysicsVerdict;
     } {
-  const exists = snapshot.stones.some((stone) => stone.id === mutation.stoneId);
+  const sourceStoneId =
+    mutation.source.kind === "STONE" ? mutation.source.stoneId : null;
+  const resultingStoneId = mutationStoneId(mutation);
+  const sourceExists =
+    sourceStoneId !== null &&
+    snapshot.stones.some((stone) => stone.id === sourceStoneId);
+  const resultExists = snapshot.stones.some(
+    (stone) => stone.id === resultingStoneId,
+  );
 
-  if (mutation.kind === "ADD" && exists) {
+  if (mutation.source.kind !== "STONE" && resultExists) {
     return {
       ok: false,
       verdict: {
@@ -132,7 +182,7 @@ function prepareMutation(
     };
   }
 
-  if (mutation.kind !== "ADD" && !exists) {
+  if (mutation.source.kind === "STONE" && !sourceExists) {
     return {
       ok: false,
       verdict: {
@@ -149,16 +199,64 @@ function prepareMutation(
   }
 
   const remaining = snapshot.stones.filter(
-    (stone) => stone.id !== mutation.stoneId,
+    (stone) => stone.id !== sourceStoneId,
   );
 
-  if (mutation.kind === "RECOVER") {
+  if (mutation.destination.kind === "BASE") {
     return { ok: true, stones: remaining, intendedRelease: null };
   }
 
-  const intendedRelease = snapReleasePose(mutation.releasePose);
+  const intendedRelease = snapReleasePose(mutation.destination.releasePose);
+  if (
+    mutation.source.kind === "STONE" &&
+    (() => {
+      const before = canonicalCell(
+        snapshot.stones.find((stone) => stone.id === sourceStoneId)!.pose
+          .translation,
+      );
+      const after = canonicalCell(intendedRelease.translation);
+      return before.x === after.x && before.y === after.y && before.z === after.z;
+    })()
+  ) {
+    return {
+      ok: false,
+      verdict: {
+        valid: false,
+        code: "NO_STATE_CHANGE",
+        finalStones: snapshot.stones,
+        affectedStoneIds: [],
+        simulatedSeconds: 0,
+        maxLinearSpeed: 0,
+        maxAngularSpeed: 0,
+        contactModel: "RAPIER_COULOMB_FRICTION",
+      },
+    };
+  }
+  if (mutation.source.kind === "TERRAIN") {
+    const destinationCell = canonicalCell(intendedRelease.translation);
+    const sourceCell = mutation.source.voxel;
+    if (
+      destinationCell.x === sourceCell.x &&
+      destinationCell.y === sourceCell.y &&
+      destinationCell.z === sourceCell.z
+    ) {
+      return {
+        ok: false,
+        verdict: {
+          valid: false,
+          code: "NO_STATE_CHANGE",
+          finalStones: snapshot.stones,
+          affectedStoneIds: [],
+          simulatedSeconds: 0,
+          maxLinearSpeed: 0,
+          maxAngularSpeed: 0,
+          contactModel: "RAPIER_COULOMB_FRICTION",
+        },
+      };
+    }
+  }
   const releasedStone: StoneState = {
-    id: mutation.stoneId,
+    id: resultingStoneId,
     pose: intendedRelease,
   };
 
@@ -173,16 +271,10 @@ function prepareMutation(
 
 export async function simulateMutation(
   snapshot: PhysicsSnapshot,
-  mutation: StoneMutation,
+  mutation: MatterMutation,
 ): Promise<PhysicsVerdict> {
-  const exists = snapshot.stones.some((stone) => stone.id === mutation.stoneId);
-  if (
-    (mutation.kind === "ADD" && exists) ||
-    (mutation.kind !== "ADD" && !exists)
-  ) {
-    const rejected = prepareMutation(snapshot, mutation);
-    if (!rejected.ok) return rejected.verdict;
-  }
+  const rejected = prepareMutation(snapshot, mutation);
+  if (!rejected.ok) return rejected.verdict;
 
   const island = contactIslandIds(snapshot, mutation);
   if (island.exceeded) {
@@ -206,6 +298,18 @@ export async function simulateMutation(
   };
   const prepared = prepareMutation(localSnapshot, mutation);
   if (!prepared.ok) return prepared.verdict;
+  if (prepared.stones.length > PHYSICS.maxContactIslandStones) {
+    return {
+      valid: false,
+      code: "CONTACT_ISLAND_TOO_LARGE",
+      finalStones: snapshot.stones,
+      affectedStoneIds: [],
+      simulatedSeconds: 0,
+      maxLinearSpeed: 0,
+      maxAngularSpeed: 0,
+      contactModel: "RAPIER_COULOMB_FRICTION",
+    };
+  }
 
   const RAPIER = await loadPhysicsRuntime();
   const world = new RAPIER.World({
@@ -342,9 +446,9 @@ export async function simulateMutation(
   });
 
   const placedStone =
-    mutation.kind === "RECOVER"
+    mutation.destination.kind === "BASE"
       ? null
-      : finalStones.find((stone) => stone.id === mutation.stoneId) ?? null;
+      : finalStones.find((stone) => stone.id === mutationStoneId(mutation)) ?? null;
   const placementHeld =
     !prepared.intendedRelease ||
     (placedStone !== null &&

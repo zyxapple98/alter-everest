@@ -6,6 +6,8 @@ import type {
   CanonicalExpeditionEvent,
   CanonicalWorld,
 } from "../engine/types";
+import { currentHighestPoint } from "../engine/highest-point";
+import { loadDemBundle } from "./expedition-kit";
 
 const OUTPUT_PATH = resolve("public/data/world/latest.json");
 const BADGES_OUTPUT_PATH = resolve("public/data/world/badges.json");
@@ -15,6 +17,7 @@ const METERS_PER_DEGREE_LATITUDE = 111_320;
 interface TerrainConfig {
   registration: {
     originLatitude: number;
+    originLongitude: number;
     originRow: number;
     originColumn: number;
   };
@@ -23,10 +26,17 @@ interface TerrainConfig {
 
 interface DemMetadata {
   sampleSpacingArcSeconds: number;
+  bounds: {
+    north: number;
+    west: number;
+  };
 }
 
-function actionLabel(action: "ADD" | "MOVE" | "RECOVER") {
-  return action === "ADD" ? "ADDED" : action === "MOVE" ? "MOVED" : "RECOVERED";
+function actionLabel(action: "ADD" | "MOVE" | "RECOVER" | "QUARRY") {
+  if (action === "ADD") return "ADDED";
+  if (action === "MOVE") return "MOVED";
+  if (action === "QUARRY") return "QUARRIED";
+  return "RECOVERED";
 }
 
 function hashBytes(bytes: Buffer) {
@@ -62,16 +72,16 @@ async function traceForEvent(
   }
   const candidate = JSON.parse(bytes.toString("utf8")) as CandidateCommit;
   const route = candidate.proof.route;
+  const mutation = candidate.proof.mutation as unknown as {
+    kind?: string;
+    destination?: { kind?: string };
+  };
   const actionIndex =
-    candidate.proof.mutation.kind === "RECOVER"
+    mutation.destination?.kind === "BASE" ||
+    mutation.kind === "RECOVER"
       ? candidate.proof.pickupIndex!
       : candidate.proof.releaseIndex!;
   const degrees = metadata.sampleSpacingArcSeconds / 3600;
-  const cellX =
-    degrees *
-    METERS_PER_DEGREE_LATITUDE *
-    Math.cos((config.registration.originLatitude * Math.PI) / 180);
-  const cellZ = degrees * METERS_PER_DEGREE_LATITUDE;
   const stride = Math.max(1, Math.ceil(route.length / 220));
   const trace = route
     .filter(
@@ -82,8 +92,22 @@ async function traceForEvent(
         index % stride === 0,
     )
     .map((sample) => ({
-      column: config.registration.originColumn + sample.x / cellX,
-      row: config.registration.originRow + sample.z / cellZ,
+      column:
+        (config.registration.originLongitude +
+          sample.x /
+            (METERS_PER_DEGREE_LATITUDE *
+              Math.cos(
+                (config.registration.originLatitude * Math.PI) / 180,
+              )) -
+          metadata.bounds.west) /
+          degrees -
+        0.5,
+      row:
+        (metadata.bounds.north -
+          (config.registration.originLatitude -
+            sample.z / METERS_PER_DEGREE_LATITUDE)) /
+          degrees -
+        0.5,
     }));
   return {
     trace,
@@ -92,16 +116,17 @@ async function traceForEvent(
   };
 }
 
-const [world, config] = await Promise.all([
+const [world, config, terrain] = await Promise.all([
   readFile(resolve("world/snapshot.json"), "utf8").then(
     (text) => JSON.parse(text) as CanonicalWorld,
   ),
   readFile(resolve("world/terrain.json"), "utf8").then(
     (text) => JSON.parse(text) as TerrainConfig,
   ),
+  loadDemBundle(),
 ]);
 const metadata = JSON.parse(
-  await readFile(resolve(config.metadataPath), "utf8"),
+  await readFile(resolve("public/data/everest-dem.json"), "utf8"),
 ) as DemMetadata;
 const events = await loadEvents();
 const totals = new Map<string, number>();
@@ -128,7 +153,8 @@ const recentExpeditions =
             color: COLORS[index % COLORS.length],
             returned: event.outcome === "ACTIVE",
             outcome: event.outcome,
-            oxygenUsed: event.oxygenUsed,
+            enduranceUsed:
+              event.enduranceUsed ?? event.energyKj / 450,
             score: event.score,
             releaseFraction: route?.releaseFraction ?? 0.5,
             totalScore: totals.get(event.agentId) ?? event.score,
@@ -144,7 +170,8 @@ const recentExpeditions =
         color: COLORS[index % COLORS.length],
         returned: expedition.outcome === "ACTIVE",
         outcome: expedition.outcome,
-        oxygenUsed: expedition.oxygenUsed,
+        enduranceUsed:
+          expedition.enduranceUsed ?? expedition.oxygenUsed ?? 0,
         score: expedition.score,
         releaseFraction: 0.5,
         totalScore: totals.get(expedition.agentId) ?? expedition.score,
@@ -164,10 +191,24 @@ const leaderboard = [...totals.entries()]
   .slice(0, 50);
 
 const feed = {
-  schemaVersion: "1.0.0",
+  schemaVersion: "1.1.0",
   sequence: world.sequence,
   worldHash: world.worldHash,
   summitHeightM: 8848.86,
+  historicalSummit: {
+    name: "Everest Summit",
+    latitude: 27.9881,
+    longitude: 86.925,
+    officialHeightM: 8848.86,
+  },
+  currentHighestPoint: currentHighestPoint(
+    terrain.metadata,
+    terrain.elevations,
+    terrain.config.registration,
+    terrain.oracle,
+    world.removedTerrainVoxels,
+    world.stones,
+  ),
   recentExpeditions,
   leaderboard,
 };

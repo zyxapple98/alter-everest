@@ -1,13 +1,14 @@
 {
   "sequence": 6319,
-  "worldHash": "765cd879a9cf9101f7d79a4ac23fd70ce0e6ae3dbe337958d84a408d707cf28e",
-  "terrainHash": "4441db20eee18e58ee9d80839865cdd7f0d708b6a4ea590c4e24ed43398054da",
+  "worldHash": "c2990c9964ac166af609ad2a1f3281ce68eccfb682759a218869f2ff29b5976e",
+  "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
   "baseCamp": {
     "x": 0,
     "y": 0,
     "z": 0
   },
   "extractionZones": [],
+  "removedTerrainVoxels": [],
   "stones": [
     {
       "id": "stone-expedition-zyxapple98-mryg9683",
@@ -56,7 +57,7 @@
         "z": -5194
       },
       "altitudeM": 8735,
-      "oxygenUsed": 188.4
+      "enduranceUsed": 21.288889
     }
   ],
   "expeditions": [
@@ -66,7 +67,7 @@
       "action": "ADD",
       "outcome": "DEAD",
       "altitudeM": 8735,
-      "oxygenUsed": 188.4,
+      "enduranceUsed": 21.288889,
       "energyKj": 9580,
       "score": 353
     },
@@ -76,7 +77,7 @@
       "action": "MOVE",
       "outcome": "ACTIVE",
       "altitudeM": 7924,
-      "oxygenUsed": 276.2,
+      "enduranceUsed": 24.933333,
       "energyKj": 11220,
       "score": 421
     },
@@ -86,7 +87,7 @@
       "action": "RECOVER",
       "outcome": "ACTIVE",
       "altitudeM": 6120,
-      "oxygenUsed": 132.8,
+      "enduranceUsed": 9.577778,
       "energyKj": 4310,
       "score": 250
     },
@@ -96,9 +97,32 @@
       "action": "ADD",
       "outcome": "ACTIVE",
       "altitudeM": 8737.99999999993,
-      "oxygenUsed": 242.75932278718022,
+      "enduranceUsed": 106.307297,
       "energyKj": 47838.28374548972,
       "score": 492
+    }
+  ],
+  "modifiedChunks": [
+    {
+      "id": "94:-163",
+      "x": 94,
+      "z": -163,
+      "removedTerrainVoxels": [],
+      "stoneIds": [
+        "stone-expedition-zyxapple98-mryg9683"
+      ],
+      "hash": "443b1abbd8fa0518d525c3ac3dd642b2355532c9b3689f3e8b34e431451e0c15"
+    }
+  ],
+  "modifiedTiles": [
+    {
+      "id": "11:-21",
+      "x": 11,
+      "z": -21,
+      "chunkHashes": [
+        "443b1abbd8fa0518d525c3ac3dd642b2355532c9b3689f3e8b34e431451e0c15"
+      ],
+      "hash": "3ec71e546144ead04dc6ba3d9d0c1415cbb9d6a1daa931b4d355c39a25abd3d1"
     }
   ]
 }

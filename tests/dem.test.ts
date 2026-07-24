@@ -2,8 +2,20 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { TERRAIN } from "../engine/constants";
+import {
+  chunkForVoxel,
+  syntheticReliefM,
+  tileForVoxel,
+} from "../engine/surface";
+import { loadDemBundle } from "../scripts/expedition-kit";
 
 const layers = [
+  {
+    stem: "everest-dem-authority",
+    lod: "authority",
+    displayResolutionM: 30,
+  },
   { stem: "everest-dem", lod: "core", displayResolutionM: 30 },
   { stem: "everest-dem-mid", lod: "mid", displayResolutionM: 90 },
   { stem: "everest-dem-far", lod: "far", displayResolutionM: 300 },
@@ -43,9 +55,17 @@ test("the bundled Everest DEM levels match their source manifests", async () => 
 });
 
 test("the real terrain LODs nest around Everest and reach beyond 100 km", async () => {
-  const [{ metadata: core }, { metadata: mid }, { metadata: far }] =
-    await Promise.all(layers.map((layer) => readLayer(layer.stem)));
+  const [
+    { metadata: authority },
+    { metadata: core },
+    { metadata: mid },
+    { metadata: far },
+  ] = await Promise.all(layers.map((layer) => readLayer(layer.stem)));
 
+  assert.ok(authority.bounds.north >= 28.19);
+  assert.ok(authority.bounds.south <= 27.91);
+  assert.ok(authority.bounds.west <= 86.79);
+  assert.ok(authority.bounds.east >= 87.06);
   assert.ok(core.bounds.west > mid.bounds.west);
   assert.ok(core.bounds.east < mid.bounds.east);
   assert.ok(core.bounds.south > mid.bounds.south);
@@ -60,4 +80,31 @@ test("the real terrain LODs nest around Everest and reach beyond 100 km", async 
   assert.ok(northSouthCoverageKm > 100);
   assert.ok(Math.abs(core.maximumCoordinate.latitude - 27.9881) < 0.003);
   assert.ok(Math.abs(core.maximumCoordinate.longitude - 86.925) < 0.003);
+});
+
+test("the authoritative route grid contains both south and north bases", async () => {
+  const terrain = await loadDemBundle();
+  const registration = terrain.config.registration;
+  const longitudeScale =
+    111_320 * Math.cos((registration.originLatitude * Math.PI) / 180);
+  const local = (latitude: number, longitude: number) => ({
+    x: (longitude - registration.originLongitude) * longitudeScale,
+    z: (registration.originLatitude - latitude) * 111_320,
+  });
+  const south = local(28.0026, 86.8528);
+  const north = local(28.142, 86.852);
+  assert.ok(terrain.oracle.sample(south.x, south.z));
+  assert.ok(terrain.oracle.sample(north.x, north.z));
+});
+
+test("naturalized 20 cm columns map deterministically into 32 m chunks and 256 m tiles", () => {
+  assert.equal(syntheticReliefM(123.4, -987.6), syntheticReliefM(123.4, -987.6));
+  assert.ok(Math.abs(syntheticReliefM(123.4, -987.6)) <= 0.42);
+  const voxel = {
+    x: Math.floor(40 / TERRAIN.voxelEdgeM),
+    y: 0,
+    z: Math.floor(-300 / TERRAIN.voxelEdgeM),
+  };
+  assert.deepEqual(chunkForVoxel(voxel), { x: 1, z: -10 });
+  assert.deepEqual(tileForVoxel(voxel), { x: 0, z: -2 });
 });

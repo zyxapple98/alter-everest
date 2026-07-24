@@ -9,11 +9,12 @@ import type {
   CandidateCommit,
   CommitVerdict,
   IdentityOutcome,
-  StoneMutation,
+  MutationOperation,
 } from "../engine/types";
+import { operationLabel } from "../engine/mutation";
 
 export interface ReceiptBody {
-  receiptVersion: "1.0.0";
+  receiptVersion: "1.1.0";
   candidateHash: string;
   candidateId: string;
   agentId: string;
@@ -24,9 +25,9 @@ export interface ReceiptBody {
   result: {
     accepted: boolean;
     code: CommitVerdict["code"];
-    action: StoneMutation["kind"];
+    action: MutationOperation;
     outcome: IdentityOutcome | null;
-    oxygenUsed: number | null;
+    enduranceUsed: number | null;
     energyKj: number | null;
     score: number | null;
     physicsCode: string | null;
@@ -68,7 +69,7 @@ export function receiptBody(
   issuedAt: string | null = null,
 ): ReceiptBody {
   return {
-    receiptVersion: "1.0.0",
+    receiptVersion: "1.1.0",
     candidateHash,
     candidateId: candidate.id,
     agentId: candidate.agentId,
@@ -79,10 +80,10 @@ export function receiptBody(
     result: {
       accepted: verdict.accepted,
       code: verdict.code,
-      action: candidate.proof.mutation.kind,
+      action: operationLabel(candidate.proof.mutation),
       outcome: verdict.nextIdentityStatus,
-      oxygenUsed: verdict.route
-        ? Number(verdict.route.oxygenUsed.toFixed(6))
+      enduranceUsed: verdict.route
+        ? Number(verdict.route.enduranceUsed.toFixed(6))
         : null,
       energyKj: verdict.route
         ? Number(verdict.route.energyKj.toFixed(6))

@@ -31,21 +31,24 @@ function invalid(
       | "elapsedSeconds"
       | "distanceM"
       | "loadedDistanceM"
-      | "oxygenUsed"
+      | "enduranceUsed"
     >
   > = {},
 ): RouteVerdict {
-  const oxygenUsed = diagnostics.oxygenUsed ?? 0;
+  const enduranceUsed = diagnostics.enduranceUsed ?? 0;
   return {
     valid: false,
     code,
     outcome: "DEAD",
+    enduranceUsed,
+    enduranceRemaining: Math.max(
+      0,
+      CLIMBER.enduranceCapacity - enduranceUsed,
+    ),
     energyKj: diagnostics.energyKj ?? 0,
     elapsedSeconds: diagnostics.elapsedSeconds ?? 0,
     distanceM: diagnostics.distanceM ?? 0,
     loadedDistanceM: diagnostics.loadedDistanceM ?? 0,
-    oxygenUsed,
-    oxygenRemaining: Math.max(0, CLIMBER.oxygenCapacity - oxygenUsed),
     terminalDistanceFromBaseM,
   };
 }
@@ -92,10 +95,13 @@ function pandolfWatts(
 
 function isCarryingStone(proof: ExpeditionProof, segmentIndex: number) {
   const { mutation } = proof;
-  if (mutation.kind === "ADD") {
-    return segmentIndex < (proof.releaseIndex ?? -1);
+  if (mutation.source.kind === "BASE") {
+    return (
+      mutation.destination.kind === "WORLD" &&
+      segmentIndex < (proof.releaseIndex ?? -1)
+    );
   }
-  if (mutation.kind === "MOVE") {
+  if (mutation.destination.kind === "WORLD") {
     return (
       segmentIndex >= (proof.pickupIndex ?? Number.POSITIVE_INFINITY) &&
       segmentIndex < (proof.releaseIndex ?? -1)
@@ -121,25 +127,86 @@ function allowedSlope(
   return CLIMBER.maxClimbSlopeDegrees;
 }
 
+export interface EnduranceSegment {
+  fromIndex: number;
+  toIndex: number;
+  distanceM: number;
+  ascentM: number;
+  carrying: boolean;
+  mode: LocomotionMode;
+  surface: SurfaceKind;
+  altitudeM: number;
+  energyKj: number;
+  endurance: number;
+}
+
+function enduranceSegment(
+  proof: ExpeditionProof,
+  index: number,
+): EnduranceSegment {
+  const from = proof.route[index - 1];
+  const to = proof.route[index];
+  const distanceM = distance(from, to);
+  const horizontalM = Math.max(0.05, horizontalDistance(from, to));
+  const carrying = isCarryingStone(proof, index - 1);
+  const speedMps = speedFor(to.mode);
+  const seconds = distanceM / speedMps;
+  const gradePercent = ((to.y - from.y) / horizontalM) * 100;
+  const watts = pandolfWatts(
+    CLIMBER.bodyMassKg,
+    carrying ? PHYSICS.stoneMassKg : 0,
+    speedMps,
+    gradePercent,
+    terrainFactor(to.surface),
+  );
+  const altitudeM = (from.altitudeM + to.altitudeM) / 2;
+  const energyKj =
+    (watts * altitudeMultiplier(altitudeM) * seconds) / 1000;
+  return {
+    fromIndex: index - 1,
+    toIndex: index,
+    distanceM,
+    ascentM: to.y - from.y,
+    carrying,
+    mode: to.mode,
+    surface: to.surface,
+    altitudeM,
+    energyKj,
+    endurance: energyKj / CLIMBER.kilojoulesPerEndurance,
+  };
+}
+
+export function evaluateRouteEndurance(proof: ExpeditionProof) {
+  const segments = proof.route
+    .slice(1)
+    .map((_, index) => enduranceSegment(proof, index + 1));
+  const energyKj = segments.reduce(
+    (total, segment) => total + segment.energyKj,
+    0,
+  );
+  const enduranceUsed = energyKj / CLIMBER.kilojoulesPerEndurance;
+  return {
+    capacity: CLIMBER.enduranceCapacity,
+    kilojoulesPerEndurance: CLIMBER.kilojoulesPerEndurance,
+    energyKj,
+    enduranceUsed,
+    enduranceRemaining: CLIMBER.enduranceCapacity - enduranceUsed,
+    segments,
+  };
+}
+
 function validateActionIndices(proof: ExpeditionProof) {
   const length = proof.route.length;
-  if (proof.mutation.kind === "ADD") {
-    return validIndex(proof.releaseIndex, length);
-  }
-  if (proof.mutation.kind === "MOVE") {
-    return (
-      validIndex(proof.pickupIndex, length) &&
-      validIndex(proof.releaseIndex, length) &&
-      proof.pickupIndex! < proof.releaseIndex!
-    );
-  }
-  return validIndex(proof.pickupIndex, length);
+  const needsPickup = proof.mutation.source.kind !== "BASE";
+  const needsRelease = proof.mutation.destination.kind === "WORLD";
+  if (needsPickup !== validIndex(proof.pickupIndex, length)) return false;
+  if (needsRelease !== validIndex(proof.releaseIndex, length)) return false;
+  return !needsPickup || !needsRelease || proof.pickupIndex! < proof.releaseIndex!;
 }
 
 export function validateRoute(
   proof: ExpeditionProof,
   baseCamp: Vec3,
-  extractionZones: readonly Vec3[] = [],
 ): RouteVerdict {
   if (proof.route.length < 2) return invalid("ROUTE_TOO_SHORT");
   const terminalDistanceFromBaseM = distance(
@@ -155,17 +222,13 @@ export function validateRoute(
 
   const returnsToBase =
     terminalDistanceFromBaseM <= CLIMBER.baseCampRadiusM;
-  const reachesExtraction = extractionZones.some(
-    (zone) => distance(proof.route.at(-1)!, zone) <= CLIMBER.extractionRadiusM,
-  );
-  if (proof.mutation.kind === "RECOVER" && !returnsToBase) {
-    return invalid("RECOVERY_MUST_RETURN", terminalDistanceFromBaseM);
+  if (proof.mutation.destination.kind === "BASE" && !returnsToBase) {
+    return invalid("BASE_DELIVERY_MUST_RETURN", terminalDistanceFromBaseM);
   }
 
   const terminal = proof.route.at(-1)!;
   if (
     !returnsToBase &&
-    !reachesExtraction &&
     (!terminal.safeStop ||
       terminal.slopeDegrees > CLIMBER.maxWalkSlopeDegrees)
   ) {
@@ -176,7 +239,6 @@ export function validateRoute(
   let elapsedSeconds = 0;
   let distanceM = 0;
   let loadedDistanceM = 0;
-  let oxygenUsed = 0;
 
   for (let index = 1; index < proof.route.length; index += 1) {
     const from = proof.route[index - 1];
@@ -203,60 +265,36 @@ export function validateRoute(
       return invalid("CLIMB_UNPROTECTED", terminalDistanceFromBaseM);
     }
 
-    const speedMps = speedFor(to.mode);
-    const seconds = lengthM / speedMps;
-    const gradePercent = ((to.y - from.y) / horizontalM) * 100;
-    const loadMassKg = carrying ? PHYSICS.stoneMassKg : 0;
-    const watts = pandolfWatts(
-      CLIMBER.bodyMassKg,
-      loadMassKg,
-      speedMps,
-      gradePercent,
-      terrainFactor(to.surface),
-    );
-    const altitudeM = (from.altitudeM + to.altitudeM) / 2;
-    energyKj +=
-      (watts * altitudeMultiplier(altitudeM) * seconds) / 1000;
+    const segment = enduranceSegment(proof, index);
+    const seconds = lengthM / speedFor(to.mode);
+    energyKj += segment.energyKj;
     elapsedSeconds += seconds;
     distanceM += lengthM;
     if (carrying) loadedDistanceM += lengthM;
-    oxygenUsed +=
-      (lengthM / CLIMBER.oxygenUnitDistanceM) *
-      (carrying
-        ? CLIMBER.loadedOxygenPerUnit
-        : CLIMBER.unloadedOxygenPerUnit);
-
-    if (oxygenUsed > CLIMBER.oxygenCapacity + 1e-9) {
-      return invalid("OXYGEN_EXHAUSTED", terminalDistanceFromBaseM, {
+    const enduranceUsed = energyKj / CLIMBER.kilojoulesPerEndurance;
+    if (enduranceUsed > CLIMBER.enduranceCapacity + 1e-9) {
+      return invalid("ENDURANCE_EXHAUSTED", terminalDistanceFromBaseM, {
         energyKj,
         elapsedSeconds,
         distanceM,
         loadedDistanceM,
-        oxygenUsed,
+        enduranceUsed,
       });
     }
   }
 
-  if (energyKj > CLIMBER.maximumEnergyKj) {
-    return invalid("ENERGY_BUDGET_EXCEEDED", terminalDistanceFromBaseM, {
-      energyKj,
-      elapsedSeconds,
-      distanceM,
-      loadedDistanceM,
-      oxygenUsed,
-    });
-  }
+  const enduranceUsed = energyKj / CLIMBER.kilojoulesPerEndurance;
 
   return {
     valid: true,
     code: "ROUTE_VALID",
-    outcome: returnsToBase || reachesExtraction ? "ACTIVE" : "DEAD",
+    outcome: returnsToBase ? "ACTIVE" : "DEAD",
+    enduranceUsed,
+    enduranceRemaining: CLIMBER.enduranceCapacity - enduranceUsed,
     energyKj,
     elapsedSeconds,
     distanceM,
     loadedDistanceM,
-    oxygenUsed,
-    oxygenRemaining: CLIMBER.oxygenCapacity - oxygenUsed,
     terminalDistanceFromBaseM,
   };
 }

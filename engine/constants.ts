@@ -15,13 +15,13 @@ export const PHYSICS = {
   angularSleepThresholdRps: 0.04,
   worldBoundsM: 50_000,
   contactIslandLinkM: 0.36,
-  maxContactIslandStones: 4096,
+  maxContactIslandStones: 512,
 } as const;
 
 export const CLIMBER = {
   bodyMassKg: 78,
-  baseCampRadiusM: 2,
-  extractionRadiusM: 3,
+  baseCampRadiusM: 75,
+  protectedSpawnRadiusM: 20,
   interactionReachM: 1.25,
   maxProofSegmentM: 45,
   maxWalkStepM: 0.42,
@@ -33,12 +33,19 @@ export const CLIMBER = {
   walkSpeedMps: 0.78,
   scrambleSpeedMps: 0.34,
   climbSpeedMps: 0.16,
-  maximumEnergyKj: 65_000,
-  oxygenCapacity: 400,
-  oxygenUnitDistanceM: 100,
-  unloadedOxygenPerUnit: 1,
-  loadedOxygenPerUnit: 2,
+  enduranceCapacity: 100,
+  kilojoulesPerEndurance: 450,
   rockTerrainFactor: 1.15,
   snowTerrainFactor: 1.62,
   iceTerrainFactor: 1.36,
+} as const;
+
+export const TERRAIN = {
+  voxelEdgeM: 0.2,
+  physicsChunkEdgeM: 32,
+  streamTileEdgeM: 256,
+  localPhysicsRadiusM: 1.6,
+  naturalizationVersion: "ae-surface-v1",
+  naturalizationSeed: 0x41_45_56_31,
+  maximumSyntheticReliefM: 0.42,
 } as const;

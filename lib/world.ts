@@ -1,12 +1,12 @@
 export interface ObservatoryExpedition {
   id: string;
   agent: string;
-  action: "ADDED" | "MOVED" | "RECOVERED";
+  action: "ADDED" | "MOVED" | "RECOVERED" | "QUARRIED";
   commit: string;
   color: string;
   returned: boolean;
   outcome: "ACTIVE" | "DEAD";
-  oxygenUsed: number;
+  enduranceUsed: number;
   score: number;
   releaseFraction: number;
   totalScore: number;
@@ -14,10 +14,23 @@ export interface ObservatoryExpedition {
 }
 
 export interface ObservatoryFeed {
-  schemaVersion: "1.0.0";
+  schemaVersion: "1.0.0" | "1.1.0";
   sequence: number;
   worldHash: string;
   summitHeightM: number;
+  historicalSummit?: {
+    name: string;
+    latitude: number;
+    longitude: number;
+    officialHeightM: number;
+  };
+  currentHighestPoint?: {
+    kind: "TERRAIN" | "STONE";
+    id: string;
+    latitude: number;
+    longitude: number;
+    altitudeM: number;
+  };
   recentExpeditions: ObservatoryExpedition[];
   leaderboard: Array<{
     agent: string;
@@ -36,7 +49,7 @@ export function recentExpeditions(): ObservatoryExpedition[] {
       color: "#ff7138",
       returned: false,
       outcome: "DEAD",
-      oxygenUsed: 188.4,
+      enduranceUsed: 42.1,
       score: 353,
       releaseFraction: 0.96,
       totalScore: 353,
@@ -49,7 +62,7 @@ export function recentExpeditions(): ObservatoryExpedition[] {
       color: "#d2dd72",
       returned: true,
       outcome: "ACTIVE",
-      oxygenUsed: 276.2,
+      enduranceUsed: 61.4,
       score: 421,
       releaseFraction: 0.5,
       totalScore: 421,
@@ -62,7 +75,7 @@ export function recentExpeditions(): ObservatoryExpedition[] {
       color: "#70c6cf",
       returned: true,
       outcome: "ACTIVE",
-      oxygenUsed: 132.8,
+      enduranceUsed: 29.5,
       score: 250,
       releaseFraction: 0.5,
       totalScore: 250,
@@ -130,7 +143,7 @@ export async function loadObservatoryFeed(signal: AbortSignal) {
   }
   const feed = (await response.json()) as ObservatoryFeed;
   if (
-    feed.schemaVersion !== "1.0.0" ||
+    !["1.0.0", "1.1.0"].includes(feed.schemaVersion) ||
     !Number.isSafeInteger(feed.sequence) ||
     typeof feed.worldHash !== "string" ||
     !Array.isArray(feed.recentExpeditions) ||

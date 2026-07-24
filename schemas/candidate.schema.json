@@ -14,7 +14,7 @@
   ],
   "properties": {
     "protocol": {
-      "const": "0.3.0"
+      "const": "0.4.0"
     },
     "id": {
       "type": "string",
@@ -72,6 +72,16 @@
         "rotation": { "$ref": "#/$defs/quaternion" }
       }
     },
+    "voxel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "integer" },
+        "y": { "type": "integer" },
+        "z": { "type": "integer" }
+      }
+    },
     "sample": {
       "type": "object",
       "additionalProperties": false,
@@ -105,52 +115,82 @@
       }
     },
     "mutation": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["kind", "stoneId", "releasePose"],
-          "properties": {
-            "kind": { "const": "ADD" },
-            "stoneId": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
-            },
-            "releasePose": { "$ref": "#/$defs/pose" }
-          }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "matterId", "source", "destination"],
+      "properties": {
+        "kind": { "const": "RELOCATE" },
+        "matterId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
         },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["kind", "stoneId", "releasePose"],
-          "properties": {
-            "kind": { "const": "MOVE" },
-            "stoneId": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        "source": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": { "kind": { "const": "BASE" } }
             },
-            "releasePose": { "$ref": "#/$defs/pose" }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["kind", "stoneId"],
-          "properties": {
-            "kind": { "const": "RECOVER" },
-            "stoneId": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "stoneId"],
+              "properties": {
+                "kind": { "const": "STONE" },
+                "stoneId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "voxel"],
+              "properties": {
+                "kind": { "const": "TERRAIN" },
+                "voxel": { "$ref": "#/$defs/voxel" }
+              }
             }
+          ]
+        },
+        "destination": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": { "kind": { "const": "BASE" } }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "releasePose"],
+              "properties": {
+                "kind": { "const": "WORLD" },
+                "releasePose": { "$ref": "#/$defs/pose" }
+              }
+            }
+          ]
+        }
+      },
+      "not": {
+        "properties": {
+          "source": {
+            "properties": { "kind": { "const": "BASE" } },
+            "required": ["kind"]
+          },
+          "destination": {
+            "properties": { "kind": { "const": "BASE" } },
+            "required": ["kind"]
           }
         }
-      ]
+      }
     },
     "proof": {
       "type": "object",

@@ -1,15 +1,15 @@
 {
-  "protocolVersion": "0.3.0",
-  "receiptVersion": "1.0.0",
+  "protocolVersion": "0.4.0",
+  "receiptVersion": "1.1.0",
   "releaseManifestPath": "protocol/release.json",
   "candidate": {
     "maximumBytes": 262144,
     "maximumRouteSamples": 4096,
-    "maximumTouchedStones": 4096,
+    "maximumTouchedStones": 512,
     "mutationsPerExpedition": 1
   },
   "verification": {
-    "timeoutSeconds": 3,
+    "timeoutSeconds": 4,
     "memoryMiB": 256,
     "networkAccess": false
   },

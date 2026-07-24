@@ -3,12 +3,13 @@ import type {
   CanonicalWorld,
   RouteVerdict,
 } from "./types";
+import { operationLabel } from "./mutation";
 
 export interface RewardBreakdown {
   altitudeM: number;
   heightPoints: number;
   survivalPoints: number;
-  oxygenPoints: number;
+  reservePoints: number;
   stewardshipPoints: number;
   total: number;
 }
@@ -19,29 +20,33 @@ export function calculateReward(
   route: RouteVerdict,
 ): RewardBreakdown {
   const proof = candidate.proof;
+  const operation = operationLabel(proof.mutation);
   const actionIndex =
-    proof.mutation.kind === "RECOVER"
+    proof.mutation.destination.kind === "BASE"
       ? proof.pickupIndex!
       : proof.releaseIndex!;
   const actionSample = proof.route[actionIndex];
   const baseAltitudeM = proof.route[0].altitudeM;
   const altitudeM = actionSample.altitudeM;
   const previousAltitudeM =
-    proof.mutation.kind === "MOVE"
+    proof.mutation.source.kind !== "BASE" &&
+    proof.mutation.destination.kind === "WORLD"
       ? proof.route[proof.pickupIndex!].altitudeM
       : baseAltitudeM;
   const effectiveGainM =
-    proof.mutation.kind === "RECOVER"
+    proof.mutation.destination.kind === "BASE"
       ? 0
       : Math.max(0, altitudeM - previousAltitudeM);
   const heightPoints = Math.round(effectiveGainM / 10);
   const survivalPoints = route.outcome === "ACTIVE" ? 120 : 0;
-  const oxygenPoints = Math.round(route.oxygenRemaining * 0.15);
+  const reservePoints = Math.round(route.enduranceRemaining * 0.6);
   const stewardshipPoints =
-    proof.mutation.kind === "RECOVER"
+    operation === "RECOVER"
       ? 90
-      : proof.mutation.kind === "MOVE"
+      : operation === "MOVE"
         ? 35
+        : operation === "QUARRY"
+          ? 25
         : 0;
   const duplicatePenalty = world.expeditions.filter(
     (record) => record.agentId === candidate.agentId,
@@ -50,7 +55,7 @@ export function calculateReward(
     0,
     heightPoints +
       survivalPoints +
-      oxygenPoints +
+      reservePoints +
       stewardshipPoints -
       duplicatePenalty * 5,
   );
@@ -58,7 +63,7 @@ export function calculateReward(
     altitudeM,
     heightPoints,
     survivalPoints,
-    oxygenPoints,
+    reservePoints,
     stewardshipPoints,
     total,
   };

@@ -56,7 +56,7 @@ function signingKeys() {
 
 test("signed verifier receipts reject result tampering", () => {
   const body: ReceiptBody = {
-    receiptVersion: "1.0.0",
+    receiptVersion: "1.1.0",
     candidateHash: "a".repeat(64),
     candidateId: "candidate-1",
     agentId: "agent-1",
@@ -69,7 +69,7 @@ test("signed verifier receipts reject result tampering", () => {
       code: "ACCEPTED",
       action: "ADD",
       outcome: "ACTIVE",
-      oxygenUsed: 120,
+      enduranceUsed: 20,
       energyKj: 1000,
       score: 250,
       physicsCode: "STABLE",
@@ -99,7 +99,7 @@ test("candidate shape limits reject oversized and extended proofs", () => {
     }),
   );
   const result = validateCandidateShape({
-    protocol: "0.3.0",
+    protocol: "0.4.0",
     id: "candidate-1",
     parentWorldHash: "world-1",
     terrainHash: "a".repeat(64),
@@ -107,11 +107,15 @@ test("candidate shape limits reject oversized and extended proofs", () => {
     proof: {
       route,
       mutation: {
-        kind: "ADD",
-        stoneId: "stone-1",
-        releasePose: {
-          translation: { x: 0, y: 0, z: 0 },
-          rotation: { x: 0, y: 0, z: 0, w: 1 },
+        kind: "RELOCATE",
+        matterId: "stone-1",
+        source: { kind: "BASE" },
+        destination: {
+          kind: "WORLD",
+          releasePose: {
+            translation: { x: 80, y: 0, z: 0 },
+            rotation: { x: 0, y: 0, z: 0, w: 1 },
+          },
         },
       },
       releaseIndex: 0,
@@ -124,6 +128,46 @@ test("candidate shape limits reject oversized and extended proofs", () => {
   assert.ok(result.errors.some((entry) => entry.includes("unsupported")));
 });
 
+test("BASE to BASE is rejected before route execution", () => {
+  const result = validateCandidateShape({
+    protocol: "0.4.0",
+    id: "base-noop",
+    parentWorldHash: "world-1",
+    terrainHash: "a".repeat(64),
+    agentId: "agent-1",
+    proof: {
+      route: [
+        {
+          x: 0,
+          y: 0,
+          z: 0,
+          altitudeM: 5259,
+          slopeDegrees: 0,
+          surface: "ROCK",
+          mode: "WALK",
+        },
+        {
+          x: 1,
+          y: 0,
+          z: 0,
+          altitudeM: 5259,
+          slopeDegrees: 0,
+          surface: "ROCK",
+          mode: "WALK",
+        },
+      ],
+      mutation: {
+        kind: "RELOCATE",
+        matterId: "stone-noop",
+        source: { kind: "BASE" },
+        destination: { kind: "BASE" },
+      },
+    },
+  });
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.includes("proof.mutation is invalid"));
+});
+
 test("the reducer writes one signed event and is idempotent", async () => {
   const directory = await mkdtemp(join(tmpdir(), "alter-everest-reducer-"));
   const snapshot = join(directory, "snapshot.json");
@@ -131,7 +175,7 @@ test("the reducer writes one signed event and is idempotent", async () => {
   const receipts = join(directory, "receipts");
   const proofs = join(directory, "proofs");
   const candidate = resolve(
-    "candidates/example-agent/everest-roundtrip.json",
+    "tests/fixtures/everest-one-way-candidate.json",
   );
   const genesisWorld = resolve("tests/fixtures/genesis-world.json");
   const keys = signingKeys();
@@ -210,7 +254,7 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
   const outputPath = join(directory, "candidate.json");
   const eventsDirectory = join(directory, "events");
   const candidateBytes = await readFile(
-    resolve("candidates/example-agent/everest-roundtrip.json"),
+    resolve("tests/fixtures/everest-one-way-candidate.json"),
   );
   let changedFiles = [
     {
