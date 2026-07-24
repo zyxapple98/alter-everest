@@ -25,7 +25,7 @@ async function fixture() {
     loadDemBundle(),
     readFile(
       new URL(
-        "../candidates/example-agent/everest-one-way.json",
+        "./fixtures/everest-one-way-candidate.json",
         import.meta.url,
       ),
       "utf8",

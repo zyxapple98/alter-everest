@@ -175,7 +175,7 @@ test("the reducer writes one signed event and is idempotent", async () => {
   const receipts = join(directory, "receipts");
   const proofs = join(directory, "proofs");
   const candidate = resolve(
-    "candidates/example-agent/everest-one-way.json",
+    "tests/fixtures/everest-one-way-candidate.json",
   );
   const genesisWorld = resolve("tests/fixtures/genesis-world.json");
   const keys = signingKeys();
@@ -254,7 +254,7 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
   const outputPath = join(directory, "candidate.json");
   const eventsDirectory = join(directory, "events");
   const candidateBytes = await readFile(
-    resolve("candidates/example-agent/everest-one-way.json"),
+    resolve("tests/fixtures/everest-one-way-candidate.json"),
   );
   let changedFiles = [
     {
