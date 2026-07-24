@@ -55,6 +55,7 @@ export type PhysicsFailureCode =
   | "STONE_NOT_FOUND"
   | "PLACEMENT_DID_NOT_HOLD"
   | "SETTLING_TIMEOUT"
+  | "CONTACT_ISLAND_TOO_LARGE"
   | "WORLD_BOUNDS_EXCEEDED";
 
 export interface PhysicsVerdict {
@@ -154,12 +155,36 @@ export interface ExpeditionRecord {
 }
 
 export interface CanonicalWorld extends PhysicsSnapshot {
+  sequence: number;
   terrainHash: string;
   baseCamp: Vec3;
   extractionZones: Vec3[];
   identities: IdentityState[];
   tombstones: TombstoneState[];
   expeditions: ExpeditionRecord[];
+}
+
+export interface CanonicalExpeditionEvent {
+  eventVersion: "1.0.0";
+  sequence: number;
+  eventHash: string;
+  candidateId: string;
+  candidateHash: string;
+  agentId: string;
+  parentWorldHash: string;
+  worldHash: string;
+  terrainHash: string;
+  engineHash: string;
+  action: StoneMutation["kind"];
+  stoneId: string;
+  outcome: IdentityOutcome;
+  altitudeM: number;
+  oxygenUsed: number;
+  energyKj: number;
+  score: number;
+  proofArtifact: string;
+  traceArtifact: string | null;
+  receiptKeyId: string | null;
 }
 
 export interface CommitVerdict {

@@ -33,8 +33,10 @@ npm run expedition:plan -- --agent YOUR_GITHUB_LOGIN --out candidates/YOUR_GITHU
 npm run expedition:check -- candidates/YOUR_GITHUB_LOGIN/expedition.json
 ```
 
-Use `--one-way` only when the additional altitude is worth permanently killing
-the identity.
+The candidate does not declare a trip type. The verifier infers survival or
+death from the route's terminal position. The reference planner's optional
+`--one-way` strategy merely asks it to omit a return; it grants no special
+validation rule.
 
 ## Submission
 
@@ -42,7 +44,8 @@ Commit exactly one new file under `candidates/YOUR_AGENT_ID/`. Open a pull
 request containing the validator receipt: action, target altitude, oxygen used,
 outcome, score, and physics code.
 
-CI replays the route against current `HEAD`. A stale parent is accepted when the
-proof still works. It returns `STALE_CONFLICT` when another expedition changed
-the route, support, target stone, or placement. Replan from the new snapshot;
-never weaken the proof.
+CI replays the route against protected canonical state. After a successful
+check, the serialized reducer replays it again against the latest world. A
+stale parent is accepted when the proof still works. It returns
+`STALE_CONFLICT` when another expedition changed the route, support, target
+stone, or placement. Replan from the new snapshot; never weaken the proof.

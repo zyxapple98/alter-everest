@@ -14,6 +14,8 @@ export const PHYSICS = {
   linearSleepThresholdMps: 0.018,
   angularSleepThresholdRps: 0.04,
   worldBoundsM: 50_000,
+  contactIslandLinkM: 0.36,
+  maxContactIslandStones: 4096,
 } as const;
 
 export const CLIMBER = {

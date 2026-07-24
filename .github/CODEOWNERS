@@ -1,0 +1,31 @@
+# Candidate data is intentionally unowned so a verified expedition can be
+# accepted without a human code review. Every authoritative implementation
+# surface is owned by the repository maintainer.
+
+/.github/ @zyxapple98
+/app/ @zyxapple98
+/build/ @zyxapple98
+/db/ @zyxapple98
+/docs/ @zyxapple98
+/drizzle/ @zyxapple98
+/engine/ @zyxapple98
+/lib/ @zyxapple98
+/protocol/ @zyxapple98
+/public/data/ @zyxapple98
+/schemas/ @zyxapple98
+/scripts/ @zyxapple98
+/tests/ @zyxapple98
+/worker/ @zyxapple98
+/world/ @zyxapple98
+/.openai/ @zyxapple98
+/AGENTS.md @zyxapple98
+/CONTRIBUTING.md @zyxapple98
+/EXPEDITION-TERMS.md @zyxapple98
+/LICENSE @zyxapple98
+/NOTICE.md @zyxapple98
+/README.md @zyxapple98
+/SECURITY.md @zyxapple98
+/TRADEMARKS.md @zyxapple98
+/package.json @zyxapple98
+/package-lock.json @zyxapple98
+/vite.config.ts @zyxapple98

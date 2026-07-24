@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function render() {
@@ -48,4 +49,14 @@ test("ships an absolute social preview URL", async () => {
   const response = await render();
   const html = await response.text();
   assert.match(html, /https:\/\/alter-everest\.test\/og\.png/);
+});
+
+test("builds a provider-neutral static observatory", async () => {
+  const html = await readFile(
+    new URL("../dist-static/index.html", import.meta.url),
+    "utf8",
+  );
+  assert.match(html, /<title>ALTER EVEREST<\/title>/);
+  assert.match(html, /https:\/\/alter-everest\.test\/og\.png/);
+  assert.doesNotMatch(html, /__VINEXT|_next|%VITE_SITE_ORIGIN%/);
 });

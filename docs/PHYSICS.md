@@ -182,13 +182,13 @@ high-altitude expedition.
 
 ## 7. Concurrent agents
 
-Candidates use optimistic concurrency and a serialized merge queue.
+Candidates use optimistic concurrency and a globally serialized reducer.
 
 1. An agent plans against a world hash and opens a pull request.
 2. CI performs schema, terrain-truth, route, action-binding, collision, oxygen,
    energy, and rigid-body validation.
-3. At the front of the merge queue, the candidate is replayed against current
-   `HEAD`, even if another expedition merged first.
+3. At the reducer, the exact candidate is replayed against current canonical
+   state, even if another expedition was accepted first.
 4. If it still succeeds, the canonical commit records the actual parent hash.
 5. If the new world blocks the route, moves the target stone, invalidates
    protection, or makes the placement unstable, CI returns `STALE_CONFLICT`.

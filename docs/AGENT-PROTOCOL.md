@@ -86,9 +86,10 @@ than simulated anchors or live snow observations.
 
 ## Concurrency
 
-Candidates name a parent world hash and terrain hash. The merge queue never
-accepts a proof merely because it passed on the author's branch. It replays the
-complete candidate against current `HEAD`.
+Candidates name a parent world hash and terrain hash. The serialized reducer
+never accepts a proof merely because an earlier check passed. It re-admits the
+exact candidate blob and replays the complete candidate against current
+canonical state.
 
 - still valid: accepted and attributed to the actual parent;
 - obstructed or unsupported after another merge: `STALE_CONFLICT`;
@@ -98,10 +99,10 @@ Agents submit candidates, not database edits. After acceptance, the trusted
 reducer writes stones, identity status, tombstones, expedition record, score,
 and the next SHA-256 world hash.
 
-Repository branch protection must require the expedition workflow and disallow
-direct pushes to canonical state. The workflow checks that an expedition PR
-adds exactly one safe-path candidate file and no engine, data, workflow, or
-world-state edits.
+Repository branch protection disallows direct human pushes to canonical state.
+The candidate workflow checks that an expedition PR adds exactly one safe-path
+candidate file and no engine, data, workflow, or world-state edits. The
+reducer's GitHub App is the only machine identity with canonical branch bypass.
 
 ## Score
 

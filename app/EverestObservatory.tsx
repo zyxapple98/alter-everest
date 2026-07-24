@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
-  observatoryLeaderboard,
-  recentExpeditions,
+  fallbackObservatoryFeed,
+  loadObservatoryFeed,
 } from "../lib/world";
 
 interface DemMetadata {
@@ -371,7 +371,13 @@ function createRoute(
   terrain: VoxelTerrain,
   lateralOffset: number,
   returned: boolean,
+  suppliedTrace?: Array<{ column: number; row: number }> | null,
 ) {
+  if (suppliedTrace && suppliedTrace.length >= 2) {
+    return suppliedTrace.map((point) =>
+      gridPoint(terrain, point.column, point.row),
+    );
+  }
   const startColumn = terrain.width * 0.25 + lateralOffset * 4;
   const startRow = terrain.height - 18;
   const route: THREE.Vector3[] = [];
@@ -536,8 +542,48 @@ export default function EverestObservatory() {
   const [sceneStatus, setSceneStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
-  const expeditions = useMemo(() => recentExpeditions(), []);
-  const leaderboard = useMemo(() => observatoryLeaderboard(), []);
+  const [feed, setFeed] = useState(fallbackObservatoryFeed);
+  const expeditions = feed.recentExpeditions;
+  const leaderboard = feed.leaderboard;
+
+  useEffect(() => {
+    const abortController = new AbortController();
+    let interval = 0;
+    let firstLoad = true;
+
+    const refresh = async () => {
+      try {
+        const result = await loadObservatoryFeed(abortController.signal);
+        setFeed((current) =>
+          firstLoad ||
+          current.sequence !== result.feed.sequence ||
+          current.worldHash !== result.feed.worldHash
+            ? result.feed
+            : current,
+        );
+        firstLoad = false;
+        if (!interval) {
+          interval = window.setInterval(refresh, result.pollIntervalMs);
+        }
+      } catch (error) {
+        if (!abortController.signal.aborted) {
+          console.warn(
+            "The live world feed is unavailable; using fallback data.",
+            error,
+          );
+          if (!interval) {
+            interval = window.setInterval(refresh, 30_000);
+          }
+        }
+      }
+    };
+
+    void refresh();
+    return () => {
+      abortController.abort();
+      if (interval) window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     const host = canvasHost.current;
@@ -645,6 +691,7 @@ export default function EverestObservatory() {
           terrain,
           (index - 1) * 1.15,
           expedition.returned,
+          expedition.trace,
         );
         const material = new THREE.LineBasicMaterial({
           color: expedition.color,
@@ -860,7 +907,7 @@ export default function EverestObservatory() {
     };
   }, [expeditions]);
 
-  const active = expeditions[activeExpedition];
+  const active = expeditions[activeExpedition % expeditions.length];
 
   return (
     <main className="observatory">
@@ -896,8 +943,8 @@ export default function EverestObservatory() {
       </header>
 
       <section className="world-id" id="world" aria-label="Current world">
-        <span>WORLD 6,318</span>
-        <strong>8,848.86 M</strong>
+        <span>{`WORLD ${feed.sequence.toLocaleString("en-US")}`}</span>
+        <strong>{`${feed.summitHeightM.toLocaleString("en-US")} M`}</strong>
       </section>
 
       <aside className="last-trace" aria-label="Last expedition trace">

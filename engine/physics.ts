@@ -51,6 +51,38 @@ function vectorMagnitude(vector: { x: number; y: number; z: number }) {
   return Math.hypot(vector.x, vector.y, vector.z);
 }
 
+function contactIslandIds(
+  snapshot: PhysicsSnapshot,
+  mutation: StoneMutation,
+) {
+  const anchors: Pose["translation"][] = [];
+  const existing = snapshot.stones.find(
+    (stone) => stone.id === mutation.stoneId,
+  );
+  if (existing) anchors.push(existing.pose.translation);
+  if (mutation.kind !== "RECOVER") {
+    anchors.push(mutation.releasePose.translation);
+  }
+
+  const selected = new Set<string>();
+  const frontier = [...anchors];
+  const maximumDistance = PHYSICS.contactIslandLinkM;
+  for (let index = 0; index < frontier.length; index += 1) {
+    const point = frontier[index];
+    for (const stone of snapshot.stones) {
+      if (selected.has(stone.id)) continue;
+      if (distance(point, stone.pose.translation) <= maximumDistance) {
+        selected.add(stone.id);
+        frontier.push(stone.pose.translation);
+        if (selected.size > PHYSICS.maxContactIslandStones) {
+          return { ids: selected, exceeded: true };
+        }
+      }
+    }
+  }
+  return { ids: selected, exceeded: false };
+}
+
 function changedStoneIds(before: StoneState[], after: StoneState[]) {
   const initial = new Map(before.map((stone) => [stone.id, stone]));
   const changed: string[] = [];
@@ -143,7 +175,36 @@ export async function simulateMutation(
   snapshot: PhysicsSnapshot,
   mutation: StoneMutation,
 ): Promise<PhysicsVerdict> {
-  const prepared = prepareMutation(snapshot, mutation);
+  const exists = snapshot.stones.some((stone) => stone.id === mutation.stoneId);
+  if (
+    (mutation.kind === "ADD" && exists) ||
+    (mutation.kind !== "ADD" && !exists)
+  ) {
+    const rejected = prepareMutation(snapshot, mutation);
+    if (!rejected.ok) return rejected.verdict;
+  }
+
+  const island = contactIslandIds(snapshot, mutation);
+  if (island.exceeded) {
+    return {
+      valid: false,
+      code: "CONTACT_ISLAND_TOO_LARGE",
+      finalStones: snapshot.stones,
+      affectedStoneIds: [],
+      simulatedSeconds: 0,
+      maxLinearSpeed: 0,
+      maxAngularSpeed: 0,
+      contactModel: "RAPIER_COULOMB_FRICTION",
+    };
+  }
+  const remoteStones = snapshot.stones.filter(
+    (stone) => !island.ids.has(stone.id),
+  );
+  const localSnapshot = {
+    ...snapshot,
+    stones: snapshot.stones.filter((stone) => island.ids.has(stone.id)),
+  };
+  const prepared = prepareMutation(localSnapshot, mutation);
   if (!prepared.ok) return prepared.verdict;
 
   const RAPIER = await loadPhysicsRuntime();
@@ -245,7 +306,7 @@ export async function simulateMutation(
     }
   }
 
-  const finalStones = [...bodies.entries()]
+  const localFinalStones = [...bodies.entries()]
     .map(([id, body]) => {
       const translation = body.translation();
       const rotation = body.rotation();
@@ -268,7 +329,10 @@ export async function simulateMutation(
     })
     .sort((a, b) => a.id.localeCompare(b.id));
 
-  const exceededBounds = finalStones.some((stone) => {
+  const finalStones = [...remoteStones, ...localFinalStones].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
+  const exceededBounds = localFinalStones.some((stone) => {
     const { x, y, z } = stone.pose.translation;
     return (
       Math.abs(x) > PHYSICS.worldBoundsM ||

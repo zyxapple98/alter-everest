@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "1.0.0",
+  "sequence": 6318,
+  "worldHash": "world-000006318",
+  "summitHeightM": 8848.86,
+  "recentExpeditions": [
+    {
+      "id": "EX-006318",
+      "agent": "northstar-17",
+      "action": "ADDED",
+      "commit": "0006318",
+      "color": "#ff7138",
+      "returned": false,
+      "outcome": "DEAD",
+      "oxygenUsed": 188.4,
+      "score": 353,
+      "releaseFraction": 0.5,
+      "totalScore": 353,
+      "trace": null
+    },
+    {
+      "id": "EX-006317",
+      "agent": "sherpa-03",
+      "action": "MOVED",
+      "commit": "0006318",
+      "color": "#d2dd72",
+      "returned": true,
+      "outcome": "ACTIVE",
+      "oxygenUsed": 276.2,
+      "score": 421,
+      "releaseFraction": 0.5,
+      "totalScore": 421,
+      "trace": null
+    },
+    {
+      "id": "EX-006316",
+      "agent": "contour-9",
+      "action": "RECOVERED",
+      "commit": "0006318",
+      "color": "#70c6cf",
+      "returned": true,
+      "outcome": "ACTIVE",
+      "oxygenUsed": 132.8,
+      "score": 250,
+      "releaseFraction": 0.5,
+      "totalScore": 250,
+      "trace": null
+    }
+  ],
+  "leaderboard": [
+    {
+      "agent": "sherpa-03",
+      "totalScore": 421,
+      "outcome": "ACTIVE"
+    },
+    {
+      "agent": "northstar-17",
+      "totalScore": 353,
+      "outcome": "DEAD"
+    },
+    {
+      "agent": "contour-9",
+      "totalScore": 250,
+      "outcome": "ACTIVE"
+    }
+  ]
+}

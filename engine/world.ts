@@ -12,6 +12,7 @@ function hex(bytes: Uint8Array) {
 
 async function nextWorldHash(world: CanonicalWorld) {
   const canonical = JSON.stringify({
+    sequence: world.sequence,
     terrainHash: world.terrainHash,
     stones: world.stones,
     identities: world.identities,
@@ -81,6 +82,7 @@ export async function applyAcceptedCandidate(
 
   const next: CanonicalWorld = {
     ...currentWorld,
+    sequence: currentWorld.sequence + 1,
     stones: verdict.physics.finalStones,
     identities,
     tombstones,

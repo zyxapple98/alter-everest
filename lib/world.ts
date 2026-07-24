@@ -10,6 +10,20 @@ export interface ObservatoryExpedition {
   score: number;
   releaseFraction: number;
   totalScore: number;
+  trace?: Array<{ column: number; row: number }> | null;
+}
+
+export interface ObservatoryFeed {
+  schemaVersion: "1.0.0";
+  sequence: number;
+  worldHash: string;
+  summitHeightM: number;
+  recentExpeditions: ObservatoryExpedition[];
+  leaderboard: Array<{
+    agent: string;
+    totalScore: number;
+    outcome: "ACTIVE" | "DEAD";
+  }>;
 }
 
 export function recentExpeditions(): ObservatoryExpedition[] {
@@ -64,4 +78,66 @@ export function observatoryLeaderboard() {
       outcome,
     }))
     .sort((left, right) => right.totalScore - left.totalScore);
+}
+
+export function fallbackObservatoryFeed(): ObservatoryFeed {
+  return {
+    schemaVersion: "1.0.0",
+    sequence: 6318,
+    worldHash: "world-000006318",
+    summitHeightM: 8848.86,
+    recentExpeditions: recentExpeditions(),
+    leaderboard: observatoryLeaderboard(),
+  };
+}
+
+export async function loadObservatoryFeed(signal: AbortSignal) {
+  let worldBaseUrl = "/data/world";
+  let pollIntervalMs = 30_000;
+  try {
+    const configResponse = await fetch("/runtime-config.json", {
+      cache: "no-store",
+      signal,
+    });
+    if (configResponse.ok) {
+      const config = (await configResponse.json()) as {
+        worldBaseUrl?: unknown;
+        pollIntervalMs?: unknown;
+      };
+      if (
+        typeof config.worldBaseUrl === "string" &&
+        config.worldBaseUrl.length > 0
+      ) {
+        worldBaseUrl = config.worldBaseUrl.replace(/\/+$/, "");
+      }
+      if (
+        typeof config.pollIntervalMs === "number" &&
+        config.pollIntervalMs >= 10_000
+      ) {
+        pollIntervalMs = config.pollIntervalMs;
+      }
+    }
+  } catch (error) {
+    if (signal.aborted) throw error;
+  }
+
+  const response = await fetch(`${worldBaseUrl}/latest.json`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`World feed returned HTTP ${response.status}.`);
+  }
+  const feed = (await response.json()) as ObservatoryFeed;
+  if (
+    feed.schemaVersion !== "1.0.0" ||
+    !Number.isSafeInteger(feed.sequence) ||
+    typeof feed.worldHash !== "string" ||
+    !Array.isArray(feed.recentExpeditions) ||
+    feed.recentExpeditions.length === 0 ||
+    !Array.isArray(feed.leaderboard)
+  ) {
+    throw new Error("World feed is not a supported observatory document.");
+  }
+  return { feed, pollIntervalMs };
 }

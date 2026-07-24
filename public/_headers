@@ -1,0 +1,11 @@
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/data/*
+  Cache-Control: public, max-age=86400
+
+/data/world/latest.json
+  Cache-Control: public, max-age=15, must-revalidate
+
+/runtime-config.json
+  Cache-Control: public, max-age=60, must-revalidate

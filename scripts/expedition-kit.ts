@@ -46,20 +46,26 @@ export interface DemBundle {
 
 const METERS_PER_DEGREE_LATITUDE = 111_320;
 
-export async function loadTerrainConfig(): Promise<TerrainConfig> {
+export async function loadTerrainConfig(
+  path = resolve("world", "terrain.json"),
+): Promise<TerrainConfig> {
   return JSON.parse(
-    await readFile(resolve("world", "terrain.json"), "utf8"),
+    await readFile(resolve(path), "utf8"),
   ) as TerrainConfig;
 }
 
-export async function loadCanonicalWorld(): Promise<CanonicalWorld> {
+export async function loadCanonicalWorld(
+  path = resolve("world", "snapshot.json"),
+): Promise<CanonicalWorld> {
   return JSON.parse(
-    await readFile(resolve("world", "snapshot.json"), "utf8"),
+    await readFile(resolve(path), "utf8"),
   ) as CanonicalWorld;
 }
 
-export async function loadDemBundle(): Promise<DemBundle> {
-  const config = await loadTerrainConfig();
+export async function loadDemBundle(
+  terrainConfigPath?: string,
+): Promise<DemBundle> {
+  const config = await loadTerrainConfig(terrainConfigPath);
   const [metadataText, bytes] = await Promise.all([
     readFile(resolve(config.metadataPath), "utf8"),
     readFile(resolve(config.elevationPath)),
@@ -394,14 +400,10 @@ export function planCandidate(
   };
 }
 
-export function terrainPatchForCandidate(
+function terrainPatchAt(
   bundle: DemBundle,
-  candidate: CandidateCommit,
+  pose: { x: number; y: number; z: number },
 ): TerrainMesh {
-  const pose =
-    candidate.proof.mutation.kind === "RECOVER"
-      ? candidate.proof.route[candidate.proof.pickupIndex!]
-      : candidate.proof.mutation.releasePose.translation;
   const cell = horizontalCellSize(bundle);
   const centerColumn = Math.round(
     pose.x / cell.x + bundle.config.registration.originColumn,
@@ -452,6 +454,34 @@ export function terrainPatchForCandidate(
   };
 }
 
+export function terrainPatchesForCandidate(
+  bundle: DemBundle,
+  world: CanonicalWorld,
+  candidate: CandidateCommit,
+) {
+  const points: Array<{ x: number; y: number; z: number }> = [];
+  const mutation = candidate.proof.mutation;
+  if (mutation.kind !== "ADD") {
+    const existing = world.stones.find((stone) => stone.id === mutation.stoneId);
+    if (existing) points.push(existing.pose.translation);
+  }
+  if (mutation.kind !== "RECOVER") {
+    points.push(mutation.releasePose.translation);
+  }
+
+  const unique = points.filter(
+    (point, index) =>
+      points.findIndex(
+        (candidatePoint) =>
+          Math.hypot(
+            candidatePoint.x - point.x,
+            candidatePoint.z - point.z,
+          ) < 1,
+      ) === index,
+  );
+  return unique.map((point) => terrainPatchAt(bundle, point));
+}
+
 export function worldForCandidate(
   world: CanonicalWorld,
   bundle: DemBundle,
@@ -459,6 +489,6 @@ export function worldForCandidate(
 ): CanonicalWorld {
   return {
     ...world,
-    terrain: [terrainPatchForCandidate(bundle, candidate)],
+    terrain: terrainPatchesForCandidate(bundle, world, candidate),
   };
 }

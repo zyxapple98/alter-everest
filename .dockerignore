@@ -1,0 +1,12 @@
+.git
+.github
+.openai
+.vinext
+.wrangler
+app
+candidates
+dist
+docs
+node_modules
+public/og.png
+tests

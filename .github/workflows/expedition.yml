@@ -1,99 +1,85 @@
 name: Expedition proof
 
 on:
-  pull_request:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
     paths:
       - "candidates/**"
-  merge_group:
-  push:
-    branches:
-      - main
-    paths:
-      - "candidates/**"
-  workflow_dispatch:
-    inputs:
-      candidate:
-        description: Candidate JSON to apply with the trusted reducer
-        required: true
-        type: string
 
 permissions:
+  actions: read
   contents: read
+  pull-requests: read
+
+concurrency:
+  group: expedition-verifier
+  cancel-in-progress: false
 
 jobs:
-  validate:
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+  verify:
+    name: Trusted expedition verifier
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out protected verifier source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      - name: Enforce one declarative candidate
-        id: scope
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-        shell: bash
-        run: |
-          candidate="$(node scripts/candidate-pr-scope.mjs "$BASE_SHA")"
-          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
-      - name: Replay candidate against canonical state
-        env:
-          CANDIDATE: ${{ steps.scope.outputs.candidate }}
-          EXPECTED_AGENT: ${{ github.event.pull_request.user.login }}
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            npm run expedition:check -- "$CANDIDATE" --expected-agent "$EXPECTED_AGENT"
-          else
-            npm run expedition:check -- "$CANDIDATE"
-          fi
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
 
-  apply:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      - name: Build protected verifier sandbox
+        run: docker build --file Dockerfile.verifier --tag alter-everest-verifier .
+
+      - name: Admit one declarative candidate
+        id: admission
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          node scripts/admit-candidate-pr.mjs
+          --event "$GITHUB_EVENT_PATH"
+          --out "$RUNNER_TEMP/candidate.json"
+
+      - name: Replay candidate in a bounded offline sandbox
+        env:
+          CANDIDATE: ${{ steps.admission.outputs.candidate_file }}
+          EXPECTED_AGENT: ${{ steps.admission.outputs.actor }}
+        run: |
+          timeout --signal=KILL 4s docker run --rm \
+            --network none \
+            --memory 256m \
+            --cpus 1 \
+            --pids-limit 128 \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+            --volume "$CANDIDATE:/input/candidate.json:ro" \
+            alter-everest-verifier \
+            /input/candidate.json \
+            --expected-agent "$EXPECTED_AGENT"
+
+  dispatch:
+    name: Queue canonical reducer
+    needs: verify
+    if: vars.REDUCER_ENABLED == 'true'
     runs-on: ubuntu-latest
-    concurrency:
-      group: alter-everest-canonical-world
-      cancel-in-progress: false
-    permissions:
-      contents: write
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
+      - name: Mint short-lived reducer token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
         with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Resolve accepted candidate
-        id: scope
+          app-id: ${{ secrets.REDUCER_APP_ID }}
+          private-key: ${{ secrets.REDUCER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Queue serialized canonical replay
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BEFORE_SHA: ${{ github.event.before }}
-          DISPATCH_CANDIDATE: ${{ inputs.candidate }}
-        shell: bash
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PULL_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            candidate="$DISPATCH_CANDIDATE"
-          else
-            candidate="$(node scripts/candidate-pr-scope.mjs "$BEFORE_SHA")"
-          fi
-          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
-      - name: Replay and reduce canonical state
-        env:
-          CANDIDATE: ${{ steps.scope.outputs.candidate }}
-        run: npm run expedition:apply -- "$CANDIDATE" --out world/snapshot.json
-      - name: Commit canonical result
-        shell: bash
-        run: |
-          git config user.name "alter-everest-reducer"
-          git config user.email "alter-everest-reducer@users.noreply.github.com"
-          git add world/snapshot.json
-          git commit -m "Apply accepted expedition"
-          git push
+          jq -n \
+            --argjson pull_number "$PULL_NUMBER" \
+            --arg head_sha "$HEAD_SHA" \
+            '{event_type:"accepted-expedition",client_payload:{pull_number:$pull_number,head_sha:$head_sha,source_workflow:"expedition-v1"}}' \
+            | gh api "repos/$GITHUB_REPOSITORY/dispatches" --input -

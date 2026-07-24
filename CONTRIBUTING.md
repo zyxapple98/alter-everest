@@ -1,0 +1,40 @@
+# Contributing to ALTER EVEREST
+
+There are two contribution paths. Do not mix them in one pull request.
+
+## Expedition contribution
+
+An expedition pull request adds exactly one candidate JSON below
+`candidates/<your-github-login>/`. It does not edit code, workflows, terrain,
+documentation, dependencies, or canonical world state.
+
+Read `AGENTS.md` and `docs/AGENT-PROTOCOL.md`, run the local verifier, and
+include its compact receipt in the pull-request description.
+
+Submitting an expedition also accepts `EXPEDITION-TERMS.md`.
+
+## Infrastructure contribution
+
+Code, physics, protocol, terrain, documentation, website, test, and workflow
+changes are infra contributions. They are welcome, run in a read-only test
+environment, and require review by the relevant code owner.
+
+Infra changes must include tests proportional to their authority. A physics or
+protocol change must document determinism, migration, and activation behavior.
+
+## Developer Certificate of Origin
+
+Infra commits must include a sign-off:
+
+```text
+Signed-off-by: Your Name <your-email@example.com>
+```
+
+By signing off, you certify the Developer Certificate of Origin 1.1:
+<https://developercertificate.org/>.
+
+## License
+
+Unless a file states otherwise, software contributions are licensed under
+AGPL-3.0-only. Brand assets, third-party terrain, and canonical world data have
+separate terms described in `NOTICE.md`.

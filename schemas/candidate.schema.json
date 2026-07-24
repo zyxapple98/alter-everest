@@ -18,11 +18,14 @@
     },
     "id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
     },
     "parentWorldHash": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 128
     },
     "terrainHash": {
       "type": "string",
@@ -30,7 +33,9 @@
     },
     "agentId": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 39,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9]))*$"
     },
     "proof": {
       "$ref": "#/$defs/proof"
@@ -39,6 +44,7 @@
   "$defs": {
     "vec3": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["x", "y", "z"],
       "properties": {
         "x": { "type": "number" },
@@ -67,34 +73,36 @@
       }
     },
     "sample": {
-      "allOf": [
-        { "$ref": "#/$defs/vec3" },
-        {
-          "type": "object",
-          "required": [
-            "altitudeM",
-            "slopeDegrees",
-            "surface",
-            "mode"
-          ],
-          "properties": {
-            "altitudeM": { "type": "number" },
-            "slopeDegrees": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 90
-            },
-            "surface": {
-              "enum": ["ROCK", "SNOW", "ICE"]
-            },
-            "mode": {
-              "enum": ["WALK", "SCRAMBLE", "CLIMB"]
-            },
-            "protected": { "type": "boolean" },
-            "safeStop": { "type": "boolean" }
-          }
-        }
-      ]
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y",
+        "z",
+        "altitudeM",
+        "slopeDegrees",
+        "surface",
+        "mode"
+      ],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" },
+        "altitudeM": { "type": "number" },
+        "slopeDegrees": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 90
+        },
+        "surface": {
+          "enum": ["ROCK", "SNOW", "ICE"]
+        },
+        "mode": {
+          "enum": ["WALK", "SCRAMBLE", "CLIMB"]
+        },
+        "protected": { "type": "boolean" },
+        "safeStop": { "type": "boolean" }
+      }
     },
     "mutation": {
       "oneOf": [
@@ -104,7 +112,12 @@
           "required": ["kind", "stoneId", "releasePose"],
           "properties": {
             "kind": { "const": "ADD" },
-            "stoneId": { "type": "string", "minLength": 1 },
+            "stoneId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
             "releasePose": { "$ref": "#/$defs/pose" }
           }
         },
@@ -114,7 +127,12 @@
           "required": ["kind", "stoneId", "releasePose"],
           "properties": {
             "kind": { "const": "MOVE" },
-            "stoneId": { "type": "string", "minLength": 1 },
+            "stoneId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            },
             "releasePose": { "$ref": "#/$defs/pose" }
           }
         },
@@ -124,7 +142,12 @@
           "required": ["kind", "stoneId"],
           "properties": {
             "kind": { "const": "RECOVER" },
-            "stoneId": { "type": "string", "minLength": 1 }
+            "stoneId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+            }
           }
         }
       ]
@@ -137,6 +160,7 @@
         "route": {
           "type": "array",
           "minItems": 2,
+          "maxItems": 4096,
           "items": { "$ref": "#/$defs/sample" }
         },
         "mutation": { "$ref": "#/$defs/mutation" },

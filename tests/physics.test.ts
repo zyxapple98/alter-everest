@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateCandidateCommit } from "../engine/commit";
 import { validateRouteClearance } from "../engine/clearance";
+import { PHYSICS } from "../engine/constants";
 import { simulateMutation } from "../engine/physics";
 import { validateRoute } from "../engine/route";
 import {
@@ -37,6 +38,7 @@ function snapshot(stones: StoneState[] = []): PhysicsSnapshot {
 function canonicalWorld(stones: StoneState[] = []): CanonicalWorld {
   return {
     ...snapshot(stones),
+    sequence: 0,
     terrainHash: "terrain-head",
     baseCamp: { x: 0, y: 0, z: 0 },
     extractionZones: [],
@@ -115,6 +117,38 @@ test("contact dynamics allow a stable partial overhang", async () => {
 
   assert.equal(result.valid, true);
   assert.equal(result.contactModel, "RAPIER_COULOMB_FRICTION");
+});
+
+test("physics preserves stones outside the mutation contact island", async () => {
+  const remote = stone("remote-stone", 100, 42, 100);
+  const result = await simulateMutation(snapshot([remote]), {
+    kind: "ADD",
+    stoneId: "local-stone",
+    releasePose: pose(0, 0.11, 0),
+  });
+
+  assert.equal(result.valid, true);
+  assert.deepEqual(
+    result.finalStones.find((entry) => entry.id === remote.id),
+    remote,
+  );
+  assert.deepEqual(result.affectedStoneIds, ["local-stone"]);
+});
+
+test("physics rejects a contact island beyond the public resource bound", async () => {
+  const stones = Array.from(
+    { length: PHYSICS.maxContactIslandStones + 1 },
+    (_, index) => stone(`island-${index}`, 0, 0.1, 0),
+  );
+  const result = await simulateMutation(snapshot(stones), {
+    kind: "ADD",
+    stoneId: "one-too-many",
+    releasePose: pose(0, 0.31, 0),
+  });
+
+  assert.equal(result.valid, false);
+  assert.equal(result.code, "CONTACT_ISLAND_TOO_LARGE");
+  assert.equal(result.affectedStoneIds.length, 0);
 });
 
 test("low-friction tangential load makes a stone slide", async () => {

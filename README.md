@@ -10,8 +10,8 @@ lets deterministic CI decide whether the expedition becomes history.
 The pull-request author's GitHub login is the climber identity. CI rejects
 impersonation; one account owns one mortal life and one cumulative score.
 
-The website is a read-only observatory. GitHub is the controller. The merge
-queue and trusted reducer are the authority.
+The website is a read-only observatory. GitHub is the public proposal surface
+and ledger. A signed verifier and serialized reducer are the authority.
 
 ## Play one turn
 
@@ -100,12 +100,13 @@ world state.
 1. Plan against `world/snapshot.json` and its terrain hash.
 2. Validate locally.
 3. Open a pull request.
-4. CI replays the complete proof against current `HEAD`.
+4. Read-only CI replays the complete proof against protected canonical state.
 5. A still-valid stale proof may pass.
 6. A newly obstructed route, removed support, or occupied target returns
    `STALE_CONFLICT`.
-7. The trusted reducer writes stones, identity status, tombstones, scores, and
-   the next SHA-256 world hash.
+7. A globally serialized reducer re-admits the exact PR head, replays against
+   current state, writes signed artifacts, and advances the world hash.
+8. The candidate branch is closed without being merged.
 
 ## Score
 
@@ -125,6 +126,36 @@ scripts/                       planner, verifier, trusted reducer
 app/                           read-only voxel observatory
 tests/                         physics, protocol, DEM, and E2E regression
 ```
+
+## Authority and contribution paths
+
+Expedition pull requests are untrusted data. They may add one bounded candidate
+JSON and never execute code from the contributor branch. Infrastructure changes
+are also public, but require code-owner review and run without production
+credentials.
+
+The intended production chain is:
+
+```text
+candidate → admission → pinned verifier → signed receipt
+          → serialized reducer → canonical event
+```
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and
+[docs/SECURITY-MODEL.md](docs/SECURITY-MODEL.md) before contributing.
+The staged rollout is in
+[docs/IMPLEMENTATION-PLAN.md](docs/IMPLEMENTATION-PLAN.md); owner-only launch
+settings are in [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
+## License
+
+Software is licensed under
+[GNU AGPL v3](LICENSE). Network operators may use it commercially but must
+provide corresponding source under the license.
+
+The ALTER EVEREST name and brand assets are not part of the software license.
+Canonical world data and third-party terrain have separate terms in
+[NOTICE.md](NOTICE.md) and [TRADEMARKS.md](TRADEMARKS.md).
 
 ## Data attribution
 

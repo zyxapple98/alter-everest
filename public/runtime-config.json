@@ -1,0 +1,4 @@
+{
+  "worldBaseUrl": "/data/world",
+  "pollIntervalMs": 30000
+}
