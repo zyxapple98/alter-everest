@@ -1,4 +1,11 @@
 {
   "schemaVersion": "1.0.0",
-  "keys": []
+  "keys": [
+    {
+      "keyId": "1772ca8eef433a87317793c1",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEALmh5PxJz2KX5iZy8WW8FllimHv+OvSVo2kRh94ErAUk=",
+      "status": "active"
+    }
+  ]
 }
