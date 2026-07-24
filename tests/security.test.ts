@@ -321,6 +321,42 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
       /exact candidate bytes are already part/,
     );
 
+    await writeFile(
+      eventPath,
+      JSON.stringify({
+        repository: { full_name: "example/repo" },
+        pull_request: {
+          number: 7,
+          state: "closed",
+          user: { login: "example-agent" },
+          head: { sha: "head-sha" },
+        },
+      }),
+    );
+    const replay = await execute(
+      process.execPath,
+      [
+        "scripts/admit-candidate-pr.mjs",
+        "--event",
+        eventPath,
+        "--events-dir",
+        eventsDirectory,
+        "--allow-applied",
+        "--out",
+        join(directory, "replay.json"),
+      ],
+      {
+        cwd: projectRoot,
+        env: {
+          ...process.env,
+          GITHUB_RUN_ID: "",
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+        },
+      },
+    );
+    assert.match(replay.stdout, /"admitted": true/);
+
     changedFiles = [
       ...changedFiles,
       { filename: ".github/workflows/pwn.yml", status: "added" },
