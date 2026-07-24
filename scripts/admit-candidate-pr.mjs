@@ -72,9 +72,7 @@ if (expectedHead && expectedHead !== headSha) {
     `The verified head ${expectedHead} is stale; the pull request is now ${headSha}.`,
   );
 }
-if (pullRequest.state && pullRequest.state !== "open") {
-  throw new Error("The expedition pull request is no longer open.");
-}
+const pullRequestState = String(pullRequest.state ?? "open");
 
 if (process.env.GITHUB_RUN_ID) {
   const acceptedBefore = (canonicalWorld.expeditions ?? []).some(
@@ -188,6 +186,35 @@ if (bytes.byteLength !== content.size) {
 }
 const candidate = JSON.parse(bytes.toString("utf8"));
 const candidateHash = createHash("sha256").update(bytes).digest("hex");
+const eventsArgument = argument("--events-dir");
+const eventsDirectory = eventsArgument
+  ? resolve(eventsArgument)
+  : new URL("../world/events/", import.meta.url);
+const eventNames = (await readdir(eventsDirectory)).filter((name) =>
+  name.endsWith(".json"),
+);
+let matchingCanonicalEvent = null;
+
+for (const eventName of eventNames) {
+  const eventPath =
+    eventsDirectory instanceof URL
+      ? new URL(eventName, eventsDirectory)
+      : resolve(eventsDirectory, eventName);
+  const event = JSON.parse(await readFile(eventPath, "utf8"));
+  if (event.candidateHash === candidateHash) {
+    matchingCanonicalEvent = event;
+    break;
+  }
+}
+
+if (
+  pullRequestState !== "open" &&
+  !(allowApplied && matchingCanonicalEvent)
+) {
+  throw new Error(
+    "A closed expedition pull request may only replay bytes already present in the canonical event log.",
+  );
+}
 
 if (!allowApplied) {
   if (
@@ -199,26 +226,10 @@ if (!allowApplied) {
     throw new Error("This candidate ID is already part of the canonical world.");
   }
 
-  const eventsArgument = argument("--events-dir");
-  const eventsDirectory = eventsArgument
-    ? resolve(eventsArgument)
-    : new URL("../world/events/", import.meta.url);
-  const eventNames = (await readdir(eventsDirectory)).filter((name) =>
-    name.endsWith(".json"),
-  );
-  for (const eventName of eventNames) {
-    const eventPath =
-      eventsDirectory instanceof URL
-        ? new URL(eventName, eventsDirectory)
-        : resolve(eventsDirectory, eventName);
-    const event = JSON.parse(
-      await readFile(eventPath, "utf8"),
+  if (matchingCanonicalEvent) {
+    throw new Error(
+      "These exact candidate bytes are already part of the canonical world.",
     );
-    if (event.candidateHash === candidateHash) {
-      throw new Error(
-        "These exact candidate bytes are already part of the canonical world.",
-      );
-    }
   }
 }
 
