@@ -93,40 +93,62 @@ const SKY_PHASES: Record<
     ground: string;
     exposure: number;
     terrainTint: string;
+    skyLight: string;
+    sunLight: string;
+    ambientIntensity: number;
+    sunIntensity: number;
   }
 > = {
   night: {
     fog: "#071522",
     ground: "#090f16",
-    exposure: 0.8,
-    terrainTint: "#8194aa",
+    exposure: 0.74,
+    terrainTint: "#9aa7b4",
+    skyLight: "#8aa9ca",
+    sunLight: "#a9c9e9",
+    ambientIntensity: 1.28,
+    sunIntensity: 1.35,
   },
   dawn: {
     fog: "#1d3143",
     ground: "#121820",
-    exposure: 0.94,
-    terrainTint: "#d4c3b8",
+    exposure: 0.88,
+    terrainTint: "#d5c8bf",
+    skyLight: "#8fa7c0",
+    sunLight: "#ffc39b",
+    ambientIntensity: 1.42,
+    sunIntensity: 2.35,
   },
   day: {
     fog: "#56758a",
     ground: "#20282b",
-    exposure: 1.05,
-    terrainTint: "#ffffff",
+    exposure: 0.93,
+    terrainTint: "#e4e5df",
+    skyLight: "#abc8db",
+    sunLight: "#fff1d4",
+    ambientIntensity: 1.55,
+    sunIntensity: 2.7,
   },
   dusk: {
     fog: "#132b40",
     ground: "#15191f",
-    exposure: 0.9,
-    terrainTint: "#b2bfd0",
+    exposure: 0.82,
+    terrainTint: "#b7bcc5",
+    skyLight: "#839db8",
+    sunLight: "#ffae7e",
+    ambientIntensity: 1.34,
+    sunIntensity: 1.95,
   },
 };
 
 const MOUNTAIN_MATERIALS = {
-  valleyRock: new THREE.Color("#303a3d"),
-  weatheredGranite: new THREE.Color("#566064"),
-  summitGranite: new THREE.Color("#70777a"),
-  blueIce: new THREE.Color("#799ba4"),
-  snow: new THREE.Color("#d9e1df"),
+  valleyRock: new THREE.Color("#20272a"),
+  weatheredGranite: new THREE.Color("#454c4e"),
+  summitGranite: new THREE.Color("#5c6261"),
+  sedimentBand: new THREE.Color("#343a3b"),
+  sunWarmedBand: new THREE.Color("#625c54"),
+  blueIce: new THREE.Color("#718f98"),
+  snow: new THREE.Color("#bcc7c6"),
   placedGranite: "#898982",
   freshCut: "#756a62",
   summitSignal: "#ffc86b",
@@ -160,6 +182,7 @@ function smoothstep(edge0: number, edge1: number, value: number) {
 function terrainColor(
   elevationM: number,
   slopeDegrees: number,
+  curvature: number,
   x: number,
   z: number,
   shade: number,
@@ -174,27 +197,46 @@ function terrainColor(
       MOUNTAIN_MATERIALS.summitGranite,
       smoothstep(7_200, 8_650, elevationM) * 0.42,
     );
-  const broadStrata =
-    Math.sin(x * 0.005 + z * 0.0025) * 0.55 +
-    Math.sin(z * 0.004 - x * 0.0018) * 0.45;
-  const localSnowLine = 6_050 + broadStrata * 95;
-  const snowAltitude = smoothstep(localSnowLine, 7_900, elevationM);
-  const snowRetention = 1 - smoothstep(34, 57, slopeDegrees);
+  const strataWave =
+    Math.sin(elevationM * 0.018 + x * 0.012 - z * 0.006) * 0.68 +
+    Math.sin(elevationM * 0.006 - x * 0.003 + z * 0.004) * 0.32;
+  const strataStrength = smoothstep(-0.45, 0.55, strataWave);
+  altitudeRock
+    .lerp(MOUNTAIN_MATERIALS.sedimentBand, strataStrength * 0.2)
+    .lerp(
+      MOUNTAIN_MATERIALS.sunWarmedBand,
+      smoothstep(0.48, 0.92, strataWave) * 0.11,
+    );
+
+  const broadExposure =
+    Math.sin(x * 0.004 + z * 0.002) * 0.58 +
+    Math.sin(z * 0.003 - x * 0.0014) * 0.42;
+  const localSnowLine = 5_850 + broadExposure * 130;
+  const snowAltitude = smoothstep(localSnowLine, 7_650, elevationM);
+  const gentleSlope = 1 - smoothstep(27, 49, slopeDegrees);
+  const pocketRetention = smoothstep(-0.12, 0.34, curvature);
+  const windScour = smoothstep(0.28, 0.94, Math.abs(broadExposure));
+  const snowRetention = THREE.MathUtils.clamp(
+    0.05 + gentleSlope * 0.68 + pocketRetention * 0.24 - windScour * 0.13,
+    0.035,
+    0.92,
+  );
   const snowAmount = THREE.MathUtils.clamp(
-    snowAltitude * (0.38 + snowRetention * 0.62),
+    snowAltitude * snowRetention,
     0,
     1,
   );
   const iceAmount =
-    smoothstep(5_900, 7_250, elevationM) *
-    (1 - smoothstep(48, 63, slopeDegrees)) *
+    smoothstep(5_650, 7_200, elevationM) *
+    (0.34 + gentleSlope * 0.66) *
+    (0.56 + pocketRetention * 0.44) *
     (1 - snowAmount) *
-    0.68;
+    0.58;
   const color = altitudeRock
     .lerp(MOUNTAIN_MATERIALS.blueIce, iceAmount)
     .lerp(MOUNTAIN_MATERIALS.snow, snowAmount);
   const mineralVariation =
-    (hashNoise(x, z, 19) - 0.5) * 0.016 + broadStrata * 0.006;
+    (hashNoise(x, z, 19) - 0.5) * 0.012 + strataWave * 0.008;
   color.offsetHSL(
     mineralVariation * 0.08,
     mineralVariation * 0.1,
@@ -363,6 +405,14 @@ function createVoxelTerrain(
         Math.max(1, metadata.displayResolutionM * 2);
       const slopeDegrees =
         (Math.atan(Math.hypot(gradientX, gradientZ)) * 180) / Math.PI;
+      const curvature =
+        ((leftElevation +
+          rightElevation +
+          northElevation +
+          southElevation) /
+          4 -
+          elevationM) /
+        Math.max(1, metadata.displayResolutionM);
       const normalLength = Math.hypot(gradientX, 1, gradientZ);
       const sunDot = THREE.MathUtils.clamp(
         (-gradientX * -0.38 + 0.86 + -gradientZ * -0.34) /
@@ -377,6 +427,7 @@ function createVoxelTerrain(
         terrainColor(
           elevationM,
           slopeDegrees,
+          curvature,
           noiseColumn,
           noiseRow,
           topShade,
@@ -428,6 +479,7 @@ function createVoxelTerrain(
               terrainColor(
                 elevationM,
                 slopeDegrees,
+                curvature,
                 noiseColumn,
                 noiseRow,
                 side.shade,
@@ -441,6 +493,7 @@ function createVoxelTerrain(
             terrainColor(
               elevationM,
               slopeDegrees,
+              curvature,
               noiseColumn,
               noiseRow,
               side.shade,
@@ -455,13 +508,17 @@ function createVoxelTerrain(
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
 
   const mesh = new THREE.Mesh(
     geometry,
-    new THREE.MeshBasicMaterial({
+    new THREE.MeshStandardMaterial({
       vertexColors: true,
       fog: true,
+      flatShading: true,
+      roughness: 0.94,
+      metalness: 0,
     }),
   );
 
@@ -942,6 +999,19 @@ export default function EverestObservatory() {
       renderer.domElement.tabIndex = 0;
       host.appendChild(renderer.domElement);
 
+      const ambientLight = new THREE.HemisphereLight(
+        alpinePalette.skyLight,
+        alpinePalette.ground,
+        alpinePalette.ambientIntensity,
+      );
+      const sunLight = new THREE.DirectionalLight(
+        alpinePalette.sunLight,
+        alpinePalette.sunIntensity,
+      );
+      sunLight.position.set(90, 145, 65);
+      sunLight.target.position.set(-12, 26, -18);
+      scene.add(ambientLight, sunLight, sunLight.target);
+
       const farTerrain = createVoxelTerrain(
         far.elevations,
         far.metadata,
@@ -970,9 +1040,9 @@ export default function EverestObservatory() {
       );
       const terrainLayers = [farTerrain, midTerrain, terrain];
       terrainLayers.forEach((layer) => {
-        (
-          layer.mesh.material as THREE.MeshBasicMaterial
-        ).color.set(alpinePalette.terrainTint);
+        (layer.mesh.material as THREE.MeshStandardMaterial).color.set(
+          alpinePalette.terrainTint,
+        );
         scene.add(layer.mesh);
       });
 
@@ -1477,8 +1547,7 @@ export default function EverestObservatory() {
   }, [expeditions, memorialClusters, skyPhase]);
 
   const active = expeditions[activeExpedition % expeditions.length];
-  const selectReplay = (index: number) => {
-    const now = performance.now();
+  const selectReplay = (index: number, now: number) => {
     activeExpeditionRef.current = index;
     manualReplayStarted.current = now;
     manualReplayUntil.current = now + REPLAY_SECONDS * 1000;
@@ -1586,7 +1655,7 @@ export default function EverestObservatory() {
               key={expedition.id}
               type="button"
               aria-pressed={index === activeExpedition}
-              onClick={() => selectReplay(index)}
+              onClick={(event) => selectReplay(index, event.timeStamp)}
             >
               <i style={{ background: expedition.color }} />
               <span>
