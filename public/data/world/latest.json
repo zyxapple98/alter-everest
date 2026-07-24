@@ -768,6 +768,15 @@
       ]
     }
   ],
+  "memorialClusters": [
+    {
+      "id": "memorial-64-48--82",
+      "latitude": 27.989019393540143,
+      "longitude": 86.92650569900428,
+      "count": 1,
+      "latestAgent": "northstar-17"
+    }
+  ],
   "leaderboard": [
     {
       "agent": "zyxapple98",

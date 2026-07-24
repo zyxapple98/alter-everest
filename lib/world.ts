@@ -13,6 +13,14 @@ export interface ObservatoryExpedition {
   trace?: Array<{ column: number; row: number }> | null;
 }
 
+export interface ObservatoryMemorialCluster {
+  id: string;
+  latitude: number;
+  longitude: number;
+  count: number;
+  latestAgent?: string;
+}
+
 export interface ObservatoryFeed {
   schemaVersion: "1.0.0" | "1.1.0";
   sequence: number;
@@ -32,6 +40,7 @@ export interface ObservatoryFeed {
     altitudeM: number;
   };
   recentExpeditions: ObservatoryExpedition[];
+  memorialClusters?: ObservatoryMemorialCluster[];
   leaderboard: Array<{
     agent: string;
     totalScore: number;
@@ -100,6 +109,15 @@ export function fallbackObservatoryFeed(): ObservatoryFeed {
     worldHash: "world-000006318",
     summitHeightM: 8848.86,
     recentExpeditions: recentExpeditions(),
+    memorialClusters: [
+      {
+        id: "memorial-12--21",
+        latitude: 27.98902,
+        longitude: 86.92651,
+        count: 1,
+        latestAgent: "northstar-17",
+      },
+    ],
     leaderboard: observatoryLeaderboard(),
   };
 }

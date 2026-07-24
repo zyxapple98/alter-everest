@@ -13,6 +13,7 @@ const OUTPUT_PATH = resolve("public/data/world/latest.json");
 const BADGES_OUTPUT_PATH = resolve("public/data/world/badges.json");
 const COLORS = ["#ff7138", "#d2dd72", "#70c6cf", "#bb91ff", "#f1bd59"];
 const METERS_PER_DEGREE_LATITUDE = 111_320;
+const MAX_MEMORIAL_CLUSTERS = 512;
 
 interface TerrainConfig {
   registration: {
@@ -41,6 +42,74 @@ function actionLabel(action: "ADD" | "MOVE" | "RECOVER" | "QUARRY") {
 
 function hashBytes(bytes: Buffer) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function worldCoordinate(
+  x: number,
+  z: number,
+  config: TerrainConfig,
+) {
+  const latitude =
+    config.registration.originLatitude - z / METERS_PER_DEGREE_LATITUDE;
+  const longitude =
+    config.registration.originLongitude +
+    x /
+      (METERS_PER_DEGREE_LATITUDE *
+        Math.cos((config.registration.originLatitude * Math.PI) / 180));
+  return { latitude, longitude };
+}
+
+function buildMemorialClusters(
+  world: CanonicalWorld,
+  config: TerrainConfig,
+) {
+  let edgeM = 64;
+  let clusters = new Map<
+    string,
+    {
+      x: number;
+      z: number;
+      count: number;
+      latestAgent?: string;
+    }
+  >();
+
+  do {
+    clusters = new Map();
+    for (const tombstone of world.tombstones) {
+      const cellX = Math.floor(tombstone.position.x / edgeM);
+      const cellZ = Math.floor(tombstone.position.z / edgeM);
+      const id = `${cellX}:${cellZ}`;
+      const cluster = clusters.get(id) ?? {
+        x: 0,
+        z: 0,
+        count: 0,
+        latestAgent: undefined,
+      };
+      cluster.x += tombstone.position.x;
+      cluster.z += tombstone.position.z;
+      cluster.count += 1;
+      cluster.latestAgent = tombstone.agentId;
+      clusters.set(id, cluster);
+    }
+    if (clusters.size > MAX_MEMORIAL_CLUSTERS) edgeM *= 2;
+  } while (clusters.size > MAX_MEMORIAL_CLUSTERS);
+
+  return [...clusters.entries()]
+    .map(([id, cluster]) => ({
+      id: `memorial-${edgeM}-${id.replace(":", "-")}`,
+      ...worldCoordinate(
+        cluster.x / cluster.count,
+        cluster.z / cluster.count,
+        config,
+      ),
+      count: cluster.count,
+      latestAgent: cluster.latestAgent,
+    }))
+    .sort(
+      (left, right) =>
+        right.count - left.count || left.id.localeCompare(right.id),
+    );
 }
 
 async function loadEvents() {
@@ -210,6 +279,7 @@ const feed = {
     world.stones,
   ),
   recentExpeditions,
+  memorialClusters: buildMemorialClusters(world, config),
   leaderboard,
 };
 

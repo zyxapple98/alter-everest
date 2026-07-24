@@ -44,6 +44,14 @@ interface SiteAnchor {
   longitude: number;
 }
 
+interface MemorialCluster {
+  id: string;
+  latitude: number;
+  longitude: number;
+  count: number;
+  latestAgent?: string;
+}
+
 interface VoxelTerrain {
   mesh: THREE.Mesh;
   levels: Int16Array;
@@ -72,6 +80,30 @@ const WORLD_PER_ARC_SECOND = CORE_BLOCK_SIZE;
 const VERTICAL_EXAGGERATION = 1.5;
 const ORIGIN_LATITUDE = 27.9881;
 const ORIGIN_LONGITUDE = 86.925;
+const REPLAY_SECONDS = 21;
+const ENDURANCE_SEGMENTS = 28;
+const EMPTY_MEMORIAL_CLUSTERS: MemorialCluster[] = [];
+
+type SkyPhase = "night" | "dawn" | "day" | "dusk";
+
+const SKY_PHASES: Record<
+  SkyPhase,
+  { fog: string; ground: string; exposure: number }
+> = {
+  night: { fog: "#071522", ground: "#090f16", exposure: 0.8 },
+  dawn: { fog: "#1d3143", ground: "#121820", exposure: 0.94 },
+  day: { fog: "#56758a", ground: "#20282b", exposure: 1.05 },
+  dusk: { fog: "#132b40", ground: "#15191f", exposure: 0.9 },
+};
+
+function kathmanduSkyPhase(date = new Date()): SkyPhase {
+  const utcMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
+  const kathmanduHour = ((utcMinutes + 5 * 60 + 45) % (24 * 60)) / 60;
+  if (kathmanduHour < 5.5 || kathmanduHour >= 19.25) return "night";
+  if (kathmanduHour < 7.25) return "dawn";
+  if (kathmanduHour < 16.75) return "day";
+  return "dusk";
+}
 
 function hashNoise(x: number, z: number, seed = 0) {
   let value = Math.imul(x + seed * 1013, 374761393);
@@ -404,26 +436,26 @@ function coordinatePoint(
   );
 }
 
-function siteLabel(name: string) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 96;
-  const context = canvas.getContext("2d")!;
-  context.font = "600 30px monospace";
-  context.textAlign = "center";
-  context.fillStyle = "rgba(241, 240, 232, .88)";
-  context.fillText(name.toUpperCase(), 256, 53);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const material = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    opacity: 0.72,
-    depthTest: false,
-  });
-  const sprite = new THREE.Sprite(material);
-  sprite.scale.set(12, 2.25, 1);
-  return { sprite, material, texture };
+function sitePriority(site: SiteAnchor) {
+  if (site.kind === "SUMMIT") return 3;
+  if (site.kind === "BASE") return 3;
+  if (site.id.endsWith("base-camp")) return 2;
+  if (site.id.includes("col")) return 2;
+  return 1;
+}
+
+function createSiteLabel(site: SiteAnchor) {
+  const element = document.createElement("div");
+  element.className = `site-marker site-marker-${site.kind.toLowerCase()}`;
+  element.dataset.priority = String(sitePriority(site));
+  element.innerHTML = `
+    <span class="site-marker-beacon" aria-hidden="true"></span>
+    <span class="site-marker-copy">
+      <strong>${site.name}</strong>
+      <small>${site.side === "BOTH" ? "SUMMIT" : `${site.side} FACE`}</small>
+    </span>
+  `;
+  return element;
 }
 
 function createRoute(
@@ -465,6 +497,30 @@ function positiveModulo(value: number, modulus: number) {
   return ((value % modulus) + modulus) % modulus;
 }
 
+function replayPhase(rawPhase: number, actionFraction: number) {
+  const startHold = 0.045;
+  const endHold = 0.92;
+  const actionStart =
+    startHold +
+    THREE.MathUtils.clamp(actionFraction, 0.08, 0.92) *
+      (endHold - startHold - 0.075);
+  const actionEnd = actionStart + 0.075;
+  if (rawPhase <= startHold) return 0;
+  if (rawPhase >= endHold) return 1;
+  if (rawPhase < actionStart) {
+    return (
+      ((rawPhase - startHold) / Math.max(0.001, actionStart - startHold)) *
+      actionFraction
+    );
+  }
+  if (rawPhase <= actionEnd) return actionFraction;
+  return (
+    actionFraction +
+    ((rawPhase - actionEnd) / Math.max(0.001, endHold - actionEnd)) *
+      (1 - actionFraction)
+  );
+}
+
 function createVoxelClimber(color: string) {
   const group = new THREE.Group();
   const jacketMaterial = new THREE.MeshBasicMaterial({
@@ -479,15 +535,15 @@ function createVoxelClimber(color: string) {
     color: "#d8b18a",
     transparent: true,
   });
-  const stoneMaterial = new THREE.MeshBasicMaterial({
-    color: "#8b8c83",
+  const packMaterial = new THREE.MeshBasicMaterial({
+    color: "#20323f",
     transparent: true,
   });
   const materials = [
     jacketMaterial,
     darkMaterial,
     skinMaterial,
-    stoneMaterial,
+    packMaterial,
   ];
 
   const addBox = (
@@ -517,46 +573,116 @@ function createVoxelClimber(color: string) {
   );
   addBox([0.09, 0.3, 0.1], [-0.21, 0.46, 0], jacketMaterial);
   addBox([0.09, 0.3, 0.1], [0.21, 0.46, 0], jacketMaterial);
-  const carriedStone = addBox(
-    [0.19, 0.19, 0.19],
-    [0.31, 0.35, 0.03],
-    stoneMaterial,
-  );
+  addBox([0.27, 0.3, 0.13], [0, 0.49, -0.19], packMaterial);
 
   return {
     group,
     materials,
     leftLeg,
     rightLeg,
-    carriedStone,
   };
 }
 
-function createMemorialCairn(color: string) {
+function createEnduranceHalo() {
   const group = new THREE.Group();
-  const stoneMaterial = new THREE.MeshBasicMaterial({
-    color: "#74736b",
-    transparent: true,
-    opacity: 0.95,
+  const geometry = new THREE.BoxGeometry(0.085, 0.085, 0.045);
+  const materials: THREE.MeshBasicMaterial[] = [];
+  const segments: THREE.Mesh[] = [];
+
+  for (let index = 0; index < ENDURANCE_SEGMENTS; index += 1) {
+    const angle =
+      -Math.PI / 2 + (index / ENDURANCE_SEGMENTS) * Math.PI * 2;
+    const material = new THREE.MeshBasicMaterial({
+      color: "#72e9ff",
+      transparent: true,
+      opacity: 0.94,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const segment = new THREE.Mesh(geometry, material);
+    segment.position.set(Math.cos(angle) * 0.62, Math.sin(angle) * 0.62, 0);
+    segment.rotation.z = angle + Math.PI / 2;
+    segment.renderOrder = 20;
+    materials.push(material);
+    segments.push(segment);
+    group.add(segment);
+  }
+
+  group.visible = false;
+  return { group, geometry, materials, segments };
+}
+
+function updateEnduranceHalo(
+  halo: ReturnType<typeof createEnduranceHalo>,
+  reserve: number,
+  pulse: number,
+) {
+  const safeReserve = THREE.MathUtils.clamp(reserve, 0, 1);
+  const litSegments = Math.ceil(safeReserve * ENDURANCE_SEGMENTS);
+  const signal =
+    safeReserve > 0.42
+      ? new THREE.Color("#72e9ff")
+      : safeReserve > 0.18
+        ? new THREE.Color("#ffc86b")
+        : new THREE.Color("#ff794d");
+
+  halo.materials.forEach((material, index) => {
+    const lit = index < litSegments;
+    material.color.copy(signal);
+    material.opacity = lit ? 0.72 + pulse * 0.24 : 0.075;
   });
-  const lightMaterial = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0.88,
-  });
-  const sizes = [0.28, 0.21, 0.14];
-  let y = 0;
-  sizes.forEach((size, index) => {
-    const stone = new THREE.Mesh(
-      new THREE.BoxGeometry(size, size * 0.68, size),
-      index === sizes.length - 1 ? lightMaterial : stoneMaterial,
+}
+
+function createMemorialField(
+  clusters: MemorialCluster[],
+  points: THREE.Vector3[],
+) {
+  const group = new THREE.Group();
+  const tiers = [
+    { size: 0.28, height: 0.19, y: 0.095, color: "#5d6870" },
+    { size: 0.2, height: 0.14, y: 0.26, color: "#77828a" },
+    { size: 0.12, height: 0.1, y: 0.38, color: "#ffc86b" },
+  ];
+  const meshes = tiers.map((tier) => {
+    const geometry = new THREE.BoxGeometry(tier.size, tier.height, tier.size);
+    const material = new THREE.MeshBasicMaterial({
+      color: tier.color,
+      transparent: true,
+      opacity: tier.color === "#ffc86b" ? 0.82 : 0.72,
+      fog: true,
+    });
+    const mesh = new THREE.InstancedMesh(
+      geometry,
+      material,
+      Math.max(1, clusters.length),
     );
-    stone.position.y = y + size * 0.34;
-    stone.rotation.y = index * 0.36;
-    y += size * 0.68;
-    group.add(stone);
+    mesh.count = clusters.length;
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    return mesh;
   });
-  return { group, stoneMaterial, lightMaterial };
+
+  const dummy = new THREE.Object3D();
+  clusters.forEach((cluster, index) => {
+    const logarithmicScale = THREE.MathUtils.clamp(
+      0.78 + Math.log2(cluster.count + 1) * 0.18,
+      0.78,
+      2.35,
+    );
+    meshes.forEach((mesh, tierIndex) => {
+      dummy.position.copy(points[index]);
+      dummy.position.y += tiers[tierIndex].y * logarithmicScale;
+      dummy.rotation.set(0, index * 0.61 + tierIndex * 0.23, 0);
+      dummy.scale.setScalar(logarithmicScale);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(index, dummy.matrix);
+    });
+  });
+  meshes.forEach((mesh) => {
+    mesh.instanceMatrix.needsUpdate = true;
+    group.add(mesh);
+  });
+
+  return { group, meshes };
 }
 
 async function loadDemLayer(
@@ -600,14 +726,30 @@ async function loadDem(signal: AbortSignal) {
 
 export default function EverestObservatory() {
   const canvasHost = useRef<HTMLDivElement>(null);
+  const siteOverlayHost = useRef<HTMLDivElement>(null);
+  const replayProgressHost = useRef<HTMLDivElement>(null);
+  const activeExpeditionRef = useRef(0);
+  const manualReplayUntil = useRef(0);
+  const manualReplayStarted = useRef(0);
   const [activeExpedition, setActiveExpedition] = useState(0);
   const [rankingsOpen, setRankingsOpen] = useState(false);
+  const [skyPhase, setSkyPhase] = useState<SkyPhase>(() =>
+    kathmanduSkyPhase(),
+  );
   const [sceneStatus, setSceneStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
   const [feed, setFeed] = useState(fallbackObservatoryFeed);
   const expeditions = feed.recentExpeditions;
   const leaderboard = feed.leaderboard;
+  const memorialClusters =
+    feed.memorialClusters ?? EMPTY_MEMORIAL_CLUSTERS;
+
+  useEffect(() => {
+    const update = () => setSkyPhase(kathmanduSkyPhase());
+    const interval = window.setInterval(update, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -650,7 +792,8 @@ export default function EverestObservatory() {
 
   useEffect(() => {
     const host = canvasHost.current;
-    if (!host) return;
+    const overlayHost = siteOverlayHost.current;
+    if (!host || !overlayHost) return;
 
     const abortController = new AbortController();
     let disposed = false;
@@ -663,7 +806,8 @@ export default function EverestObservatory() {
       if (disposed) return;
 
       const scene = new THREE.Scene();
-      scene.fog = new THREE.FogExp2("#102c3a", 0.0046);
+      const alpinePalette = SKY_PHASES[skyPhase];
+      scene.fog = new THREE.FogExp2(alpinePalette.fog, 0.00415);
 
       const camera = new THREE.PerspectiveCamera(
         43,
@@ -683,7 +827,7 @@ export default function EverestObservatory() {
       renderer.setSize(host.clientWidth, host.clientHeight);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1;
+      renderer.toneMappingExposure = alpinePalette.exposure;
       renderer.domElement.setAttribute(
         "aria-label",
         "Interactive voxel rendering of Mount Everest derived from Copernicus GLO-30 elevation data.",
@@ -721,15 +865,7 @@ export default function EverestObservatory() {
       const terrainLayers = [farTerrain, midTerrain, terrain];
       terrainLayers.forEach((layer) => scene.add(layer.mesh));
 
-      const visibleSiteIds = new Set([
-        "south-start",
-        "south-col",
-        "everest-summit",
-        "north-col",
-        "north-base-camp",
-      ]);
       const siteObjects = sites
-        .filter((site) => visibleSiteIds.has(site.id))
         .map((site) => {
           const layer =
             containsCoordinate(
@@ -751,27 +887,69 @@ export default function EverestObservatory() {
             site.latitude,
             site.longitude,
           );
+          const siteGroup = new THREE.Group();
+          const signalColor =
+            site.kind === "SUMMIT"
+              ? "#ffc86b"
+              : site.kind === "BASE"
+                ? "#8dffc1"
+                : "#72e9ff";
+          const beamMaterial = new THREE.MeshBasicMaterial({
+            color: signalColor,
+            transparent: true,
+            opacity: site.kind === "SUMMIT" ? 0.94 : 0.62,
+            depthWrite: false,
+          });
+          const ringMaterial = new THREE.MeshBasicMaterial({
+            color: signalColor,
+            transparent: true,
+            opacity: 0.32,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
           const marker = new THREE.Mesh(
-            new THREE.BoxGeometry(0.42, 1.9, 0.42),
-            new THREE.MeshBasicMaterial({
-              color: site.kind === "SUMMIT" ? "#ef7040" : "#bbd9d7",
-              transparent: true,
-              opacity: 0.72,
-            }),
+            new THREE.BoxGeometry(
+              site.kind === "SUMMIT" ? 0.3 : 0.18,
+              site.kind === "SUMMIT" ? 2.65 : 1.55,
+              site.kind === "SUMMIT" ? 0.3 : 0.18,
+            ),
+            beamMaterial,
           );
-          marker.position.copy(point);
-          marker.position.y += 0.8;
-          const label = siteLabel(site.name);
-          label.sprite.position.copy(point);
-          label.sprite.position.y += 2.25;
-          scene.add(marker, label.sprite);
-          return { marker, ...label };
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(0.28, 0.45, 4),
+            ringMaterial,
+          );
+          marker.position.y += site.kind === "SUMMIT" ? 1.33 : 0.78;
+          ring.rotation.x = -Math.PI / 2;
+          ring.rotation.z = Math.PI / 4;
+          ring.position.y += 0.07;
+          siteGroup.position.copy(point);
+          siteGroup.add(marker, ring);
+          scene.add(siteGroup);
+
+          const label = createSiteLabel(site);
+          overlayHost.appendChild(label);
+          const labelPoint = point.clone();
+          labelPoint.y += site.kind === "SUMMIT" ? 3.2 : 2.05;
+          return {
+            site,
+            siteGroup,
+            marker,
+            ring,
+            beamMaterial,
+            ringMaterial,
+            label,
+            labelPoint,
+          };
         });
+      const prioritizedSiteObjects = [...siteObjects].sort(
+        (left, right) => sitePriority(right.site) - sitePriority(left.site),
+      );
 
       const ground = new THREE.Mesh(
         new THREE.PlaneGeometry(1_600, 1_600),
         new THREE.MeshBasicMaterial({
-          color: "#171d22",
+          color: alpinePalette.ground,
           fog: true,
         }),
       );
@@ -792,8 +970,8 @@ export default function EverestObservatory() {
       controls.enableDamping = true;
       controls.dampingFactor = 0.055;
       controls.enablePan = false;
-      controls.minDistance = 52;
-      controls.maxDistance = 210;
+      controls.minDistance = 22;
+      controls.maxDistance = 225;
       controls.minPolarAngle = 0.48;
       controls.maxPolarAngle = 1.42;
       controls.autoRotate = false;
@@ -843,14 +1021,26 @@ export default function EverestObservatory() {
         const climber = createVoxelClimber(expedition.color);
         scene.add(climber.group);
 
-        const memorial =
-          expedition.outcome === "DEAD"
-            ? createMemorialCairn(expedition.color)
-            : null;
-        if (memorial) {
-          memorial.group.position.copy(points[points.length - 1]);
-          scene.add(memorial.group);
-        }
+        const enduranceHalo = createEnduranceHalo();
+        scene.add(enduranceHalo.group);
+
+        const actionIndex = Math.min(
+          points.length - 1,
+          Math.round(expedition.releaseFraction * (points.length - 1)),
+        );
+        const actionMaterial = new THREE.MeshBasicMaterial({
+          color: "#ffc86b",
+          transparent: true,
+          opacity: 0.25,
+          depthWrite: false,
+        });
+        const actionMarker = new THREE.Mesh(
+          new THREE.BoxGeometry(0.34, 0.34, 0.34),
+          actionMaterial,
+        );
+        actionMarker.position.copy(points[actionIndex]);
+        actionMarker.position.y += 0.2;
+        scene.add(actionMarker);
 
         return {
           expedition,
@@ -861,9 +1051,39 @@ export default function EverestObservatory() {
           breadcrumbGeometry,
           breadcrumbMaterial,
           ...climber,
-          memorial,
+          enduranceHalo,
+          actionMarker,
+          actionMaterial,
         };
       });
+
+      const memorialPoints = memorialClusters.map((cluster) => {
+        const layer =
+          containsCoordinate(
+            core.metadata.bounds,
+            cluster.latitude,
+            cluster.longitude,
+          )
+            ? { terrain, metadata: core.metadata }
+            : containsCoordinate(
+                  mid.metadata.bounds,
+                  cluster.latitude,
+                  cluster.longitude,
+                )
+              ? { terrain: midTerrain, metadata: mid.metadata }
+              : { terrain: farTerrain, metadata: far.metadata };
+        return coordinatePoint(
+          layer.terrain,
+          layer.metadata,
+          cluster.latitude,
+          cluster.longitude,
+        );
+      });
+      const memorialField = createMemorialField(
+        memorialClusters,
+        memorialPoints,
+      );
+      scene.add(memorialField.group);
 
       const summit = gridPoint(
         terrain,
@@ -888,15 +1108,27 @@ export default function EverestObservatory() {
         const seconds = Math.max(0, (time - started) / 1000);
         controls.update();
 
+        const manualPlayback = time < manualReplayUntil.current;
+        const nextActive = manualPlayback
+          ? activeExpeditionRef.current
+          : Math.floor(seconds / REPLAY_SECONDS) % expeditions.length;
+        if (activeExpeditionRef.current !== nextActive) {
+          activeExpeditionRef.current = nextActive;
+          setActiveExpedition(nextActive);
+        }
+        const activeSeconds = manualPlayback
+          ? Math.max(0, (time - manualReplayStarted.current) / 1000)
+          : seconds;
+        const rawPhase = positiveModulo(
+          activeSeconds / REPLAY_SECONDS,
+          1,
+        );
+
         traceObjects.forEach((trace, index) => {
-          const cycle = positiveModulo(
-            seconds * (0.042 + index * 0.004) + index * 0.31,
-            1,
-          );
-          const phase =
-            trace.expedition.outcome === "DEAD"
-              ? Math.min(cycle / 0.82, 1)
-              : cycle;
+          const isActive = nextActive === index;
+          const phase = isActive
+            ? replayPhase(rawPhase, trace.expedition.releaseFraction)
+            : 1;
           const scaled = phase * (trace.points.length - 1);
           const pointIndex = Math.min(
             trace.points.length - 2,
@@ -923,28 +1155,126 @@ export default function EverestObservatory() {
           trace.group.position.y += Math.abs(stride) * 0.035;
           trace.leftLeg.rotation.x = stride * 0.42;
           trace.rightLeg.rotation.x = -stride * 0.42;
-          trace.carriedStone.visible =
-            phase < trace.expedition.releaseFraction;
-          const isActive =
-            Math.floor(seconds / 7) % expeditions.length === index;
-          trace.material.opacity = isActive ? 0.94 : 0.4;
-          trace.breadcrumbMaterial.opacity = isActive ? 0.9 : 0.38;
-          const ended =
-            trace.expedition.outcome === "DEAD" && cycle > 0.82;
+          trace.material.opacity = isActive ? 0.94 : 0.14;
+          trace.breadcrumbMaterial.opacity = isActive ? 0.86 : 0.1;
+          const ended = isActive && rawPhase > 0.92;
           trace.materials.forEach((material) => {
-            material.opacity = ended ? 0 : isActive ? 1 : 0.38;
+            material.opacity = ended ? 0.28 : isActive ? 1 : 0;
           });
-          trace.group.scale.setScalar(isActive ? 1.28 : 0.74);
-          if (trace.memorial) {
-            trace.memorial.lightMaterial.opacity =
-              0.58 + Math.sin(seconds * 2.1) * 0.22;
-          }
+          trace.group.visible = isActive;
+          trace.group.scale.setScalar(isActive ? 1.22 : 0.72);
+
+          const reserve =
+            1 -
+            (phase *
+              THREE.MathUtils.clamp(
+                trace.expedition.enduranceUsed,
+                0,
+                100,
+              )) /
+              100;
+          const haloPulse = (Math.sin(seconds * 4.2) + 1) / 2;
+          trace.enduranceHalo.group.visible = isActive && !ended;
+          trace.enduranceHalo.group.position.copy(trace.group.position);
+          trace.enduranceHalo.group.position.y += 0.54;
+          trace.enduranceHalo.group.quaternion.copy(camera.quaternion);
+          const haloDistance = camera.position.distanceTo(
+            trace.enduranceHalo.group.position,
+          );
+          const haloScale =
+            THREE.MathUtils.clamp(haloDistance / 72, 0.82, 2.25) *
+            (0.98 + haloPulse * (reserve < 0.2 ? 0.08 : 0.025));
+          trace.enduranceHalo.group.scale.setScalar(haloScale);
+          updateEnduranceHalo(trace.enduranceHalo, reserve, haloPulse);
+
+          const actionDistance = Math.abs(
+            phase - trace.expedition.releaseFraction,
+          );
+          const actionSignal = THREE.MathUtils.clamp(
+            1 - actionDistance / 0.035,
+            0,
+            1,
+          );
+          trace.actionMaterial.opacity = isActive
+            ? 0.13 + actionSignal * 0.82
+            : 0.06;
+          trace.actionMarker.scale.setScalar(
+            0.8 + actionSignal * (1.2 + haloPulse * 0.24),
+          );
         });
 
-        const nextActive = Math.floor(seconds / 7) % expeditions.length;
-        setActiveExpedition((current) =>
-          current === nextActive ? current : nextActive,
-        );
+        if (replayProgressHost.current) {
+          replayProgressHost.current.style.setProperty(
+            "--replay-progress",
+            `${rawPhase * 100}%`,
+          );
+        }
+
+        const cameraDistance = camera.position.distanceTo(controls.target);
+        const minimumPriority =
+          cameraDistance > 145 ? 2 : cameraDistance > 82 ? 1 : 0;
+        const occupied: Array<{
+          left: number;
+          right: number;
+          top: number;
+          bottom: number;
+        }> = [];
+        prioritizedSiteObjects.forEach((siteObject) => {
+          const priority = sitePriority(siteObject.site);
+          const projected = siteObject.labelPoint.clone().project(camera);
+          const inView =
+            projected.z > -1 &&
+            projected.z < 1 &&
+            projected.x > -1.08 &&
+            projected.x < 1.08 &&
+            projected.y > -1.08 &&
+            projected.y < 1.08;
+          if (!inView || priority < minimumPriority) {
+            siteObject.label.style.opacity = "0";
+            siteObject.label.style.visibility = "hidden";
+            return;
+          }
+          const x = (projected.x * 0.5 + 0.5) * host.clientWidth;
+          const y = (-projected.y * 0.5 + 0.5) * host.clientHeight;
+          const width =
+            siteObject.site.kind === "SUMMIT"
+              ? 198
+              : siteObject.site.name.length > 18
+                ? 188
+                : 150;
+          const height = 50;
+          const rectangle = {
+            left: x - width / 2,
+            right: x + width / 2,
+            top: y - height,
+            bottom: y,
+          };
+          const collides = occupied.some(
+            (other) =>
+              rectangle.left < other.right + 10 &&
+              rectangle.right > other.left - 10 &&
+              rectangle.top < other.bottom + 8 &&
+              rectangle.bottom > other.top - 8,
+          );
+          if (collides && priority < 3) {
+            siteObject.label.style.opacity = "0";
+            siteObject.label.style.visibility = "hidden";
+            return;
+          }
+          occupied.push(rectangle);
+          siteObject.label.style.visibility = "visible";
+          siteObject.label.style.opacity = "1";
+          siteObject.label.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -100%)`;
+          siteObject.label.dataset.lod =
+            cameraDistance < 54
+              ? "near"
+              : cameraDistance < 118
+                ? "mid"
+                : "far";
+          siteObject.ringMaterial.opacity =
+            0.18 + Math.sin(seconds * 1.6 + priority) * 0.08;
+        });
+
         renderer.render(scene, camera);
         frame = requestAnimationFrame(render);
       };
@@ -972,7 +1302,9 @@ export default function EverestObservatory() {
             breadcrumbMaterial,
             group,
             materials,
-            memorial,
+            enduranceHalo,
+            actionMarker,
+            actionMaterial,
           }) => {
           line.geometry.dispose();
           material.dispose();
@@ -982,15 +1314,16 @@ export default function EverestObservatory() {
             if (object instanceof THREE.Mesh) object.geometry.dispose();
           });
           materials.forEach((item) => item.dispose());
-          if (memorial) {
-            memorial.group.traverse((object) => {
-              if (object instanceof THREE.Mesh) object.geometry.dispose();
-            });
-            memorial.stoneMaterial.dispose();
-            memorial.lightMaterial.dispose();
-          }
+          enduranceHalo.geometry.dispose();
+          enduranceHalo.materials.forEach((item) => item.dispose());
+          actionMarker.geometry.dispose();
+          actionMaterial.dispose();
           },
         );
+        memorialField.meshes.forEach((mesh) => {
+          mesh.geometry.dispose();
+          (mesh.material as THREE.Material).dispose();
+        });
         terrainLayers.forEach((layer) => {
           layer.mesh.geometry.dispose();
           (layer.mesh.material as THREE.Material).dispose();
@@ -999,12 +1332,17 @@ export default function EverestObservatory() {
         (ground.material as THREE.Material).dispose();
         summitStone.geometry.dispose();
         (summitStone.material as THREE.Material).dispose();
-        siteObjects.forEach(({ marker, material, texture }) => {
-          marker.geometry.dispose();
-          (marker.material as THREE.Material).dispose();
-          material.dispose();
-          texture.dispose();
-        });
+        siteObjects.forEach(
+          ({ siteGroup, beamMaterial, ringMaterial, label }) => {
+            siteGroup.traverse((object) => {
+              if (object instanceof THREE.Mesh) object.geometry.dispose();
+            });
+            beamMaterial.dispose();
+            ringMaterial.dispose();
+            label.remove();
+          },
+        );
+        overlayHost.replaceChildren();
         renderer.dispose();
         if (host.contains(renderer.domElement)) {
           host.removeChild(renderer.domElement);
@@ -1023,16 +1361,29 @@ export default function EverestObservatory() {
       abortController.abort();
       cleanupScene();
     };
-  }, [expeditions]);
+  }, [expeditions, memorialClusters, skyPhase]);
 
   const active = expeditions[activeExpedition % expeditions.length];
+  const selectReplay = (index: number) => {
+    const now = performance.now();
+    activeExpeditionRef.current = index;
+    manualReplayStarted.current = now;
+    manualReplayUntil.current = now + REPLAY_SECONDS * 1000;
+    setActiveExpedition(index);
+  };
 
   return (
-    <main className="observatory">
+    <main className="observatory" data-sky={skyPhase}>
       <div className="voxel-sky" aria-hidden="true">
         <i />
+        <span />
       </div>
       <div className="observatory-canvas" ref={canvasHost} />
+      <div
+        className="site-overlay"
+        ref={siteOverlayHost}
+        aria-hidden="true"
+      />
 
       <header className="observatory-header">
         <a className="wordmark" href="#world" aria-label="ALTER EVEREST">
@@ -1042,6 +1393,10 @@ export default function EverestObservatory() {
           </span>
           <strong>ALTER EVEREST</strong>
         </a>
+        <div className="scene-clock" aria-label="Everest local light">
+          <small>EVEREST LIGHT</small>
+          <strong>{skyPhase}</strong>
+        </div>
         <div className="live-state">
           <i />
           {sceneStatus === "ready"
@@ -1061,6 +1416,7 @@ export default function EverestObservatory() {
       </header>
 
       <section className="world-id" id="world" aria-label="Current world">
+        <small>THE MOUNTAIN IS THE COMMIT</small>
         <span>{`WORLD ${feed.sequence.toLocaleString("en-US")}`}</span>
         <strong>
           {`${Math.round(
@@ -1069,22 +1425,61 @@ export default function EverestObservatory() {
         </strong>
       </section>
 
-      <aside className="last-trace" aria-label="Last expedition trace">
-        <span
-          className="route-swatch"
-          style={{
-            background: active.color,
-            boxShadow: `0 0 18px ${active.color}`,
-          }}
-        />
-        <div>
+      <aside className="expedition-card" aria-label="Last expedition trace">
+        <div className="expedition-card-heading">
+          <span
+            className="route-swatch"
+            style={{
+              background: active.color,
+              boxShadow: `0 0 22px ${active.color}`,
+            }}
+          />
           <small>LAST TRACE</small>
-          <strong>{active.agent}</strong>
         </div>
-        <span>
-          {active.action} · +{active.score}
-        </span>
+        <strong>{active.agent}</strong>
+        <div className="expedition-result">
+          <span>{active.action}</span>
+          <em>+{active.score}</em>
+        </div>
+        <div className="endurance-language">
+          <span className="endurance-orbit" aria-hidden="true">
+            {Array.from({ length: 12 }, (_, index) => (
+              <i key={index} />
+            ))}
+          </span>
+          <small>ENDURANCE ORBITS THE CLIMBER</small>
+        </div>
       </aside>
+
+      <nav
+        className="replay-dock"
+        ref={replayProgressHost}
+        aria-label="Expedition replay"
+      >
+        <div className="replay-progress" aria-hidden="true">
+          <i />
+        </div>
+        <div className="replay-title">
+          <small>LIVE REPLAY</small>
+          <strong>ONE SIGNAL AT A TIME</strong>
+        </div>
+        <div className="replay-list">
+          {expeditions.map((expedition, index) => (
+            <button
+              key={expedition.id}
+              type="button"
+              aria-pressed={index === activeExpedition}
+              onClick={() => selectReplay(index)}
+            >
+              <i style={{ background: expedition.color }} />
+              <span>
+                <strong>{expedition.agent}</strong>
+                <small>{expedition.action}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      </nav>
 
       {rankingsOpen ? (
         <aside className="rankings" aria-label="Agent leaderboard">
@@ -1101,7 +1496,8 @@ export default function EverestObservatory() {
       ) : null}
 
       <div className="orbit-hint" aria-hidden="true">
-        DRAG · ZOOM
+        <span>DRAG · ZOOM</span>
+        <i />
       </div>
 
       <div
