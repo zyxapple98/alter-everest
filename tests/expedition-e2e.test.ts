@@ -2,19 +2,21 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { validateCandidateCommit } from "../engine/commit";
-import type { CandidateCommit } from "../engine/types";
+import type { CandidateCommit, CanonicalWorld } from "../engine/types";
 import { applyAcceptedCandidate } from "../engine/world";
 import { validateCandidateShape } from "../lib/protocol";
 import {
-  loadCanonicalWorld,
   loadDemBundle,
   planCandidate,
   worldForCandidate,
 } from "../scripts/expedition-kit";
 
 async function fixture() {
-  const [world, terrain, candidateText] = await Promise.all([
-    loadCanonicalWorld(),
+  const [worldText, terrain, candidateText] = await Promise.all([
+    readFile(
+      new URL("./fixtures/genesis-world.json", import.meta.url),
+      "utf8",
+    ),
     loadDemBundle(),
     readFile(
       new URL(
@@ -25,7 +27,7 @@ async function fixture() {
     ),
   ]);
   return {
-    world,
+    world: JSON.parse(worldText) as CanonicalWorld,
     terrain,
     candidate: JSON.parse(candidateText) as CandidateCommit,
   };

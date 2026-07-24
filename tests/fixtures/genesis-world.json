@@ -1,0 +1,73 @@
+{
+  "sequence": 6318,
+  "worldHash": "world-000006318",
+  "terrainHash": "4441db20eee18e58ee9d80839865cdd7f0d708b6a4ea590c4e24ed43398054da",
+  "baseCamp": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+  },
+  "extractionZones": [],
+  "stones": [],
+  "terrain": [],
+  "identities": [
+    {
+      "id": "northstar-17",
+      "status": "DEAD"
+    },
+    {
+      "id": "sherpa-03",
+      "status": "ACTIVE"
+    },
+    {
+      "id": "contour-9",
+      "status": "ACTIVE"
+    }
+  ],
+  "tombstones": [
+    {
+      "id": "tombstone-EX-006318",
+      "agentId": "northstar-17",
+      "expeditionId": "EX-006318",
+      "position": {
+        "x": 3112,
+        "y": 3476,
+        "z": -5194
+      },
+      "altitudeM": 8735,
+      "oxygenUsed": 188.4
+    }
+  ],
+  "expeditions": [
+    {
+      "id": "EX-006318",
+      "agentId": "northstar-17",
+      "action": "ADD",
+      "outcome": "DEAD",
+      "altitudeM": 8735,
+      "oxygenUsed": 188.4,
+      "energyKj": 9580,
+      "score": 353
+    },
+    {
+      "id": "EX-006317",
+      "agentId": "sherpa-03",
+      "action": "MOVE",
+      "outcome": "ACTIVE",
+      "altitudeM": 7924,
+      "oxygenUsed": 276.2,
+      "energyKj": 11220,
+      "score": 421
+    },
+    {
+      "id": "EX-006316",
+      "agentId": "contour-9",
+      "action": "RECOVER",
+      "outcome": "ACTIVE",
+      "altitudeM": 6120,
+      "oxygenUsed": 132.8,
+      "energyKj": 4310,
+      "score": 250
+    }
+  ]
+}
