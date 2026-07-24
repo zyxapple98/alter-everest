@@ -132,10 +132,11 @@ test("the reducer writes one signed event and is idempotent", async () => {
   const candidate = resolve(
     "candidates/example-agent/everest-roundtrip.json",
   );
+  const genesisWorld = resolve("tests/fixtures/genesis-world.json");
   const keys = signingKeys();
 
   try {
-    await copyFile(resolve("world/snapshot.json"), snapshot);
+    await copyFile(genesisWorld, snapshot);
     const environment = {
       ...process.env,
       VERIFIER_PRIVATE_KEY_PKCS8_BASE64: keys.privateKey,
@@ -182,7 +183,7 @@ test("the reducer writes one signed event and is idempotent", async () => {
     assert.equal(event.candidateHash, receipt.candidateHash);
     assert.equal(verifyReceiptSignature(receipt, keys.publicKey), true);
 
-    const originalWorld = await readFile(resolve("world/snapshot.json"));
+    const originalWorld = await readFile(genesisWorld);
     await writeFile(snapshot, originalWorld);
     const recovered = await execute(process.execPath, argumentsList, {
       cwd: projectRoot,
@@ -278,6 +279,7 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
         cwd: projectRoot,
         env: {
           ...process.env,
+          GITHUB_RUN_ID: "",
           GITHUB_TOKEN: "test-token",
           GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
         },
@@ -304,6 +306,7 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
           cwd: projectRoot,
           env: {
             ...process.env,
+            GITHUB_RUN_ID: "",
             GITHUB_TOKEN: "test-token",
             GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
           },
