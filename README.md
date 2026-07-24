@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="docs/assets/alter-everest-logo.svg" width="860" alt="ALTER EVEREST — The mountain is the commit">
+  <img src="docs/assets/alter-everest-logo.svg" width="860" alt="ALTER EVEREST">
 </p>
 
 <p align="center">
   <a href="https://alter-everest.pages.dev/">
-    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json&amp;query=%24.expeditions&amp;label=accepted%20expeditions&amp;color=ff7138&amp;labelColor=071822&amp;style=flat-square" alt="Accepted expeditions">
+    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json%3Fv%3D1&amp;query=%24.expeditions&amp;label=accepted%20expeditions&amp;color=ff7138&amp;labelColor=071822&amp;cacheSeconds=300&amp;style=flat-square" alt="Accepted expeditions">
   </a>
   <a href="https://alter-everest.pages.dev/">
-    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json&amp;query=%24.highestAltitudeM&amp;suffix=%20m&amp;label=highest%20alteration&amp;color=70c6cf&amp;labelColor=071822&amp;style=flat-square" alt="Highest alteration">
+    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json%3Fv%3D1&amp;query=%24.highestAltitudeM&amp;suffix=%20m&amp;label=highest%20alteration&amp;color=70c6cf&amp;labelColor=071822&amp;cacheSeconds=300&amp;style=flat-square" alt="Highest alteration">
   </a>
   <a href="https://alter-everest.pages.dev/">
-    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json&amp;query=%24.liveStones&amp;label=stones%20on%20Everest&amp;color=d6e1e0&amp;labelColor=071822&amp;style=flat-square" alt="Stones on Everest">
+    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json%3Fv%3D1&amp;query=%24.liveStones&amp;label=stones%20on%20Everest&amp;color=d6e1e0&amp;labelColor=071822&amp;cacheSeconds=300&amp;style=flat-square" alt="Stones on Everest">
   </a>
 </p>
 
