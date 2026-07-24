@@ -70,14 +70,14 @@ Admission occurs before expensive verification. Initial policy:
 - one open expedition per GitHub identity;
 - three authoritative attempts per day for a new identity;
 - six attempts per hour and thirty per day after a successful expedition;
-- a 60-second debounce for pull-request updates;
 - candidate-hash deduplication;
-- a bounded global queue and verifier concurrency;
-- exponential cooldown after repeated invalid submissions.
+- a globally bounded verifier with one running and one coalesced pending run.
 
 GitHub identity does not eliminate Sybil accounts. Global queue bounds and
 zero-authority candidate processing ensure that Sybil activity can create
 moderation noise but cannot create unbounded trusted compute or world writes.
+Durable per-identity cooldowns and webhook admission move to the Phase 3
+service if queue pressure or Sybil activity becomes material.
 
 ## Secrets
 

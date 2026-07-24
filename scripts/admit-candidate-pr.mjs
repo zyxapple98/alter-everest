@@ -1,4 +1,10 @@
-import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+  appendFile,
+  readFile,
+  readdir,
+  writeFile,
+} from "node:fs/promises";
 import { resolve } from "node:path";
 
 function argument(name) {
@@ -9,6 +15,7 @@ function argument(name) {
 const eventPath = argument("--event") ?? process.env.GITHUB_EVENT_PATH;
 const outputPath = argument("--out");
 const token = process.env.GITHUB_TOKEN;
+const allowApplied = process.argv.includes("--allow-applied");
 
 if (!eventPath || !outputPath || !token) {
   throw new Error(
@@ -179,7 +186,41 @@ const bytes = Buffer.from(String(content.content).replace(/\s/g, ""), "base64");
 if (bytes.byteLength !== content.size) {
   throw new Error("Candidate byte count does not match the Git blob metadata.");
 }
-JSON.parse(bytes.toString("utf8"));
+const candidate = JSON.parse(bytes.toString("utf8"));
+const candidateHash = createHash("sha256").update(bytes).digest("hex");
+
+if (!allowApplied) {
+  if (
+    typeof candidate.id === "string" &&
+    (canonicalWorld.expeditions ?? []).some(
+      (expedition) => expedition.id === candidate.id,
+    )
+  ) {
+    throw new Error("This candidate ID is already part of the canonical world.");
+  }
+
+  const eventsArgument = argument("--events-dir");
+  const eventsDirectory = eventsArgument
+    ? resolve(eventsArgument)
+    : new URL("../world/events/", import.meta.url);
+  const eventNames = (await readdir(eventsDirectory)).filter((name) =>
+    name.endsWith(".json"),
+  );
+  for (const eventName of eventNames) {
+    const eventPath =
+      eventsDirectory instanceof URL
+        ? new URL(eventName, eventsDirectory)
+        : resolve(eventsDirectory, eventName);
+    const event = JSON.parse(
+      await readFile(eventPath, "utf8"),
+    );
+    if (event.candidateHash === candidateHash) {
+      throw new Error(
+        "These exact candidate bytes are already part of the canonical world.",
+      );
+    }
+  }
+}
 
 const resolvedOutput = resolve(outputPath);
 await writeFile(resolvedOutput, bytes, { flag: "wx" });
@@ -192,6 +233,7 @@ if (process.env.GITHUB_OUTPUT) {
       `candidate_path=${candidatePath}`,
       `candidate_file=${resolvedOutput}`,
       `candidate_blob_sha=${content.sha}`,
+      `candidate_hash=${candidateHash}`,
       `head_sha=${headSha}`,
       `pull_number=${pullNumber}`,
       "",
@@ -208,6 +250,7 @@ console.log(
       candidatePath,
       candidateBytes: bytes.byteLength,
       candidateBlobSha: content.sha,
+      candidateHash,
       headSha,
     },
     null,

@@ -9,7 +9,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: canonical-world-reducer
+  group: canonical-world-pipeline
   cancel-in-progress: false
 
 jobs:
@@ -42,6 +42,7 @@ jobs:
           node scripts/admit-candidate-pr.mjs
           --event "$GITHUB_EVENT_PATH"
           --expected-head "$EXPECTED_HEAD"
+          --allow-applied
           --out "$RUNNER_TEMP/candidate.json"
 
       - name: Replay against current world and append signed artifacts
@@ -57,6 +58,15 @@ jobs:
 
       - name: Build the public read model
         run: npm run world:feed
+
+      - name: Prepare an exact R2 publish manifest
+        if: vars.R2_PUBLISH_ENABLED == 'true'
+        env:
+          CANDIDATE_HASH: ${{ steps.admission.outputs.candidate_hash }}
+        run: >-
+          npm run world:r2:manifest --
+          --candidate-hash "$CANDIDATE_HASH"
+          --out "$RUNNER_TEMP/r2-publish-manifest.json"
 
       - name: Mint short-lived reducer token after replay
         id: app-token
@@ -88,20 +98,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_R2_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WORLD_BUCKET: ${{ vars.WORLD_BUCKET }}
-        run: |
-          mapfile -t changed < <(git diff-tree --no-commit-id --name-only -r HEAD)
-          for file in "${changed[@]}"; do
-            case "$file" in
-              world/events/*|world/receipts/*|world/proofs/*)
-                key="${file#world/}"
-                npx wrangler r2 object put "$WORLD_BUCKET/$key" --file "$file" --remote
-                ;;
-            esac
-          done
-          world_hash="$(jq -r .worldHash world/snapshot.json)"
-          npx wrangler r2 object put "$WORLD_BUCKET/worlds/$world_hash.json" --file world/snapshot.json --remote
-          npx wrangler r2 object put "$WORLD_BUCKET/world/snapshot.json" --file world/snapshot.json --remote
-          npx wrangler r2 object put "$WORLD_BUCKET/world/latest.json" --file public/data/world/latest.json --remote
+        run: >-
+          npm run world:r2:publish --
+          --manifest "$RUNNER_TEMP/r2-publish-manifest.json"
 
       - name: Report acceptance and close candidate pull request
         env:

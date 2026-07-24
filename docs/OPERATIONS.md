@@ -91,6 +91,8 @@ world.
 The beta workflow enforces:
 
 - one globally running verifier and at most one pending run;
+- cheap identity, path, size, replay, and duplicate admission before a verifier
+  image is built;
 - only the oldest open expedition PR per identity is admitted;
 - at most six verifier starts per identity per hour;
 - at most three per day before a first accepted expedition;
@@ -143,6 +145,16 @@ WORLD_BASE_URL=https://world.your-production-domain.example
 Every accepted expedition then updates `world/latest.json` without requiring a
 site deployment. Historical proofs, traces, terrain tiles, and snapshots can
 move to immutable content-addressed R2 keys without changing the browser API.
+
+The reducer builds an exact publish manifest for the accepted candidate,
+uploads immutable content-addressed objects first, and advances
+`world/latest.json` last. If publishing fails after the Git commit, run
+`Reconcile R2 world mirror`; it recreates the mirror from protected canonical
+Git data. R2 is a disposable delivery mirror, never canonical authority.
+
+Use a custom domain for production R2 traffic. Configure cache rules so
+content-addressed keys are immutable and `world/latest.json` has a short edge
+TTL. The `r2.dev` development hostname is not a production origin.
 
 ## 7. Launch and rollback
 

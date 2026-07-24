@@ -16,7 +16,7 @@ Status: complete.
 
 ## Phase 1 — protected public beta
 
-Status: implementation complete; owner configuration remains.
+Status: complete.
 
 - candidate-only PR admission from the protected base branch;
 - no checkout, dependency install, or execution from a candidate branch;
@@ -33,13 +33,15 @@ Exit criteria are the launch checks in `docs/OPERATIONS.md`.
 
 ## Phase 2 — static edge delivery
 
-Status: code path complete; Cloudflare account configuration remains.
+Status: Pages is live; R2 account, domain, and billing configuration remain.
 
 - Cloudflare Pages serves versioned application assets;
 - R2 serves `latest.json` and later immutable world artifacts;
 - the browser polls data independently of website deployments;
 - a runtime URL switch allows a GitHub Pages fallback or provider migration;
 - CDN cache rules keep `latest.json` short-lived and hashes immutable.
+- an idempotent reconciliation workflow can rebuild the entire R2 mirror from
+  the protected Git ledger.
 
 This is the recommended launch topology even if the first audience is small.
 It avoids a later frontend rewrite and keeps a traffic spike inexpensive.
