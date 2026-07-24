@@ -12,6 +12,7 @@
   --line: rgba(218, 239, 245, 0.16);
   --panel: rgba(5, 13, 21, 0.72);
   --mono: var(--font-geist-mono), "SFMono-Regular", Consolas, monospace;
+  --brand: var(--font-brand), "Arial Narrow", "Roboto Condensed", sans-serif;
 }
 
 * {
@@ -307,39 +308,64 @@ button {
   display: inline-flex;
   align-items: center;
   width: max-content;
-  gap: 13px;
+  gap: 15px;
   pointer-events: auto;
   text-decoration: none;
 }
 
 .wordmark strong {
-  font: 720 13px/1 var(--font-geist-sans), Arial, sans-serif;
-  letter-spacing: 0.22em;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font: 400 21px/0.9 var(--brand);
+  letter-spacing: 0.19em;
+}
+
+.wordmark strong span:last-child {
+  color: rgba(228, 239, 239, 0.7);
 }
 
 .wordmark-symbol {
   position: relative;
-  width: 26px;
-  height: 28px;
+  width: 36px;
+  height: 27px;
+  filter: drop-shadow(0 5px 12px rgba(1, 7, 12, 0.5));
 }
 
 .wordmark-symbol i {
   position: absolute;
-  left: 4px;
-  width: 17px;
-  height: 17px;
-  border: 1px solid rgba(247, 251, 247, 0.88);
-  transform: rotate(45deg) skew(-9deg, -9deg);
+  width: 5px;
+  height: 5px;
+  background: rgba(224, 235, 236, 0.92);
 }
 
 .wordmark-symbol i:first-child {
-  top: 0;
+  top: 20px;
+  left: 0;
+  box-shadow:
+    6px -6px rgba(224, 235, 236, 0.92),
+    12px -12px rgba(224, 235, 236, 0.92);
 }
 
-.wordmark-symbol i:last-child {
-  top: 9px;
-  border-color: var(--amber);
-  box-shadow: 0 0 12px rgba(255, 200, 107, 0.2);
+.wordmark-symbol i:nth-child(2) {
+  top: 8px;
+  left: 24px;
+  background: rgba(171, 192, 197, 0.72);
+  box-shadow:
+    6px 6px rgba(171, 192, 197, 0.72),
+    12px 12px rgba(171, 192, 197, 0.72);
+}
+
+.wordmark-symbol b {
+  position: absolute;
+  top: 2px;
+  left: 18px;
+  width: 5px;
+  height: 5px;
+  background: var(--amber);
+  box-shadow:
+    0 0 0 3px rgba(255, 200, 107, 0.08),
+    0 0 15px rgba(255, 200, 107, 0.58);
 }
 
 .scene-clock {
@@ -811,11 +837,14 @@ button {
   }
 
   .wordmark strong {
-    font-size: 10px;
+    gap: 5px;
+    font-size: 17px;
+    letter-spacing: 0.13em;
   }
 
   .wordmark-symbol {
-    transform: scale(0.82);
+    width: 30px;
+    transform: scale(0.8);
     transform-origin: left center;
   }
 

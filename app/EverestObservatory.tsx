@@ -88,13 +88,49 @@ type SkyPhase = "night" | "dawn" | "day" | "dusk";
 
 const SKY_PHASES: Record<
   SkyPhase,
-  { fog: string; ground: string; exposure: number }
+  {
+    fog: string;
+    ground: string;
+    exposure: number;
+    terrainTint: string;
+  }
 > = {
-  night: { fog: "#071522", ground: "#090f16", exposure: 0.8 },
-  dawn: { fog: "#1d3143", ground: "#121820", exposure: 0.94 },
-  day: { fog: "#56758a", ground: "#20282b", exposure: 1.05 },
-  dusk: { fog: "#132b40", ground: "#15191f", exposure: 0.9 },
+  night: {
+    fog: "#071522",
+    ground: "#090f16",
+    exposure: 0.8,
+    terrainTint: "#8194aa",
+  },
+  dawn: {
+    fog: "#1d3143",
+    ground: "#121820",
+    exposure: 0.94,
+    terrainTint: "#d4c3b8",
+  },
+  day: {
+    fog: "#56758a",
+    ground: "#20282b",
+    exposure: 1.05,
+    terrainTint: "#ffffff",
+  },
+  dusk: {
+    fog: "#132b40",
+    ground: "#15191f",
+    exposure: 0.9,
+    terrainTint: "#b2bfd0",
+  },
 };
+
+const MOUNTAIN_MATERIALS = {
+  valleyRock: new THREE.Color("#303a3d"),
+  weatheredGranite: new THREE.Color("#566064"),
+  summitGranite: new THREE.Color("#70777a"),
+  blueIce: new THREE.Color("#799ba4"),
+  snow: new THREE.Color("#d9e1df"),
+  placedGranite: "#898982",
+  freshCut: "#756a62",
+  summitSignal: "#ffc86b",
+} as const;
 
 function kathmanduSkyPhase(date = new Date()): SkyPhase {
   const utcMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
@@ -112,30 +148,58 @@ function hashNoise(x: number, z: number, seed = 0) {
   return ((value >>> 0) % 10000) / 10000;
 }
 
+function smoothstep(edge0: number, edge1: number, value: number) {
+  const t = THREE.MathUtils.clamp(
+    (value - edge0) / Math.max(0.0001, edge1 - edge0),
+    0,
+    1,
+  );
+  return t * t * (3 - 2 * t);
+}
+
 function terrainColor(
   elevationM: number,
+  slopeDegrees: number,
   x: number,
   z: number,
   shade: number,
 ) {
-  const variation = (hashNoise(x, z, 19) - 0.5) * 0.042;
-  const patch =
-    Math.sin(x * 0.052 + z * 0.021) * 0.52 +
-    Math.sin(z * 0.061 - x * 0.018) * 0.34 +
-    Math.sin((x + z) * 0.027) * 0.22;
-  let color: THREE.Color;
-
-  if (elevationM > 7_850 || (elevationM > 6_900 && patch > 0.3)) {
-    color = new THREE.Color("#dce0d9");
-  } else if (elevationM > 6_050 && patch < 0.02) {
-    color = new THREE.Color("#78989e");
-  } else if (elevationM > 5_650) {
-    color = new THREE.Color("#68675f");
-  } else {
-    color = new THREE.Color("#394649");
-  }
-
-  color.offsetHSL(variation * 0.06, variation * 0.12, variation);
+  const altitudeRock = MOUNTAIN_MATERIALS.valleyRock
+    .clone()
+    .lerp(
+      MOUNTAIN_MATERIALS.weatheredGranite,
+      smoothstep(4_900, 6_900, elevationM),
+    )
+    .lerp(
+      MOUNTAIN_MATERIALS.summitGranite,
+      smoothstep(7_200, 8_650, elevationM) * 0.42,
+    );
+  const broadStrata =
+    Math.sin(x * 0.005 + z * 0.0025) * 0.55 +
+    Math.sin(z * 0.004 - x * 0.0018) * 0.45;
+  const localSnowLine = 6_050 + broadStrata * 95;
+  const snowAltitude = smoothstep(localSnowLine, 7_900, elevationM);
+  const snowRetention = 1 - smoothstep(34, 57, slopeDegrees);
+  const snowAmount = THREE.MathUtils.clamp(
+    snowAltitude * (0.38 + snowRetention * 0.62),
+    0,
+    1,
+  );
+  const iceAmount =
+    smoothstep(5_900, 7_250, elevationM) *
+    (1 - smoothstep(48, 63, slopeDegrees)) *
+    (1 - snowAmount) *
+    0.68;
+  const color = altitudeRock
+    .lerp(MOUNTAIN_MATERIALS.blueIce, iceAmount)
+    .lerp(MOUNTAIN_MATERIALS.snow, snowAmount);
+  const mineralVariation =
+    (hashNoise(x, z, 19) - 0.5) * 0.016 + broadStrata * 0.006;
+  color.offsetHSL(
+    mineralVariation * 0.08,
+    mineralVariation * 0.1,
+    mineralVariation,
+  );
   return color.multiplyScalar(shade);
 }
 
@@ -283,10 +347,40 @@ function createVoxelTerrain(
       const noiseRow = Math.round(
         (metadata.bounds.north - row * degreesPerSample) * 3600,
       );
+      const leftElevation =
+        elevations[row * width + Math.max(0, column - 1)];
+      const rightElevation =
+        elevations[row * width + Math.min(width - 1, column + 1)];
+      const northElevation =
+        elevations[Math.max(0, row - 1) * width + column];
+      const southElevation =
+        elevations[Math.min(height - 1, row + 1) * width + column];
+      const gradientX =
+        (rightElevation - leftElevation) /
+        Math.max(1, metadata.displayResolutionM * 2);
+      const gradientZ =
+        (southElevation - northElevation) /
+        Math.max(1, metadata.displayResolutionM * 2);
+      const slopeDegrees =
+        (Math.atan(Math.hypot(gradientX, gradientZ)) * 180) / Math.PI;
+      const normalLength = Math.hypot(gradientX, 1, gradientZ);
+      const sunDot = THREE.MathUtils.clamp(
+        (-gradientX * -0.38 + 0.86 + -gradientZ * -0.34) /
+          normalLength,
+        0,
+        1,
+      );
+      const topShade = 0.76 + sunDot * 0.24;
 
       writeFace(
         [x0, yTop, z0, x0, yTop, z1, x1, yTop, z1, x1, yTop, z0],
-        terrainColor(elevationM, noiseColumn, noiseRow, 1),
+        terrainColor(
+          elevationM,
+          slopeDegrees,
+          noiseColumn,
+          noiseRow,
+          topShade,
+        ),
       );
 
       const sides = [
@@ -333,6 +427,7 @@ function createVoxelTerrain(
               side.vertices(y0, y1),
               terrainColor(
                 elevationM,
+                slopeDegrees,
                 noiseColumn,
                 noiseRow,
                 side.shade,
@@ -345,6 +440,7 @@ function createVoxelTerrain(
             side.vertices(y0, yTop),
             terrainColor(
               elevationM,
+              slopeDegrees,
               noiseColumn,
               noiseRow,
               side.shade,
@@ -639,8 +735,18 @@ function createMemorialField(
 ) {
   const group = new THREE.Group();
   const tiers = [
-    { size: 0.28, height: 0.19, y: 0.095, color: "#5d6870" },
-    { size: 0.2, height: 0.14, y: 0.26, color: "#77828a" },
+    {
+      size: 0.28,
+      height: 0.19,
+      y: 0.095,
+      color: MOUNTAIN_MATERIALS.placedGranite,
+    },
+    {
+      size: 0.2,
+      height: 0.14,
+      y: 0.26,
+      color: MOUNTAIN_MATERIALS.freshCut,
+    },
     { size: 0.12, height: 0.1, y: 0.38, color: "#ffc86b" },
   ];
   const meshes = tiers.map((tier) => {
@@ -863,7 +969,12 @@ export default function EverestObservatory() {
         { edgeFeatherCells: 12 },
       );
       const terrainLayers = [farTerrain, midTerrain, terrain];
-      terrainLayers.forEach((layer) => scene.add(layer.mesh));
+      terrainLayers.forEach((layer) => {
+        (
+          layer.mesh.material as THREE.MeshBasicMaterial
+        ).color.set(alpinePalette.terrainTint);
+        scene.add(layer.mesh);
+      });
 
       const siteObjects = sites
         .map((site) => {
@@ -1093,7 +1204,9 @@ export default function EverestObservatory() {
       );
       const summitStone = new THREE.Mesh(
         new THREE.BoxGeometry(0.52, 0.52, 0.52),
-        new THREE.MeshBasicMaterial({ color: "#ef7040" }),
+        new THREE.MeshBasicMaterial({
+          color: MOUNTAIN_MATERIALS.summitSignal,
+        }),
       );
       summitStone.position.copy(summit);
       scene.add(summitStone);
@@ -1390,8 +1503,12 @@ export default function EverestObservatory() {
           <span className="wordmark-symbol" aria-hidden="true">
             <i />
             <i />
+            <b />
           </span>
-          <strong>ALTER EVEREST</strong>
+          <strong>
+            <span>ALTER</span>
+            <span>EVEREST</span>
+          </strong>
         </a>
         <div className="scene-clock" aria-label="Everest local light">
           <small>EVEREST LIGHT</small>

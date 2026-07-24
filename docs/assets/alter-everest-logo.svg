@@ -1,49 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 190" role="img" aria-labelledby="title description">
   <title id="title">ALTER EVEREST</title>
-  <desc id="description">A voxel outline of Everest with one orange summit block.</desc>
-  <rect width="980" height="190" rx="20" fill="#071822"/>
-  <g transform="translate(34 19)">
-    <path
-      d="M8 145h28v-13h22v-15h21v-18h22V82h20V64h20V45h27v16h19v13h23v17h21v14h23v16h26v12h32v12H8z"
-      fill="#102d39"
-      stroke="#466672"
-      stroke-width="3"
-      stroke-linejoin="miter"
-    />
-    <path
-      d="M8 145h28v-13h22v-15h21V99h22V82h20V64h20V45h27v16h19v13h23v17h21v14h23v16h26v12h32v12"
-      fill="none"
-      stroke="#d6e1e0"
-      stroke-width="3.5"
-      stroke-linejoin="miter"
-    />
-    <path
-      d="M58 132h21v-15h22V99h20V82h20V64h27v18h19v17h23v18h21v15h23"
-      fill="none"
-      stroke="#66838d"
-      stroke-width="2.5"
-      stroke-linejoin="miter"
-    />
-    <path
-      d="M101 145v-13h20v-15h20V99h27v18h19v15h23v13"
-      fill="none"
-      stroke="#284955"
-      stroke-width="2.5"
-      stroke-linejoin="miter"
-    />
-    <g transform="translate(141 11)">
-      <path d="m13.5 0 13.5 7.5-13.5 7.5L0 7.5z" fill="#ff9a72"/>
-      <path d="m0 7.5 13.5 7.5v19L0 26.5z" fill="#ff7138"/>
-      <path d="M27 7.5 13.5 15v19L27 26.5z" fill="#c84621"/>
-    </g>
+  <desc id="description">A stepped voxel summit with an amber peak beside the ALTER EVEREST wordmark.</desc>
+  <rect width="980" height="190" fill="#071019"/>
+  <g transform="translate(38 30)">
+    <rect x="0" y="100" width="22" height="22" fill="#dfeaec"/>
+    <rect x="30" y="70" width="22" height="22" fill="#dfeaec"/>
+    <rect x="60" y="40" width="22" height="22" fill="#dfeaec"/>
+    <rect x="90" y="10" width="22" height="22" fill="#ffc86b"/>
+    <rect x="120" y="40" width="22" height="22" fill="#a8bcc1"/>
+    <rect x="150" y="70" width="22" height="22" fill="#a8bcc1"/>
+    <rect x="180" y="100" width="22" height="22" fill="#a8bcc1"/>
+    <rect x="30" y="100" width="22" height="22" fill="#596c73"/>
+    <rect x="60" y="70" width="22" height="22" fill="#596c73"/>
+    <rect x="90" y="40" width="22" height="22" fill="#596c73"/>
+    <rect x="120" y="70" width="22" height="22" fill="#435861"/>
+    <rect x="150" y="100" width="22" height="22" fill="#435861"/>
   </g>
   <text
-    x="380"
-    y="116"
-    fill="#f5f4ed"
-    font-family="Arial, Helvetica, sans-serif"
-    font-size="60"
-    font-weight="700"
-    letter-spacing="7"
+    x="282"
+    y="132"
+    fill="#f7fbf7"
+    font-family="'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif"
+    font-size="84"
+    font-weight="400"
+    letter-spacing="9"
   >ALTER EVEREST</text>
 </svg>
