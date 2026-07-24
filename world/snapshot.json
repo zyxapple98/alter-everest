@@ -1,6 +1,6 @@
 {
-  "sequence": 6318,
-  "worldHash": "world-000006318",
+  "sequence": 6319,
+  "worldHash": "765cd879a9cf9101f7d79a4ac23fd70ce0e6ae3dbe337958d84a408d707cf28e",
   "terrainHash": "4441db20eee18e58ee9d80839865cdd7f0d708b6a4ea590c4e24ed43398054da",
   "baseCamp": {
     "x": 0,
@@ -8,9 +8,30 @@
     "z": 0
   },
   "extractionZones": [],
-  "stones": [],
+  "stones": [
+    {
+      "id": "stone-expedition-zyxapple98-mryg9683",
+      "pose": {
+        "translation": {
+          "x": 3032.2255859375,
+          "y": 3479.099853515625,
+          "z": -5194.93017578125
+        },
+        "rotation": {
+          "x": 0.014558234252035618,
+          "y": 0.0015275434125214815,
+          "z": -0.087986521422863,
+          "w": 0.9960141181945801
+        }
+      }
+    }
+  ],
   "terrain": [],
   "identities": [
+    {
+      "id": "contour-9",
+      "status": "ACTIVE"
+    },
     {
       "id": "northstar-17",
       "status": "DEAD"
@@ -20,7 +41,7 @@
       "status": "ACTIVE"
     },
     {
-      "id": "contour-9",
+      "id": "zyxapple98",
       "status": "ACTIVE"
     }
   ],
@@ -68,6 +89,16 @@
       "oxygenUsed": 132.8,
       "energyKj": 4310,
       "score": 250
+    },
+    {
+      "id": "expedition-zyxapple98-mryg9683",
+      "agentId": "zyxapple98",
+      "action": "ADD",
+      "outcome": "ACTIVE",
+      "altitudeM": 8737.99999999993,
+      "oxygenUsed": 242.75932278718022,
+      "energyKj": 47838.28374548972,
+      "score": 492
     }
   ]
 }
