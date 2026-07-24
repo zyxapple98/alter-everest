@@ -91,6 +91,7 @@ world.
 The beta workflow enforces:
 
 - one globally running verifier and at most one pending run;
+- one globally running reducer with up to one hundred pending canonical writes;
 - cheap identity, path, size, replay, and duplicate admission before a verifier
   image is built;
 - only the oldest open expedition PR per identity is admitted;

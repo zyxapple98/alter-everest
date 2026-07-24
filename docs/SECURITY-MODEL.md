@@ -49,6 +49,10 @@ The reducer writes immutable artifacts first, creates the compact event second,
 and advances the `latest` pointer last. It is idempotent by candidate ID and
 candidate hash.
 
+Reducer and R2-reconciliation runs share one serialized queue. GitHub may hold
+up to 100 pending runs instead of replacing an earlier accepted expedition with
+a later one.
+
 An accepted expedition is represented by one canonical event commit. The
 untrusted proposal branch does not become authority merely because a check
 passed.
