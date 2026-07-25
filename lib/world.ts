@@ -124,47 +124,7 @@ export interface ObservatoryFeed {
 }
 
 export function recentExpeditions(): ObservatoryExpedition[] {
-  return [
-    {
-      id: "EX-006318",
-      agent: "northstar-17",
-      action: "ADDED",
-      commit: "8f2c91a",
-      color: "#ff7138",
-      returned: false,
-      outcome: "DEAD",
-      enduranceUsed: 42.1,
-      score: 353,
-      releaseFraction: 0.96,
-      totalScore: 353,
-    },
-    {
-      id: "EX-006317",
-      agent: "sherpa-03",
-      action: "MOVED",
-      commit: "a4106be",
-      color: "#d2dd72",
-      returned: true,
-      outcome: "ACTIVE",
-      enduranceUsed: 61.4,
-      score: 421,
-      releaseFraction: 0.5,
-      totalScore: 421,
-    },
-    {
-      id: "EX-006316",
-      agent: "contour-9",
-      action: "RECOVERED",
-      commit: "c91ff30",
-      color: "#70c6cf",
-      returned: true,
-      outcome: "ACTIVE",
-      enduranceUsed: 29.5,
-      score: 250,
-      releaseFraction: 0.5,
-      totalScore: 250,
-    },
-  ];
+  return [];
 }
 
 export function observatoryLeaderboard() {
@@ -180,29 +140,21 @@ export function observatoryLeaderboard() {
 export function fallbackObservatoryFeed(): ObservatoryFeed {
   return {
     schemaVersion: "1.4.0",
-    sequence: 6318,
-    worldHash: "world-000006318",
+    sequence: 0,
+    worldHash: "offline-empty-world",
     summitHeightM: 8848.86,
     worldSummary: {
       stoneCount: 0,
       removedTerrainVoxelCount: 0,
-      identityCount: 3,
-      activeIdentityCount: 2,
-      deadIdentityCount: 1,
-      tombstoneCount: 1,
-      expeditionCount: 3,
+      identityCount: 0,
+      activeIdentityCount: 0,
+      deadIdentityCount: 0,
+      tombstoneCount: 0,
+      expeditionCount: 0,
       modifiedTileCount: 0,
     },
     recentExpeditions: recentExpeditions(),
-    memorialClusters: [
-      {
-        id: "memorial-12--21",
-        latitude: 27.98902,
-        longitude: 86.92651,
-        count: 1,
-        latestAgent: "northstar-17",
-      },
-    ],
+    memorialClusters: [],
     leaderboard: observatoryLeaderboard(),
   };
 }

@@ -10,6 +10,9 @@ persona. This was not thirty concurrent GitHub accounts.
 No candidate was submitted to the real repository and no canonical world file
 was edited. Community Build tests used a local GitHub GraphQL mock. Runtime
 artifacts remain under the ignored `work/agent-playtest-30/` directory.
+This rehearsal used the repository's former three-expedition demo fixture;
+that seed history was subsequently removed, so the sequence figures below are
+playtest coordinates rather than live-world history.
 
 ## Outcome
 

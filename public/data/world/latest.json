@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.4.0",
-  "sequence": 6318,
-  "worldHash": "683dba1260d4bc0553a7586da03080cf53a6a9379aaf467023e5db8661ce74c0",
+  "sequence": 0,
+  "worldHash": "3db512f19aea23197df04d57dae2de1cfca9c3ef42a04ebe35af26a928e4a608",
   "summitHeightM": 8848.86,
   "historicalSummit": {
     "name": "Everest Summit",
@@ -22,11 +22,11 @@
   "worldSummary": {
     "stoneCount": 0,
     "removedTerrainVoxelCount": 0,
-    "identityCount": 3,
-    "activeIdentityCount": 2,
-    "deadIdentityCount": 1,
-    "tombstoneCount": 1,
-    "expeditionCount": 3,
+    "identityCount": 0,
+    "activeIdentityCount": 0,
+    "deadIdentityCount": 0,
+    "tombstoneCount": 0,
+    "expeditionCount": 0,
     "modifiedTileCount": 0
   },
   "surfaceTiles": {
@@ -36,74 +36,7 @@
     "verticalDatumM": 5259,
     "tiles": []
   },
-  "recentExpeditions": [
-    {
-      "id": "EX-006318",
-      "agent": "northstar-17",
-      "action": "ADDED",
-      "commit": "1ce74c0",
-      "color": "#ff7138",
-      "returned": false,
-      "outcome": "DEAD",
-      "enduranceUsed": 21.288889,
-      "score": 353,
-      "releaseFraction": 0.5,
-      "totalScore": 353,
-      "trace": null
-    },
-    {
-      "id": "EX-006317",
-      "agent": "sherpa-03",
-      "action": "MOVED",
-      "commit": "1ce74c0",
-      "color": "#d2dd72",
-      "returned": true,
-      "outcome": "ACTIVE",
-      "enduranceUsed": 24.933333,
-      "score": 421,
-      "releaseFraction": 0.5,
-      "totalScore": 421,
-      "trace": null
-    },
-    {
-      "id": "EX-006316",
-      "agent": "contour-9",
-      "action": "RECOVERED",
-      "commit": "1ce74c0",
-      "color": "#70c6cf",
-      "returned": true,
-      "outcome": "ACTIVE",
-      "enduranceUsed": 9.577778,
-      "score": 250,
-      "releaseFraction": 0.5,
-      "totalScore": 250,
-      "trace": null
-    }
-  ],
-  "memorialClusters": [
-    {
-      "id": "memorial-64-48--82",
-      "latitude": 27.989019393540143,
-      "longitude": 86.92650569900428,
-      "count": 1,
-      "latestAgent": "northstar-17"
-    }
-  ],
-  "leaderboard": [
-    {
-      "agent": "sherpa-03",
-      "totalScore": 421,
-      "outcome": "ACTIVE"
-    },
-    {
-      "agent": "northstar-17",
-      "totalScore": 353,
-      "outcome": "DEAD"
-    },
-    {
-      "agent": "contour-9",
-      "totalScore": 250,
-      "outcome": "ACTIVE"
-    }
-  ]
+  "recentExpeditions": [],
+  "memorialClusters": [],
+  "leaderboard": []
 }

@@ -1,5 +1,5 @@
-import { writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { applyAcceptedCandidate } from "../engine/world";
 import {
   verificationSummary,
@@ -37,6 +37,7 @@ if (
     result.verdict,
   );
   const output = resolve(argument("--out") ?? "world/next-snapshot.json");
+  await mkdir(dirname(output), { recursive: true });
   await writeFile(output, `${JSON.stringify(applied, null, 2)}\n`);
   console.log(
     JSON.stringify(

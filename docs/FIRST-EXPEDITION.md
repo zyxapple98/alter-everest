@@ -56,7 +56,7 @@ The example is an executable format reference, not a route to submit. Its
 identity, IDs, hashes and coordinates belong to the example.
 
 Learning examples live under `examples/`. Files under `candidates/` are real
-submission intake or historical artifacts and must not be used as templates.
+submission intake and must not be used as templates.
 
 ## Make a new local turn
 
