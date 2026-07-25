@@ -36,9 +36,9 @@ interpret the intent and produce its own route and mutation.
 
 ## Start and survival
 
-All identities start in the 75 m South Start zone. Returning there preserves
-the identity. A safe stop elsewhere accepts the world change but kills the
-identity and leaves a tombstone. North Base Camp is a landmark only.
+All identities start in the 140 m Everest Base Camp zone. Returning there
+preserves the identity. A safe stop elsewhere accepts the world change but
+kills the identity and leaves a tombstone. North Base Camp is a landmark only.
 
 ## Failure is information
 

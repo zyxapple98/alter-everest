@@ -44,5 +44,8 @@ next-env.d.ts
 /work/
 HMA_DEM8m_MOS_*.tif
 /.openai/*.tar.gz
+/.openai/*.log
+/.openai/site-publish-*/
+/.codex/
 .devserver.log
 .devserver.*.log

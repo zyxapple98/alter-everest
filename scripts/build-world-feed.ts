@@ -11,8 +11,12 @@ import { loadDemBundle } from "./expedition-kit";
 
 const OUTPUT_PATH = resolve("public/data/world/latest.json");
 const BADGES_OUTPUT_PATH = resolve("public/data/world/badges.json");
+const SURFACE_TILES_OUTPUT_PATH = resolve(
+  "public/data/world/tiles",
+);
 const COLORS = ["#ff7138", "#d2dd72", "#70c6cf", "#bb91ff", "#f1bd59"];
 const METERS_PER_DEGREE_LATITUDE = 111_320;
+const MAX_MEMORIAL_CLUSTERS = 512;
 
 interface TerrainConfig {
   registration: {
@@ -20,6 +24,11 @@ interface TerrainConfig {
     originLongitude: number;
     originRow: number;
     originColumn: number;
+    verticalDatumM: number;
+  };
+  naturalization: {
+    voxelEdgeM: number;
+    physicsChunkEdgeM: number;
   };
   metadataPath: string;
 }
@@ -41,6 +50,74 @@ function actionLabel(action: "ADD" | "MOVE" | "RECOVER" | "QUARRY") {
 
 function hashBytes(bytes: Buffer) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function worldCoordinate(
+  x: number,
+  z: number,
+  config: TerrainConfig,
+) {
+  const latitude =
+    config.registration.originLatitude - z / METERS_PER_DEGREE_LATITUDE;
+  const longitude =
+    config.registration.originLongitude +
+    x /
+      (METERS_PER_DEGREE_LATITUDE *
+        Math.cos((config.registration.originLatitude * Math.PI) / 180));
+  return { latitude, longitude };
+}
+
+function buildMemorialClusters(
+  world: CanonicalWorld,
+  config: TerrainConfig,
+) {
+  let edgeM = 64;
+  let clusters = new Map<
+    string,
+    {
+      x: number;
+      z: number;
+      count: number;
+      latestAgent?: string;
+    }
+  >();
+
+  do {
+    clusters = new Map();
+    for (const tombstone of world.tombstones) {
+      const cellX = Math.floor(tombstone.position.x / edgeM);
+      const cellZ = Math.floor(tombstone.position.z / edgeM);
+      const id = `${cellX}:${cellZ}`;
+      const cluster = clusters.get(id) ?? {
+        x: 0,
+        z: 0,
+        count: 0,
+        latestAgent: undefined,
+      };
+      cluster.x += tombstone.position.x;
+      cluster.z += tombstone.position.z;
+      cluster.count += 1;
+      cluster.latestAgent = tombstone.agentId;
+      clusters.set(id, cluster);
+    }
+    if (clusters.size > MAX_MEMORIAL_CLUSTERS) edgeM *= 2;
+  } while (clusters.size > MAX_MEMORIAL_CLUSTERS);
+
+  return [...clusters.entries()]
+    .map(([id, cluster]) => ({
+      id: `memorial-${edgeM}-${id.replace(":", "-")}`,
+      ...worldCoordinate(
+        cluster.x / cluster.count,
+        cluster.z / cluster.count,
+        config,
+      ),
+      count: cluster.count,
+      latestAgent: cluster.latestAgent,
+    }))
+    .sort(
+      (left, right) =>
+        right.count - left.count || left.id.localeCompare(right.id),
+    );
 }
 
 async function loadEvents() {
@@ -189,9 +266,121 @@ const leaderboard = [...totals.entries()]
       right.totalScore - left.totalScore || left.agent.localeCompare(right.agent),
   )
   .slice(0, 50);
+const stonesById = new Map(
+  world.stones.map((stone) => [stone.id, stone]),
+);
+const surfaceVoxelEdgeM =
+  terrain.config.naturalization.voxelEdgeM;
+const surfaceChunkEdgeM =
+  terrain.config.naturalization.physicsChunkEdgeM;
+const surfaceTileEdgeM = 256;
+const surfaceLodCellsM = [
+  0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 15, 30,
+] as const;
+const surfaceChunks = world.modifiedChunks.map((chunk) => ({
+  id: chunk.id,
+  x: chunk.x,
+  z: chunk.z,
+  hash: chunk.hash,
+  removedTerrainVoxels: chunk.removedTerrainVoxels,
+  stones: chunk.stoneIds.flatMap((stoneId) => {
+    const stone = stonesById.get(stoneId);
+    return stone ? [stone] : [];
+  }),
+}));
+const chunksPerTile = Math.round(
+  surfaceTileEdgeM / surfaceChunkEdgeM,
+);
+const chunksByTile = new Map<
+  string,
+  {
+    x: number;
+    z: number;
+    chunks: typeof surfaceChunks;
+  }
+>();
+surfaceChunks.forEach((chunk) => {
+  const tileX = Math.floor(chunk.x / chunksPerTile);
+  const tileZ = Math.floor(chunk.z / chunksPerTile);
+  const id = `${tileX}:${tileZ}`;
+  const tile = chunksByTile.get(id) ?? {
+    x: tileX,
+    z: tileZ,
+    chunks: [],
+  };
+  tile.chunks.push(chunk);
+  chunksByTile.set(id, tile);
+});
+
+const surfaceTileArtifacts = [...chunksByTile.entries()]
+  .sort(([left], [right]) => left.localeCompare(right))
+  .map(([id, tile]) => {
+    tile.chunks.sort((left, right) =>
+      left.id.localeCompare(right.id),
+    );
+    const payloadWithoutHash = {
+      schemaVersion: "1.0.0",
+      id,
+      x: tile.x,
+      z: tile.z,
+      chunks: tile.chunks,
+    };
+    const hash = hashBytes(
+      Buffer.from(JSON.stringify(payloadWithoutHash)),
+    );
+    const payload = {
+      ...payloadWithoutHash,
+      hash,
+    };
+    const removedTerrainVoxels = tile.chunks.flatMap(
+      (chunk) => chunk.removedTerrainVoxels,
+    );
+    const stones = tile.chunks.flatMap((chunk) => chunk.stones);
+    const lodSummary = surfaceLodCellsM.map((cellM) => {
+      const stride = Math.max(
+        1,
+        Math.round(cellM / surfaceVoxelEdgeM),
+      );
+      const touched = new Set<string>();
+      removedTerrainVoxels.forEach((voxel) => {
+        touched.add(
+          `${Math.floor(voxel.x / stride)}:${Math.floor(
+            voxel.z / stride,
+          )}`,
+        );
+      });
+      stones.forEach((stone) => {
+        touched.add(
+          `${Math.floor(
+            stone.pose.translation.x / cellM,
+          )}:${Math.floor(stone.pose.translation.z / cellM)}`,
+        );
+      });
+      return {
+        cellM,
+        touchedCellCount: touched.size,
+      };
+    });
+    return {
+      payload,
+      filename: `${hash}.json`,
+      manifest: {
+        id,
+        x: tile.x,
+        z: tile.z,
+        hash,
+        path: `tiles/${hash}.json`,
+        chunkCount: tile.chunks.length,
+        removedTerrainVoxelCount:
+          removedTerrainVoxels.length,
+        stoneCount: stones.length,
+        lodSummary,
+      },
+    };
+  });
 
 const feed = {
-  schemaVersion: "1.1.0",
+  schemaVersion: "1.3.0",
   sequence: world.sequence,
   worldHash: world.worldHash,
   summitHeightM: 8848.86,
@@ -209,7 +398,17 @@ const feed = {
     world.removedTerrainVoxels,
     world.stones,
   ),
+  surfaceTiles: {
+    voxelEdgeM: surfaceVoxelEdgeM,
+    physicsChunkEdgeM:
+      surfaceChunkEdgeM,
+    tileEdgeM: surfaceTileEdgeM,
+    verticalDatumM:
+      terrain.config.registration.verticalDatumM,
+    tiles: surfaceTileArtifacts.map(({ manifest }) => manifest),
+  },
   recentExpeditions,
+  memorialClusters: buildMemorialClusters(world, config),
   leaderboard,
 };
 
@@ -227,9 +426,16 @@ const badgeStats = {
 };
 
 await mkdir(dirname(OUTPUT_PATH), { recursive: true });
+await mkdir(SURFACE_TILES_OUTPUT_PATH, { recursive: true });
 await Promise.all([
   writeFile(OUTPUT_PATH, `${JSON.stringify(feed, null, 2)}\n`),
   writeFile(BADGES_OUTPUT_PATH, `${JSON.stringify(badgeStats, null, 2)}\n`),
+  ...surfaceTileArtifacts.map(({ filename, payload }) =>
+    writeFile(
+      resolve(SURFACE_TILES_OUTPUT_PATH, filename),
+      `${JSON.stringify(payload)}\n`,
+    ),
+  ),
 ]);
 console.log(
   `Wrote ${OUTPUT_PATH} and ${BADGES_OUTPUT_PATH} for world ${world.sequence}.`,

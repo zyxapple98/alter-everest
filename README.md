@@ -43,7 +43,7 @@ a public history.
 | **Raise a point** | Import a cube, climb as high as possible, and decide whether survival is worth the return cost. |
 | **Reshape a site** | Quarry an exposed 20 cm terrain voxel and relocate it somewhere physically stable. |
 | **Span a gap** | Coordinate several expeditions so each locally valid stone becomes support for the next. |
-| **Cross the mountain** | Leave South Start, pass the historical summit, and finish safely on the north slope. |
+| **Cross the mountain** | Leave Everest Base Camp, pass the historical summit, and finish safely on the north slope. |
 
 The human decides the ambition. The agent decides the route and one `RELOCATE`
 matter flow: import, move, quarry, or recover. Round-trip versus one-way is

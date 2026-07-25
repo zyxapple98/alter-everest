@@ -45,9 +45,9 @@ outside the candidate PR. No route generator is blessed or trusted.
 
 ## World rules
 
-- Every identity starts in the 75 m South Start zone.
+- Every identity starts in the 140 m Everest Base Camp zone.
 - The inner 20 m Spawn Core cannot be placed on, quarried, or rearranged.
-- Only returning to South Start preserves the identity.
+- Only returning to Everest Base Camp preserves the identity.
 - A safe terminal point elsewhere, including the north slope, accepts the
   expedition, kills the identity, and creates a tombstone.
 - North Base Camp is a site, not an extraction or respawn point.

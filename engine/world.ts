@@ -17,10 +17,12 @@ function hex(bytes: Uint8Array) {
   return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
-async function nextWorldHash(world: CanonicalWorld) {
+export async function computeWorldHash(world: CanonicalWorld) {
   const canonical = JSON.stringify({
     sequence: world.sequence,
     terrainHash: world.terrainHash,
+    baseCamp: world.baseCamp,
+    extractionZones: world.extractionZones,
     stones: world.stones,
     identities: world.identities,
     tombstones: world.tombstones,
@@ -214,6 +216,6 @@ export async function applyAcceptedCandidate(
     ...spatial,
     worldHash: "",
   };
-  next.worldHash = await nextWorldHash(next);
+  next.worldHash = await computeWorldHash(next);
   return next;
 }

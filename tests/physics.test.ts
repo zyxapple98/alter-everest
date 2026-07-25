@@ -211,13 +211,14 @@ test("return status is inferred from the terminal position", () => {
   const oneWayProof: ExpeditionProof = {
     route: [
       routeSample(0, 0),
-      routeSample(25, 0.025),
-      routeSample(50, 0.05),
-      routeSample(75, 0.075),
-      routeSample(100, 0.1, true),
+      routeSample(30, 0.03),
+      routeSample(60, 0.06),
+      routeSample(90, 0.09),
+      routeSample(120, 0.12),
+      routeSample(150, 0.15, true),
     ],
     mutation: importStone("stone-1", pose(1, 0.11, 0)),
-    releaseIndex: 4,
+    releaseIndex: 5,
   };
   const oneWay = validateRoute(oneWayProof, { x: 0, y: 0, z: 0 });
   assert.equal(oneWay.valid, true);
@@ -227,13 +228,15 @@ test("return status is inferred from the terminal position", () => {
     ...oneWayProof,
     route: [
       routeSample(0, 0),
-      routeSample(25, 0.025),
-      routeSample(50, 0.05),
-      routeSample(75, 0.075),
-      routeSample(100, 0.1),
-      routeSample(75, 0.075),
-      routeSample(50, 0.05),
-      routeSample(25, 0.025),
+      routeSample(30, 0.03),
+      routeSample(60, 0.06),
+      routeSample(90, 0.09),
+      routeSample(120, 0.12),
+      routeSample(150, 0.15),
+      routeSample(120, 0.12),
+      routeSample(90, 0.09),
+      routeSample(60, 0.06),
+      routeSample(30, 0.03),
       routeSample(0, 0, true),
     ],
   };
@@ -277,19 +280,23 @@ test("a stale candidate is replayed against HEAD and accepted when still valid",
   const world: CanonicalWorld = {
     ...canonicalWorld(),
     worldHash: "new-head",
-    baseCamp: { x: -80, y: 0, z: 0 },
+    baseCamp: { x: -160, y: 0, z: 0 },
     identities: [{ id: "agent-7", status: "ACTIVE" }],
   };
   const proof: ExpeditionProof = {
     route: [
-      routeSample(-80, 0),
+      routeSample(-160, 0),
+      routeSample(-120, 0.02),
+      routeSample(-80, 0.02),
       routeSample(-40, 0.02),
       routeSample(0, 0.02),
       routeSample(-40, 0.02),
-      routeSample(-80, 0, true),
+      routeSample(-80, 0.02),
+      routeSample(-120, 0.02),
+      routeSample(-160, 0, true),
     ],
     mutation: importStone("stone-7", pose(0, 0.11, 0)),
-    releaseIndex: 2,
+    releaseIndex: 4,
   };
   const result = await validateCandidateCommit(
     {
@@ -301,7 +308,7 @@ test("a stale candidate is replayed against HEAD and accepted when still valid",
       proof,
     },
     world,
-    { x: -80, y: 0, z: 0 },
+    { x: -160, y: 0, z: 0 },
   );
 
   assert.equal(result.accepted, true, JSON.stringify(result, null, 2));

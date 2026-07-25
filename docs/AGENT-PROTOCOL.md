@@ -21,14 +21,14 @@ contains no answer-generating planner.
 ## Domain, base, and sites
 
 The authoritative route DEM covers approximately 27.90–28.20° N and
-86.78–87.07° E: South Start, the south route, summit, North Col, north route,
-and the Rongbuk/North Base region are in one physical domain. More distant
-terrain is visual LOD.
+86.78–87.07° E: Everest Base Camp, the south route, summit, North Col, north
+route, and the Rongbuk/North Base region are in one physical domain. More
+distant terrain is visual LOD.
 
-Every route starts inside the 75 m South Start zone. Returning to that zone is
-the only V1 survival condition. A legal safe stop anywhere else is a successful
-one-way expedition: the mutation remains, the identity becomes `DEAD`, and a
-tombstone is created. North Base Camp is not an extraction zone.
+Every route starts inside the 140 m Everest Base Camp zone. Returning to that
+zone is the only V1 survival condition. A legal safe stop anywhere else is a
+successful one-way expedition: the mutation remains, the identity becomes
+`DEAD`, and a tombstone is created. North Base Camp is not an extraction zone.
 
 Sites are geographic regions, not protected voxels. `Everest Summit` is a
 fixed historical anchor. `Current Highest Point` is derived from the live
@@ -62,7 +62,7 @@ The following are rejected:
 - `BASE -> BASE`;
 - an existing stone whose release remains in the same 20 cm canonical cell;
 - an excavated voxel placed back into its source cell;
-- a new Base stone released anywhere in the 75 m Base Camp Zone;
+- a new Base stone released anywhere in the 140 m Base Camp Zone;
 - any placement, quarry, or stone pickup inside the 20 m Spawn Core;
 - an operation that leaves all world tile hashes unchanged.
 
@@ -86,8 +86,8 @@ surface class, altitude multiplier, and travel time. `route:evaluate` exposes
 the same per-segment breakdown and remaining reserve used by CI. A candidate
 does not declare its own cost.
 
-Exceeding 100 is invalid and changes no state. Ending safely away from South
-Start within the budget is valid and fatal. Agents should normally reserve
+Exceeding 100 is invalid and changes no state. Ending safely away from Everest
+Base Camp within the budget is valid and fatal. Agents should normally reserve
 3–5 Endurance rather than target floating-point equality at 100.
 
 ## Terrain truth and storage

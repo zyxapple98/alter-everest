@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Bebas_Neue, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,6 +13,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const brandDisplay = Bebas_Neue({
+  variable: "--font-brand",
+  weight: "400",
+  subsets: ["latin"],
+});
+
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("host");
@@ -22,20 +28,27 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: "ALTER EVEREST",
     description:
-      "A living Mount Everest changed by autonomous, physically verified expeditions.",
+      "A living voxel Everest shaped by physically verified expeditions.",
     metadataBase: origin ? new URL(origin) : undefined,
     openGraph: {
       title: "ALTER EVEREST",
-      description: "The mountain is the commit.",
+      description: "Watch every verified expedition become part of the mountain.",
       type: "website",
       images: origin
-        ? [{ url: `${origin}/og.png`, width: 1536, height: 1024, alt: "ALTER EVEREST" }]
+        ? [
+            {
+              url: `${origin}/og.png`,
+              width: 1536,
+              height: 1024,
+              alt: "ALTER EVEREST at alpine dusk",
+            },
+          ]
         : undefined,
     },
     twitter: {
       card: "summary_large_image",
       title: "ALTER EVEREST",
-      description: "The mountain is the commit.",
+      description: "Watch every verified expedition become part of the mountain.",
       images: origin ? [`${origin}/og.png`] : undefined,
     },
   };
@@ -48,7 +61,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable}`}>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} ${brandDisplay.variable}`}
+      >
         {children}
       </body>
     </html>

@@ -1,32 +1,15 @@
 {
-  "sequence": 6319,
-  "worldHash": "c2990c9964ac166af609ad2a1f3281ce68eccfb682759a218869f2ff29b5976e",
+  "sequence": 6318,
+  "worldHash": "683dba1260d4bc0553a7586da03080cf53a6a9379aaf467023e5db8661ce74c0",
   "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
   "baseCamp": {
-    "x": 0,
-    "y": 0,
-    "z": 0
+    "x": -4136.384339074745,
+    "y": 23.79879999999048,
+    "z": -6705.793111111192
   },
   "extractionZones": [],
   "removedTerrainVoxels": [],
-  "stones": [
-    {
-      "id": "stone-expedition-zyxapple98-mryg9683",
-      "pose": {
-        "translation": {
-          "x": 3032.2255859375,
-          "y": 3479.099853515625,
-          "z": -5194.93017578125
-        },
-        "rotation": {
-          "x": 0.014558234252035618,
-          "y": 0.0015275434125214815,
-          "z": -0.087986521422863,
-          "w": 0.9960141181945801
-        }
-      }
-    }
-  ],
+  "stones": [],
   "terrain": [],
   "identities": [
     {
@@ -39,10 +22,6 @@
     },
     {
       "id": "sherpa-03",
-      "status": "ACTIVE"
-    },
-    {
-      "id": "zyxapple98",
       "status": "ACTIVE"
     }
   ],
@@ -90,39 +69,8 @@
       "enduranceUsed": 9.577778,
       "energyKj": 4310,
       "score": 250
-    },
-    {
-      "id": "expedition-zyxapple98-mryg9683",
-      "agentId": "zyxapple98",
-      "action": "ADD",
-      "outcome": "ACTIVE",
-      "altitudeM": 8737.99999999993,
-      "enduranceUsed": 106.307297,
-      "energyKj": 47838.28374548972,
-      "score": 492
     }
   ],
-  "modifiedChunks": [
-    {
-      "id": "94:-163",
-      "x": 94,
-      "z": -163,
-      "removedTerrainVoxels": [],
-      "stoneIds": [
-        "stone-expedition-zyxapple98-mryg9683"
-      ],
-      "hash": "443b1abbd8fa0518d525c3ac3dd642b2355532c9b3689f3e8b34e431451e0c15"
-    }
-  ],
-  "modifiedTiles": [
-    {
-      "id": "11:-21",
-      "x": 11,
-      "z": -21,
-      "chunkHashes": [
-        "443b1abbd8fa0518d525c3ac3dd642b2355532c9b3689f3e8b34e431451e0c15"
-      ],
-      "hash": "3ec71e546144ead04dc6ba3d9d0c1415cbb9d6a1daa931b4d355c39a25abd3d1"
-    }
-  ]
+  "modifiedChunks": [],
+  "modifiedTiles": []
 }

@@ -20,7 +20,7 @@ export const PHYSICS = {
 
 export const CLIMBER = {
   bodyMassKg: 78,
-  baseCampRadiusM: 75,
+  baseCampRadiusM: 140,
   protectedSpawnRadiusM: 20,
   interactionReachM: 1.25,
   maxProofSegmentM: 45,
