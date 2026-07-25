@@ -79,12 +79,13 @@ test("agent entrypoints expose gameplay before collaboration", async () => {
 
   const playerInspection = await runScript(
     "scripts/inspect-world.ts",
-    ["--agent", "northstar-17"],
+    ["--agent", "new-climber"],
   );
   const player = JSON.parse(playerInspection.stdout).player;
-  assert.equal(player.status, "DEAD");
-  assert.equal(player.expeditionCount, 1);
-  assert.equal(player.tombstones.length, 1);
+  assert.equal(player.status, "NEW");
+  assert.equal(player.expeditionCount, 0);
+  assert.equal(player.totalScore, 0);
+  assert.equal(player.tombstones.length, 0);
 
   const terrainHelp = await runScript(
     "scripts/query-terrain.ts",
@@ -183,7 +184,11 @@ test("the first local expedition passes route, verifier and apply", async () => 
   const outputDirectory = await mkdtemp(
     join(tmpdir(), "alter-everest-first-expedition-"),
   );
-  const outputWorld = join(outputDirectory, "world-after.json");
+  const outputWorld = join(
+    outputDirectory,
+    "nested-output",
+    "world-after.json",
+  );
 
   try {
     const currentWorld = JSON.parse(
