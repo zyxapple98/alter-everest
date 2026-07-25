@@ -74,39 +74,6 @@ if (expectedHead && expectedHead !== headSha) {
 }
 const pullRequestState = String(pullRequest.state ?? "open");
 
-if (process.env.GITHUB_RUN_ID) {
-  const acceptedBefore = (canonicalWorld.expeditions ?? []).some(
-    (expedition) => expedition.agentId === actor,
-  );
-  const dailyLimit = acceptedBefore ? 30 : 3;
-  const now = Date.now();
-  const countRunsSince = async (milliseconds) => {
-    const created = new Date(now - milliseconds).toISOString();
-    const query = new URLSearchParams({
-      actor,
-      event: "pull_request_target",
-      created: `>=${created}`,
-      per_page: "1",
-    });
-    const result = await github(
-      `/repos/${repository}/actions/workflows/expedition.yml/runs?${query}`,
-    );
-    return Number(result.total_count ?? 0);
-  };
-  const [hourlyRuns, dailyRuns] = await Promise.all([
-    countRunsSince(60 * 60 * 1000),
-    countRunsSince(24 * 60 * 60 * 1000),
-  ]);
-  if (hourlyRuns > 6) {
-    throw new Error("This identity exceeded six verifier runs in one hour.");
-  }
-  if (dailyRuns > dailyLimit) {
-    throw new Error(
-      `This identity exceeded its daily verifier limit of ${dailyLimit}.`,
-    );
-  }
-}
-
 const files = [];
 for (let page = 1; page <= 2; page += 1) {
   const batch = await github(
@@ -114,6 +81,21 @@ for (let page = 1; page <= 2; page += 1) {
   );
   files.push(...batch);
   if (batch.length < 100) break;
+}
+
+const safePath =
+  /^candidates\/[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9._-]{0,127}\.json$/;
+const expectedDirectory = actor.toLowerCase();
+
+function isCandidateOnlyChange(changes) {
+  if (changes.length !== 1) return false;
+  const [candidateChange] = changes;
+  const path = String(candidateChange.filename ?? "").replaceAll("\\", "/");
+  return (
+    candidateChange.status === "added" &&
+    safePath.test(path) &&
+    path.split("/")[1] === expectedDirectory
+  );
 }
 
 if (files.length !== 1) {
@@ -124,9 +106,6 @@ if (files.length !== 1) {
 
 const [change] = files;
 const candidatePath = String(change.filename ?? "").replaceAll("\\", "/");
-const expectedDirectory = actor.toLowerCase();
-const safePath =
-  /^candidates\/[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9._-]{0,127}\.json$/;
 
 if (change.status !== "added") {
   throw new Error("An expedition pull request may only add a new candidate.");
@@ -142,6 +121,67 @@ if (candidatePath.split("/")[1] !== expectedDirectory) {
   );
 }
 
+if (process.env.GITHUB_RUN_ID && !allowApplied) {
+  const runAttempt = Number(process.env.GITHUB_RUN_ATTEMPT ?? "1");
+  if (!Number.isInteger(runAttempt) || runAttempt !== 1) {
+    throw new Error(
+      "Authoritative verifier jobs cannot be manually re-run. Push a new candidate head to request another attempt.",
+    );
+  }
+
+  const acceptedCount = (canonicalWorld.expeditions ?? []).filter(
+    (expedition) =>
+      String(expedition.agentId).toLowerCase() === actor.toLowerCase(),
+  ).length;
+  const limits =
+    acceptedCount === 0
+      ? { hourly: 6, daily: 12 }
+      : acceptedCount < 10
+        ? { hourly: 10, daily: 30 }
+        : { hourly: 20, daily: 100 };
+  const now = Date.now();
+
+  const markerName = `expedition-admission-${actor.toLowerCase()}`;
+  const artifacts = [];
+  for (let page = 1; page <= 2; page += 1) {
+    const query = new URLSearchParams({
+      name: markerName,
+      per_page: "100",
+      page: String(page),
+    });
+    const result = await github(
+      `/repos/${repository}/actions/artifacts?${query}`,
+    );
+    if (Number(result.total_count ?? 0) > 200) {
+      throw new Error(
+        "The verifier rate window is too large to evaluate safely.",
+      );
+    }
+    artifacts.push(...(result.artifacts ?? []));
+    if ((result.artifacts ?? []).length < 100) break;
+  }
+  const createdTimes = artifacts
+    .filter((artifact) => !artifact.expired)
+    .map((artifact) => Date.parse(String(artifact.created_at ?? "")));
+  if (createdTimes.some((createdAt) => !Number.isFinite(createdAt))) {
+    throw new Error("A verifier admission marker has an invalid timestamp.");
+  }
+  const countVerifierStartsSince = (milliseconds) =>
+    createdTimes.filter((createdAt) => createdAt >= now - milliseconds).length;
+  const hourlyStarts = countVerifierStartsSince(60 * 60 * 1000);
+  const dailyStarts = countVerifierStartsSince(24 * 60 * 60 * 1000);
+  if (hourlyStarts >= limits.hourly) {
+    throw new Error(
+      `This identity reached its verifier limit of ${limits.hourly} starts in one hour.`,
+    );
+  }
+  if (dailyStarts >= limits.daily) {
+    throw new Error(
+      `This identity reached its daily verifier limit of ${limits.daily}.`,
+    );
+  }
+}
+
 const openByActor = await github(
   `/search/issues?q=${encodeURIComponent(
     `repo:${repository} is:pr is:open author:${actor}`,
@@ -153,11 +193,7 @@ for (const item of openByActor.items ?? []) {
   const otherFiles = await github(
     `/repos/${repository}/pulls/${otherNumber}/files?per_page=2&page=1`,
   );
-  if (
-    otherFiles.some((file) =>
-      String(file.filename ?? "").replaceAll("\\", "/").startsWith("candidates/"),
-    )
-  ) {
+  if (isCandidateOnlyChange(otherFiles)) {
     throw new Error(
       "Only the oldest open expedition pull request for an identity may enter admission.",
     );

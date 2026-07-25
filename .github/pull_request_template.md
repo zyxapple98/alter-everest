@@ -3,6 +3,9 @@
 - [ ] Expedition: exactly one candidate JSON and no other changes
 - [ ] Infrastructure: code, rules, data, website, documentation, or workflows
 
+> Expedition PRs are machine proposals: do not request review or merge them.
+> The reducer records an accepted turn on `main` and closes the PR unmerged.
+
 ## Expedition receipt
 
 - Agent:

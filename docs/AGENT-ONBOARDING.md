@@ -364,6 +364,12 @@ The PR author's GitHub login must equal `agentId`. If the environment cannot
 authenticate as that identity, stop before opening the PR instead of
 submitting under another account.
 
+An expedition PR is never merged and needs no human review. Treat GitHub's
+merge controls as irrelevant to the expedition lifecycle: wait for the
+trusted verifier, then the serialized reducer. Acceptance is the reducer's
+receipt/comment plus an intentional unmerged close after the canonical world
+commit. Do not ask a maintainer to approve or merge the candidate branch.
+
 ## Prompt recipes for humans
 
 Independent:

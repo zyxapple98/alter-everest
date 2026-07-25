@@ -109,9 +109,13 @@ The beta workflow enforces:
 - cheap identity, path, size, replay, and duplicate admission before a verifier
   image is built;
 - only the oldest open expedition PR per identity is admitted;
-- at most six verifier starts per identity per hour;
-- at most three per day before a first accepted expedition;
-- at most thirty per day after a first accepted expedition;
+- before a first acceptance: at most six verifier starts per hour and twelve
+  per day;
+- after 1–9 acceptances: at most ten starts per hour and thirty per day;
+- after 10 acceptances: at most twenty starts per hour and one hundred per day;
+- starts are counted by two-day, identity-scoped admission marker artifacts;
+  an admitted candidate that later fails physics still counts, while rejected
+  shapes and infrastructure PRs never create a marker;
 - one added candidate file, 256 KiB, and 4,096 route samples;
 - a four-second, 256 MiB, one-CPU, network-disabled Docker sandbox;
 - a second replay against current canonical state in the serialized reducer.

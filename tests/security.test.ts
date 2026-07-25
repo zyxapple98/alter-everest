@@ -264,6 +264,18 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
   const candidateBytes = await readFile(
     resolve("tests/fixtures/everest-one-way-candidate.json"),
   );
+  let admissionArtifacts = [
+    {
+      id: 1,
+      expired: false,
+      created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+    },
+    {
+      id: 2,
+      expired: false,
+      created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+  ];
   let changedFiles = [
     {
       filename: "candidates/example-agent/test.json",
@@ -276,6 +288,19 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
     const url = new URL(request.url ?? "/", "http://localhost");
     if (url.pathname.endsWith("/pulls/7/files")) {
       response.end(JSON.stringify(changedFiles));
+      return;
+    }
+    if (
+      url.pathname.endsWith(
+        "/actions/artifacts",
+      )
+    ) {
+      response.end(
+        JSON.stringify({
+          total_count: admissionArtifacts.length,
+          artifacts: admissionArtifacts,
+        }),
+      );
       return;
     }
     if (url.pathname === "/search/issues") {
@@ -342,6 +367,112 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
     );
     assert.match(accepted.stdout, /"admitted": true/);
     assert.deepEqual(await readFile(outputPath), candidateBytes);
+
+    const rateChecked = await execute(
+      process.execPath,
+      [
+        "scripts/admit-candidate-pr.mjs",
+        "--event",
+        eventPath,
+        "--out",
+        join(directory, "rate-checked.json"),
+      ],
+      {
+        cwd: projectRoot,
+        env: {
+          ...process.env,
+          GITHUB_RUN_ID: "999",
+          GITHUB_RUN_ATTEMPT: "1",
+          GITHUB_TOKEN: "test-token",
+          GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+        },
+      },
+    );
+    assert.match(rateChecked.stdout, /"admitted": true/);
+
+    await assert.rejects(
+      execute(
+        process.execPath,
+        [
+          "scripts/admit-candidate-pr.mjs",
+          "--event",
+          eventPath,
+          "--out",
+          join(directory, "rerun.json"),
+        ],
+        {
+          cwd: projectRoot,
+          env: {
+            ...process.env,
+            GITHUB_RUN_ID: "999",
+            GITHUB_RUN_ATTEMPT: "2",
+            GITHUB_TOKEN: "test-token",
+            GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+        },
+      ),
+      /cannot be manually re-run/,
+    );
+
+    admissionArtifacts = Array.from({ length: 6 }, (_, index) => ({
+      id: index + 1,
+      expired: false,
+      created_at: new Date(Date.now() - (index + 1) * 60 * 1000).toISOString(),
+    }));
+    await assert.rejects(
+      execute(
+        process.execPath,
+        [
+          "scripts/admit-candidate-pr.mjs",
+          "--event",
+          eventPath,
+          "--out",
+          join(directory, "hourly-limited.json"),
+        ],
+        {
+          cwd: projectRoot,
+          env: {
+            ...process.env,
+            GITHUB_RUN_ID: "1000",
+            GITHUB_RUN_ATTEMPT: "1",
+            GITHUB_TOKEN: "test-token",
+            GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+        },
+      ),
+      /limit of 6 starts in one hour/,
+    );
+
+    admissionArtifacts = Array.from({ length: 12 }, (_, index) => ({
+      id: index + 1,
+      expired: false,
+      created_at: new Date(
+        Date.now() - (index + 1) * 70 * 60 * 1000,
+      ).toISOString(),
+    }));
+    await assert.rejects(
+      execute(
+        process.execPath,
+        [
+          "scripts/admit-candidate-pr.mjs",
+          "--event",
+          eventPath,
+          "--out",
+          join(directory, "daily-limited.json"),
+        ],
+        {
+          cwd: projectRoot,
+          env: {
+            ...process.env,
+            GITHUB_RUN_ID: "1000",
+            GITHUB_RUN_ATTEMPT: "1",
+            GITHUB_TOKEN: "test-token",
+            GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+        },
+      ),
+      /daily verifier limit of 12/,
+    );
 
     const candidateHash = JSON.parse(accepted.stdout).candidateHash;
     await writeFile(

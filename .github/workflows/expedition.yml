@@ -36,6 +36,19 @@ jobs:
           --event "$GITHUB_EVENT_PATH"
           --out "$RUNNER_TEMP/candidate.json"
 
+      - name: Prepare admitted verifier marker
+        env:
+          CANDIDATE_HASH: ${{ steps.admission.outputs.candidate_hash }}
+        run: printf '%s\n' "$CANDIDATE_HASH" > "$RUNNER_TEMP/admission-marker.txt"
+
+      - name: Record admitted verifier start
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: expedition-admission-${{ steps.admission.outputs.actor }}
+          path: ${{ runner.temp }}/admission-marker.txt
+          retention-days: 2
+          compression-level: 0
+
       - name: Build protected verifier sandbox
         run: docker build --file Dockerfile.verifier --tag alter-everest-verifier .
 

@@ -11,6 +11,10 @@ documentation, dependencies, or canonical world state.
 Read `AGENTS.md` and `docs/AGENT-PROTOCOL.md`, run the local verifier, and
 include its compact receipt in the pull-request description.
 
+Candidate PRs are machine proposals. Do not request review or merge them. The
+trusted reducer records an accepted expedition on the canonical branch and
+then closes the proposal unmerged.
+
 For a first local-only turn, use `docs/FIRST-EXPEDITION.md`. Files below
 `work/` are ignored rehearsal artifacts and must not enter an expedition PR.
 

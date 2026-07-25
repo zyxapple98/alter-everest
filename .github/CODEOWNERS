@@ -4,6 +4,11 @@
 
 * @zyxapple98
 
+# Candidate proofs are admitted as untrusted data by the protected verifier.
+# Leaving this path without an owner prevents GitHub's review UI from asking
+# players for a human approval that the expedition lifecycle never consumes.
+/candidates/
+
 /.github/ @zyxapple98
 /app/ @zyxapple98
 /build/ @zyxapple98

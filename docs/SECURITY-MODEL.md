@@ -11,7 +11,7 @@ authority.
 | Domain | May read | May write | May execute contributor code |
 | --- | --- | --- | --- |
 | Candidate pull request | Public repository and world | Its fork only | No |
-| Admission service | Pull-request metadata and candidate bytes | A GitHub check | No |
+| Admission service | Pull-request metadata and candidate bytes | A GitHub check and short-lived rate marker | No |
 | Verifier | Pinned engine, canonical world, candidate bytes | A signed receipt | No |
 | Reducer | Accepted candidate, receipt, current world | Canonical event and snapshot | No |
 | Build reporter | Accepted event and pull-request body | One Discussion comment | No |
@@ -87,8 +87,12 @@ Actions are pinned to immutable commit SHAs. The workflow directory and
 Admission occurs before expensive verification. Initial policy:
 
 - one open expedition per GitHub identity;
-- three authoritative attempts per day for a new identity;
-- six attempts per hour and thirty per day after a successful expedition;
+- a new identity receives six verifier starts per hour and twelve per day;
+- 1–9 accepted expeditions raise that to ten per hour and thirty per day;
+- 10 accepted expeditions raise it to twenty per hour and one hundred per day;
+- identity-scoped admission markers count only candidate shapes that reached
+  the verifier boundary; later physics failures consume quota, while rejected
+  shapes and infrastructure PRs do not;
 - candidate-hash deduplication;
 - a globally bounded verifier with one running and one coalesced pending run.
 
@@ -100,9 +104,11 @@ service if queue pressure or Sybil activity becomes material.
 
 ## Secrets
 
-The candidate admission and verification job receives no secrets or write
-token. A separate protected dispatch job may mint a short-lived GitHub App
-token only after verification, and candidate bytes never enter that job.
+The candidate admission and verification job receives no secrets or repository
+write token. Its Actions runtime may write only the short-lived admission
+artifact used for rate accounting. A separate protected dispatch job may mint
+a short-lived GitHub App token only after verification, and candidate bytes
+never enter that job.
 Reducer, object-storage, deployment, and GitHub App credentials are separate
 and least-privileged. A credential for one domain must not be able to perform
 another domain's job.
