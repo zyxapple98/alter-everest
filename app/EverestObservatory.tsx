@@ -7,14 +7,34 @@ import {
   fallbackObservatoryFeed,
   loadObservatoryFeed,
   type ObservatoryFeed,
+  type ObservatoryExpeditionAction,
+  type ObservatoryTracePoint,
   type ObservatorySurfaceDeltaChunk,
 } from "../lib/world";
 import { syntheticReliefM } from "../engine/surface";
+import {
+  agentVisualLod,
+  createNormalReplayTimeline,
+  replayActionState,
+  sampleActionMatterState,
+  sampleReplayTimeline,
+  type ReplayActionWindow,
+} from "./everest/expedition-replay";
 import {
   ScreenSpaceLodSelector,
   SurfaceNavigationController,
 } from "./everest/terrain-runtime";
 import { TerrainStreamingEngine } from "./everest/terrain-streaming";
+import {
+  expeditionReplayWorldState,
+  FINAL_WORLD_REPLAY_STATE,
+  type ExpeditionReplayWorldState,
+} from "./everest/expedition-world-state";
+import {
+  dampDirectorValue,
+  dampDirectorValueAsymmetric,
+  requiredCameraLift,
+} from "./everest/camera-director";
 
 interface DemMetadata {
   id: string;
@@ -74,6 +94,12 @@ interface VoxelTerrain {
   zOrigin: number;
 }
 
+interface TerrainGridRegistration {
+  blockSize: number;
+  xOrigin: number;
+  zOrigin: number;
+}
+
 interface DetailPatch {
   key: string;
   group: THREE.Group;
@@ -81,6 +107,7 @@ interface DetailPatch {
   windowM: number;
   voxelCount: number;
   setOpacity(opacity: number): void;
+  setHiddenStoneIds?(hiddenStoneIds: ReadonlySet<string>): void;
   dispose(): void;
 }
 
@@ -88,6 +115,16 @@ interface DetailClipmapSet {
   patches: DetailPatch[];
   activeIndex: number;
   worldHash: string;
+  replayTerrainKey: string;
+}
+
+type ObservatoryVoxelCell = NonNullable<
+  ObservatoryExpeditionAction["destinationCell"]
+>;
+
+interface MatterReplayEndpoint {
+  cell: ObservatoryVoxelCell;
+  point: THREE.Vector3;
 }
 
 interface SurfaceEditSource {
@@ -128,8 +165,13 @@ const CANONICAL_ORIGIN_LATITUDE = 27.94236111111111;
 const CANONICAL_ORIGIN_LONGITUDE = 86.89486111111111;
 const METERS_PER_DEGREE_LATITUDE = 111_320;
 const WORLD_UNITS_PER_METER = CORE_BLOCK_SIZE / 30;
-const REPLAY_SECONDS = 21;
 const ENDURANCE_SEGMENTS = 28;
+// A high-refresh display otherwise makes the full 20 cm voxel field render at
+// 120–240 FPS. The replay is already time-based, so 60 FPS preserves motion
+// speed and Steadicam smoothing while avoiding redundant GPU work.
+const MAX_RENDER_FPS = 60;
+const MAX_RENDER_PIXEL_RATIO = 1.2;
+const MIN_RENDER_INTERVAL_MS = 1000 / MAX_RENDER_FPS;
 const DETAIL_LODS = [
   {
     cellM: 15,
@@ -356,6 +398,10 @@ const MOUNTAIN_MATERIALS = {
 } as const;
 
 const TERRAIN_COLOR_SCRATCH = new THREE.Color();
+const MATTER_TRANSFER_WHITE = new THREE.Color("#d5c49f");
+const MATTER_TRANSFER_SETTLED = new THREE.Color(
+  MOUNTAIN_MATERIALS.placedGranite,
+);
 const ENDURANCE_COLORS = {
   healthy: new THREE.Color("#72e9ff"),
   warning: new THREE.Color("#ffc86b"),
@@ -1423,7 +1469,7 @@ function snapDetailCenterToCanonicalGrid(
 
 function detailedSurfaceY(
   core: DemLayer,
-  terrain: VoxelTerrain,
+  terrain: TerrainGridRegistration,
   worldX: number,
   worldZ: number,
   renderedCellM = 0,
@@ -1506,6 +1552,23 @@ function detailedSurfaceY(
   );
 }
 
+function terrainGridRegistration(
+  metadata: DemMetadata,
+): TerrainGridRegistration {
+  return {
+    blockSize:
+      metadata.sampleSpacingArcSeconds * WORLD_PER_ARC_SECOND,
+    xOrigin:
+      (metadata.bounds.west - ORIGIN_LONGITUDE) *
+      3600 *
+      WORLD_PER_ARC_SECOND,
+    zOrigin:
+      (ORIGIN_LATITUDE - metadata.bounds.north) *
+      3600 *
+      WORLD_PER_ARC_SECOND,
+  };
+}
+
 function gridPoint(
   terrain: VoxelTerrain,
   column: number,
@@ -1550,12 +1613,17 @@ function coordinatePoint(
   longitude: number,
 ) {
   const degrees = metadata.sampleSpacingArcSeconds / 3600;
-  return gridPoint(
+  const column = (longitude - metadata.bounds.west) / degrees - 0.5;
+  const row = (metadata.bounds.north - latitude) / degrees - 0.5;
+  const point = gridPoint(
     terrain,
-    (longitude - metadata.bounds.west) / degrees - 0.5,
-    (metadata.bounds.north - latitude) / degrees - 0.5,
+    column,
+    row,
     0.5,
   );
+  point.x = terrain.xOrigin + (column + 0.5) * terrain.blockSize;
+  point.z = terrain.zOrigin + (row + 0.5) * terrain.blockSize;
+  return point;
 }
 
 function sitePriority(site: SiteAnchor) {
@@ -1583,7 +1651,7 @@ function createSiteLabel(site: SiteAnchor) {
 function createRoute(
   terrain: VoxelTerrain,
   terrainMetadata: DemMetadata,
-  suppliedTrace?: Array<{ column: number; row: number }> | null,
+  suppliedTrace?: ObservatoryTracePoint[] | null,
   suppliedTraceMetadata?: DemMetadata,
 ) {
   if (
@@ -1593,22 +1661,52 @@ function createRoute(
   ) {
     const traceDegrees =
       suppliedTraceMetadata.sampleSpacingArcSeconds / 3600;
-    return suppliedTrace.map((point) => {
+    const exact = suppliedTrace.every(
+      (point) =>
+        typeof point.x === "number" &&
+        typeof point.z === "number" &&
+        typeof point.altitudeM === "number",
+    );
+    const points = suppliedTrace.map((point) => {
       const latitude =
-        suppliedTraceMetadata.bounds.north -
-        (point.row + 0.5) * traceDegrees;
+        exact && typeof point.z === "number"
+          ? CANONICAL_ORIGIN_LATITUDE -
+            point.z / METERS_PER_DEGREE_LATITUDE
+          : suppliedTraceMetadata.bounds.north -
+            (point.row + 0.5) * traceDegrees;
       const longitude =
-        suppliedTraceMetadata.bounds.west +
-        (point.column + 0.5) * traceDegrees;
-      return coordinatePoint(
+        exact && typeof point.x === "number"
+          ? CANONICAL_ORIGIN_LONGITUDE +
+            point.x /
+              (METERS_PER_DEGREE_LATITUDE *
+                Math.cos(
+                  (CANONICAL_ORIGIN_LATITUDE * Math.PI) / 180,
+                ))
+          : suppliedTraceMetadata.bounds.west +
+            (point.column + 0.5) * traceDegrees;
+      const rendered = coordinatePoint(
         terrain,
         terrainMetadata,
         latitude,
         longitude,
       );
+      if (exact && typeof point.altitudeM === "number") {
+        rendered.y =
+          (point.altitudeM + 0.08) * WORLD_UNITS_PER_METER;
+      }
+      return rendered;
     });
+    return {
+      points,
+      progresses: suppliedTrace.map((point, index) =>
+        typeof point.progress === "number"
+          ? THREE.MathUtils.clamp(point.progress, 0, 1)
+          : index / Math.max(1, suppliedTrace.length - 1),
+      ),
+      exact,
+    };
   }
-  return [];
+  return { points: [], progresses: [], exact: false };
 }
 
 function canonicalCoordinatePoint(
@@ -1645,27 +1743,47 @@ function positiveModulo(value: number, modulus: number) {
   return ((value % modulus) + modulus) % modulus;
 }
 
-function replayPhase(rawPhase: number, actionFraction: number) {
-  const startHold = 0.045;
-  const endHold = 0.92;
-  const actionStart =
-    startHold +
-    THREE.MathUtils.clamp(actionFraction, 0.08, 0.92) *
-      (endHold - startHold - 0.075);
-  const actionEnd = actionStart + 0.075;
-  if (rawPhase <= startHold) return 0;
-  if (rawPhase >= endHold) return 1;
-  if (rawPhase < actionStart) {
-    return (
-      ((rawPhase - startHold) / Math.max(0.001, actionStart - startHold)) *
-      actionFraction
-    );
+function routeSampleAtProgress(
+  points: THREE.Vector3[],
+  progresses: number[],
+  progress: number,
+) {
+  const safeProgress = THREE.MathUtils.clamp(progress, 0, 1);
+  let pointIndex = Math.max(0, points.length - 2);
+  for (let index = 0; index < progresses.length - 1; index += 1) {
+    if (safeProgress <= progresses[index + 1]) {
+      pointIndex = index;
+      break;
+    }
   }
-  if (rawPhase <= actionEnd) return actionFraction;
+  const startProgress = progresses[pointIndex] ?? 0;
+  const endProgress = progresses[pointIndex + 1] ?? 1;
+  const mix = THREE.MathUtils.clamp(
+    (safeProgress - startProgress) /
+      Math.max(0.000_001, endProgress - startProgress),
+    0,
+    1,
+  );
+  return {
+    point: points[pointIndex]
+      .clone()
+      .lerp(points[pointIndex + 1], mix),
+    direction: points[pointIndex + 1]
+      .clone()
+      .sub(points[pointIndex]),
+  };
+}
+
+function worldSizeForPixels(
+  distance: number,
+  pixels: number,
+  viewportHeight: number,
+  verticalFovRadians: number,
+) {
   return (
-    actionFraction +
-    ((rawPhase - actionEnd) / Math.max(0.001, endHold - actionEnd)) *
-      (1 - actionFraction)
+    ((2 * distance * Math.tan(verticalFovRadians / 2)) /
+      Math.max(1, viewportHeight)) *
+    pixels
   );
 }
 
@@ -1687,11 +1805,32 @@ function createVoxelClimber(color: string) {
     color: "#20323f",
     transparent: true,
   });
+  const visorMaterial = new THREE.MeshBasicMaterial({
+    color: "#9ce7ed",
+    transparent: true,
+    opacity: 0.88,
+    depthWrite: false,
+  });
+  const veilMaterial = new THREE.MeshBasicMaterial({
+    color: "#b8dce1",
+    transparent: true,
+    opacity: 0.16,
+    depthWrite: false,
+  });
+  const charmMaterial = new THREE.MeshBasicMaterial({
+    color: "#a8edf1",
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+  });
   const materials = [
     jacketMaterial,
     darkMaterial,
     skinMaterial,
     packMaterial,
+    visorMaterial,
+    veilMaterial,
+    charmMaterial,
   ];
 
   const addBox = (
@@ -1699,36 +1838,370 @@ function createVoxelClimber(color: string) {
     position: [number, number, number],
     material: THREE.MeshBasicMaterial,
   ) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
-    mesh.position.set(...position);
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        size[0] * WORLD_UNITS_PER_METER,
+        size[1] * WORLD_UNITS_PER_METER,
+        size[2] * WORLD_UNITS_PER_METER,
+      ),
+      material,
+    );
+    mesh.position.set(
+      position[0] * WORLD_UNITS_PER_METER,
+      position[1] * WORLD_UNITS_PER_METER,
+      position[2] * WORLD_UNITS_PER_METER,
+    );
     group.add(mesh);
     return mesh;
   };
 
-  addBox([0.3, 0.36, 0.2], [0, 0.46, 0], jacketMaterial);
-  addBox([0.24, 0.24, 0.22], [0, 0.76, 0], skinMaterial);
-  addBox([0.27, 0.1, 0.24], [0, 0.88, 0], jacketMaterial);
-  addBox([0.27, 0.32, 0.16], [0, 0.48, -0.18], darkMaterial);
+  addBox([0.48, 0.62, 0.3], [0, 0.94, 0], jacketMaterial);
+  addBox([0.36, 0.36, 0.34], [0, 1.43, 0], darkMaterial);
+  addBox([0.27, 0.16, 0.025], [0, 1.42, 0.18], skinMaterial);
+  addBox([0.31, 0.075, 0.035], [0, 1.49, 0.198], visorMaterial);
+  addBox([0.38, 0.12, 0.35], [0, 1.65, 0], jacketMaterial);
+  addBox([0.42, 0.54, 0.22], [0, 0.98, -0.25], darkMaterial);
   const leftLeg = addBox(
-    [0.1, 0.3, 0.11],
-    [-0.09, 0.18, 0],
+    [0.18, 0.68, 0.2],
+    [-0.14, 0.36, 0],
     darkMaterial,
   );
   const rightLeg = addBox(
-    [0.1, 0.3, 0.11],
-    [0.09, 0.18, 0],
+    [0.18, 0.68, 0.2],
+    [0.14, 0.36, 0],
     darkMaterial,
   );
-  addBox([0.09, 0.3, 0.1], [-0.21, 0.46, 0], jacketMaterial);
-  addBox([0.09, 0.3, 0.1], [0.21, 0.46, 0], jacketMaterial);
-  addBox([0.27, 0.3, 0.13], [0, 0.49, -0.19], packMaterial);
+  const leftArm = addBox(
+    [0.15, 0.58, 0.16],
+    [-0.34, 0.93, 0],
+    jacketMaterial,
+  );
+  const rightArm = addBox(
+    [0.15, 0.58, 0.16],
+    [0.34, 0.93, 0],
+    jacketMaterial,
+  );
+  addBox([0.44, 0.52, 0.2], [0, 1.02, -0.3], packMaterial);
+  const veilSegments = [
+    addBox(
+      [0.24, 0.035, 0.13],
+      [-0.07, 1.35, -0.36],
+      veilMaterial,
+    ),
+    addBox(
+      [0.19, 0.03, 0.14],
+      [-0.09, 1.29, -0.47],
+      veilMaterial,
+    ),
+    addBox(
+      [0.14, 0.025, 0.15],
+      [-0.06, 1.24, -0.58],
+      veilMaterial,
+    ),
+  ];
+  const charm = new THREE.Mesh(
+    new THREE.OctahedronGeometry(
+      0.055 * WORLD_UNITS_PER_METER,
+      0,
+    ),
+    charmMaterial,
+  );
+  charm.position.set(
+    0,
+    1.12 * WORLD_UNITS_PER_METER,
+    -0.43 * WORLD_UNITS_PER_METER,
+  );
+  group.add(charm);
 
   return {
     group,
     materials,
     leftLeg,
     rightLeg,
+    leftArm,
+    rightArm,
+    veilSegments,
+    visorMaterial,
+    veilMaterial,
+    charmMaterial,
+    charm,
   };
+}
+
+function createMatterReplay() {
+  const matterWorld = 0.2 * WORLD_UNITS_PER_METER;
+  const activeGeometry = new THREE.BoxGeometry(
+    matterWorld,
+    matterWorld,
+    matterWorld,
+  );
+  const activeMaterial = new THREE.MeshBasicMaterial({
+    color: "#d5c49f",
+    transparent: true,
+    opacity: 1,
+  });
+  const activeMatter = new THREE.Mesh(activeGeometry, activeMaterial);
+  activeMatter.visible = false;
+  activeMatter.frustumCulled = false;
+
+  const fragmentCount = 8;
+  const fragmentGeometry = new THREE.BoxGeometry(
+    0.072 * WORLD_UNITS_PER_METER,
+    0.062 * WORLD_UNITS_PER_METER,
+    0.068 * WORLD_UNITS_PER_METER,
+  );
+  const fragmentMaterial = new THREE.MeshLambertMaterial({
+    color: "#b9aa8c",
+    transparent: true,
+    opacity: 0,
+  });
+  const fragments = new THREE.InstancedMesh(
+    fragmentGeometry,
+    fragmentMaterial,
+    fragmentCount,
+  );
+  fragments.count = fragmentCount;
+  fragments.visible = false;
+  fragments.frustumCulled = false;
+  fragments.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  const fragmentDummy = new THREE.Object3D();
+
+  const moteCount = 24;
+  const motePositions = new Float32Array(moteCount * 3);
+  const moteColors = new Float32Array(moteCount * 3);
+  const stoneMote = new THREE.Color("#d8c7a2");
+  const snowMote = new THREE.Color("#bfe3e8");
+  for (let index = 0; index < moteCount; index += 1) {
+    const color = index % 3 === 0 ? snowMote : stoneMote;
+    color.toArray(moteColors, index * 3);
+  }
+  const moteGeometry = new THREE.BufferGeometry();
+  moteGeometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(motePositions, 3),
+  );
+  moteGeometry.setAttribute(
+    "color",
+    new THREE.BufferAttribute(moteColors, 3),
+  );
+  const moteMaterial = new THREE.PointsMaterial({
+    size: 0.05 * WORLD_UNITS_PER_METER,
+    sizeAttenuation: true,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+  });
+  const motes = new THREE.Points(moteGeometry, moteMaterial);
+  motes.visible = false;
+  motes.frustumCulled = false;
+
+  const group = new THREE.Group();
+  group.visible = false;
+  group.add(activeMatter, fragments, motes);
+  return {
+    group,
+    activeMatter,
+    activeMaterial,
+    fragments,
+    fragmentMaterial,
+    fragmentDummy,
+    motes,
+    motePositions,
+    moteMaterial,
+    geometries: [
+      activeGeometry,
+      fragmentGeometry,
+      moteGeometry,
+    ],
+    materials: [
+      activeMaterial,
+      fragmentMaterial,
+      moteMaterial,
+    ],
+  };
+}
+
+function updateWindMotes(
+  positions: Float32Array,
+  from: THREE.Vector3,
+  to: THREE.Vector3,
+  progress: number,
+  seconds: number,
+  actionIndex: number,
+  mode: "stream" | "orbit",
+) {
+  const count = positions.length / 3;
+  const deltaX = to.x - from.x;
+  const deltaY = to.y - from.y;
+  const deltaZ = to.z - from.z;
+  const horizontalLength = Math.max(
+    0.000_001,
+    Math.hypot(deltaX, deltaZ),
+  );
+  const sideX = -deltaZ / horizontalLength;
+  const sideZ = deltaX / horizontalLength;
+
+  for (let index = 0; index < count; index += 1) {
+    const offset = index * 3;
+    const seed =
+      positiveModulo(
+        Math.sin((index + 1) * 12.9898 + actionIndex * 3.17) *
+          43_758.5453,
+        1,
+      );
+    const angle =
+      index * 2.39996 + seconds * (2.8 + seed * 1.2);
+    if (mode === "orbit") {
+      const radius =
+        (0.035 + seed * 0.07) * WORLD_UNITS_PER_METER;
+      positions[offset] =
+        to.x + Math.cos(angle) * radius;
+      positions[offset + 1] =
+        to.y +
+        Math.sin(angle * 1.37) *
+          0.055 *
+          WORLD_UNITS_PER_METER;
+      positions[offset + 2] =
+        to.z + Math.sin(angle) * radius;
+      continue;
+    }
+
+    const delayedProgress = THREE.MathUtils.clamp(
+      progress * 1.35 -
+        (index / Math.max(1, count - 1)) * 0.35,
+      0,
+      1,
+    );
+    const easedProgress =
+      delayedProgress *
+      delayedProgress *
+      (3 - 2 * delayedProgress);
+    const curve = Math.sin(Math.PI * easedProgress);
+    const swirl =
+      curve *
+      (0.025 + seed * 0.065) *
+      WORLD_UNITS_PER_METER;
+    positions[offset] =
+      from.x +
+      deltaX * easedProgress +
+      sideX * Math.cos(angle) * swirl;
+    positions[offset + 1] =
+      from.y +
+      deltaY * easedProgress +
+      curve * 0.17 * WORLD_UNITS_PER_METER +
+      Math.sin(angle) * swirl * 0.45;
+    positions[offset + 2] =
+      from.z +
+      deltaZ * easedProgress +
+      sideZ * Math.cos(angle) * swirl;
+  }
+}
+
+function updateWindFragments(
+  fragments: THREE.InstancedMesh,
+  dummy: THREE.Object3D,
+  from: THREE.Vector3,
+  to: THREE.Vector3,
+  progress: number,
+  seconds: number,
+  actionIndex: number,
+  mode: "stream" | "carry",
+) {
+  const count = fragments.count;
+  const delta = to.clone().sub(from);
+  const side = new THREE.Vector3(-delta.z, 0, delta.x);
+  if (side.lengthSq() < 0.000_001) side.set(1, 0, 0);
+  side.normalize();
+
+  for (let index = 0; index < count; index += 1) {
+    const seed =
+      positiveModulo(
+        Math.sin((index + 1) * 18.127 + actionIndex * 4.31) *
+          21_937.731,
+        1,
+      );
+    const angle =
+      index * 2.39996 + seconds * (0.68 + seed * 0.28);
+    if (mode === "carry") {
+      const radius =
+        (0.035 + seed * 0.055) * WORLD_UNITS_PER_METER;
+      dummy.position.set(
+        to.x + Math.cos(angle) * radius,
+        to.y -
+          (0.035 + seed * 0.035) * WORLD_UNITS_PER_METER +
+          Math.sin(angle * 1.13) *
+            0.012 *
+            WORLD_UNITS_PER_METER,
+        to.z + Math.sin(angle) * radius * 0.7,
+      );
+    } else {
+      const delayedProgress = THREE.MathUtils.clamp(
+        progress * 1.24 - index * 0.035,
+        0,
+        1,
+      );
+      const easedProgress =
+        delayedProgress *
+        delayedProgress *
+        (3 - 2 * delayedProgress);
+      const curve = Math.sin(Math.PI * easedProgress);
+      dummy.position
+        .copy(from)
+        .lerp(to, easedProgress)
+        .addScaledVector(
+          side,
+          Math.sin(angle) *
+            curve *
+            (0.025 + seed * 0.03) *
+            WORLD_UNITS_PER_METER,
+        );
+      dummy.position.y +=
+        curve * (0.09 + seed * 0.05) * WORLD_UNITS_PER_METER;
+    }
+    dummy.rotation.set(
+      seconds * (0.34 + seed * 0.2) + index * 0.17,
+      angle * 0.58,
+      seconds * 0.22 + index * 0.31,
+    );
+    const scale = 0.72 + seed * 0.48;
+    dummy.scale.set(
+      scale * (0.82 + seed * 0.25),
+      scale * (0.72 + (1 - seed) * 0.32),
+      scale,
+    );
+    dummy.updateMatrix();
+    fragments.setMatrixAt(index, dummy.matrix);
+  }
+  fragments.instanceMatrix.needsUpdate = true;
+}
+
+function createAgentSignal(color: string) {
+  const group = new THREE.Group();
+  const ringMaterial = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0,
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const coreMaterial = ringMaterial.clone();
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.58, 0.9, 4),
+    ringMaterial,
+  );
+  ring.rotation.z = Math.PI / 4;
+  const core = new THREE.Mesh(
+    new THREE.BoxGeometry(0.22, 0.22, 0.08),
+    coreMaterial,
+  );
+  ring.renderOrder = 24;
+  core.renderOrder = 25;
+  group.add(ring, core);
+  group.visible = false;
+  return { group, materials: [ringMaterial, coreMaterial] };
 }
 
 function createEnduranceHalo() {
@@ -1974,7 +2447,8 @@ function createActivityDem(
 }
 
 async function loadDem(signal: AbortSignal) {
-  const [core, mid, far, sites] = await Promise.all([
+  const [authority, core, mid, far, sites] = await Promise.all([
+    loadDemLayer("everest-dem-authority", signal),
     loadDemLayer("everest-dem", signal),
     loadDemLayer("everest-dem-mid", signal),
     loadDemLayer("everest-dem-far", signal),
@@ -1983,15 +2457,15 @@ async function loadDem(signal: AbortSignal) {
       return (await response.json()) as { sites: SiteAnchor[] };
     }),
   ]);
-  return { core, mid, far, sites: sites.sites };
+  return { authority, core, mid, far, sites: sites.sites };
 }
 
 export default function EverestObservatory() {
   const canvasHost = useRef<HTMLDivElement>(null);
   const siteOverlayHost = useRef<HTMLDivElement>(null);
   const replayProgressHost = useRef<HTMLDivElement>(null);
+  const actionStatusHost = useRef<HTMLDivElement>(null);
   const activeExpeditionRef = useRef(0);
-  const manualReplayUntil = useRef(0);
   const manualReplayStarted = useRef(0);
   const cameraViewRef = useRef<{
     position: THREE.Vector3;
@@ -2133,7 +2607,7 @@ export default function EverestObservatory() {
     let cleanupScene = () => {};
 
     const start = async () => {
-      const { core, mid, far, sites } = await loadDem(
+      const { authority, core, mid, far, sites } = await loadDem(
         abortController.signal,
       );
       if (disposed) return;
@@ -2156,11 +2630,13 @@ export default function EverestObservatory() {
       const renderer = new THREE.WebGLRenderer({
         antialias: true,
         alpha: true,
-        powerPreference: "high-performance",
+        powerPreference: "default",
         logarithmicDepthBuffer: true,
       });
       renderer.setClearColor(0x000000, 0);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.45));
+      renderer.setPixelRatio(
+        Math.min(window.devicePixelRatio, MAX_RENDER_PIXEL_RATIO),
+      );
       renderer.setSize(host.clientWidth, host.clientHeight, false);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -2207,15 +2683,14 @@ export default function EverestObservatory() {
         activity.metadata,
         { detailedSides: false },
       );
+      const authorityTerrain = terrainGridRegistration(
+        authority.metadata,
+      );
       const terrainStreaming = new TerrainStreamingEngine(
         {
-          metadata: activity.metadata,
-          elevations: activity.elevations,
-          terrain: {
-            blockSize: terrain.blockSize,
-            xOrigin: terrain.xOrigin,
-            zOrigin: terrain.zOrigin,
-          },
+          metadata: authority.metadata,
+          elevations: authority.elevations,
+          terrain: authorityTerrain,
           canonicalOriginLatitude: CANONICAL_ORIGIN_LATITUDE,
           canonicalOriginLongitude: CANONICAL_ORIGIN_LONGITUDE,
           metersPerDegreeLatitude: METERS_PER_DEGREE_LATITUDE,
@@ -2423,8 +2898,8 @@ export default function EverestObservatory() {
         worldUnitsPerMeter: WORLD_UNITS_PER_METER,
         sampleSurfaceY: (worldX, worldZ) =>
           detailedSurfaceY(
-            activity,
-            terrain,
+            authority,
+            authorityTerrain,
             worldX,
             worldZ,
             navigationSurfaceCellM,
@@ -2448,6 +2923,7 @@ export default function EverestObservatory() {
         innerOverlapM: number,
         outerTransitionM: number,
         worldHash: string,
+        replayTerrainKey: string,
       ) =>
         [
           worldHash,
@@ -2458,6 +2934,7 @@ export default function EverestObservatory() {
           innerHoleM.toFixed(3),
           innerOverlapM.toFixed(3),
           outerTransitionM.toFixed(3),
+          replayTerrainKey,
         ].join(":");
       const registerDetailPatch = async (
         center: THREE.Vector2,
@@ -2467,6 +2944,7 @@ export default function EverestObservatory() {
         innerOverlapM: number,
         outerTransitionM: number,
         feedSnapshot: ObservatoryFeed,
+        replayWorldState: ExpeditionReplayWorldState,
         reusablePatches: ReadonlyMap<string, DetailPatch>,
       ) => {
         const key = detailPatchKey(
@@ -2477,6 +2955,7 @@ export default function EverestObservatory() {
           innerOverlapM,
           outerTransitionM,
           feedSnapshot.worldHash,
+          replayWorldState.terrainKey,
         );
         const reusablePatch = reusablePatches.get(key);
         if (reusablePatch) return reusablePatch;
@@ -2491,6 +2970,7 @@ export default function EverestObservatory() {
           innerOverlapM,
           outerTransitionM,
           terrainTint: alpinePalette.terrainTint,
+          replayWorldState,
         });
         patch.setOpacity(1);
         return patch;
@@ -2499,6 +2979,7 @@ export default function EverestObservatory() {
         activeIndex: number,
         center: THREE.Vector2,
         feedSnapshot: ObservatoryFeed,
+        replayWorldState: ExpeditionReplayWorldState,
         reusablePatches: ReadonlyMap<string, DetailPatch>,
       ): Promise<DetailClipmapSet> => {
         if (activeIndex < 0) {
@@ -2506,6 +2987,7 @@ export default function EverestObservatory() {
             patches: [],
             activeIndex,
             worldHash: feedSnapshot.worldHash,
+            replayTerrainKey: replayWorldState.terrainKey,
           };
         }
         const activeLod = DETAIL_LODS[activeIndex];
@@ -2516,8 +2998,9 @@ export default function EverestObservatory() {
             activeLod.gridCells,
             0,
             0,
-            activeLod.cellM * 8,
+            0,
             feedSnapshot,
+            replayWorldState,
             reusablePatches,
           ),
         ];
@@ -2536,8 +3019,9 @@ export default function EverestObservatory() {
                 finerLod.cellM * 10,
                 coarseLod.cellM * 2,
               ),
-              coarseLod.cellM * 8,
+              0,
               feedSnapshot,
+              replayWorldState,
               reusablePatches,
             ),
           );
@@ -2553,6 +3037,7 @@ export default function EverestObservatory() {
             DETAIL_LODS[0].cellM * 10,
             0,
             feedSnapshot,
+            replayWorldState,
             reusablePatches,
           ),
         );
@@ -2560,6 +3045,7 @@ export default function EverestObservatory() {
           patches,
           activeIndex,
           worldHash: feedSnapshot.worldHash,
+          replayTerrainKey: replayWorldState.terrainKey,
         };
       };
       const disposeDetailClipmap = (
@@ -2576,6 +3062,7 @@ export default function EverestObservatory() {
         patches: [],
         activeIndex: -1,
         worldHash: sceneFeed.worldHash,
+        replayTerrainKey: FINAL_WORLD_REPLAY_STATE.terrainKey,
       };
       let lastClipmapBuildAt = 0;
       const snappedDetailCenter = (activeIndex: number) => {
@@ -2618,6 +3105,7 @@ export default function EverestObservatory() {
         activeIndex: number;
         center: THREE.Vector2;
         feed: ObservatoryFeed;
+        replayWorldState: ExpeditionReplayWorldState;
       }
       let clipmapBuildRunning = false;
       let clipmapBuildDisposed = false;
@@ -2640,6 +3128,7 @@ export default function EverestObservatory() {
             job.activeIndex,
             job.center,
             job.feed,
+            job.replayWorldState,
             reusablePatches,
           );
           pendingClipmapKey = null;
@@ -2670,15 +3159,18 @@ export default function EverestObservatory() {
         }
         clipmapBuildRunning = false;
       };
+      let desiredReplayWorldState = FINAL_WORLD_REPLAY_STATE;
       const requestDetailPatches = (activeIndex: number) => {
         const nextCenter = snappedDetailCenter(activeIndex);
         const feedSnapshot = sceneDataRef.current.feed;
-        const key = `${feedSnapshot.worldHash}:${activeIndex}:${nextCenter.x.toFixed(
+        const key = `${feedSnapshot.worldHash}:${desiredReplayWorldState.terrainKey}:${activeIndex}:${nextCenter.x.toFixed(
           5,
         )}:${nextCenter.y.toFixed(5)}`;
         const currentMatches =
           detailClipmap.activeIndex === activeIndex &&
           detailClipmap.worldHash === feedSnapshot.worldHash &&
+          detailClipmap.replayTerrainKey ===
+            desiredReplayWorldState.terrainKey &&
           detailPatchCenter.distanceTo(nextCenter) < 0.00001;
         if (currentMatches) return;
         if (pendingClipmapKey === key) {
@@ -2691,6 +3183,7 @@ export default function EverestObservatory() {
           activeIndex,
           center: nextCenter,
           feed: feedSnapshot,
+          replayWorldState: desiredReplayWorldState,
         };
         void processClipmapBuilds().catch((error: unknown) => {
           clipmapBuildRunning = false;
@@ -2780,19 +3273,37 @@ export default function EverestObservatory() {
 
       const traceObjects = sceneExpeditions.flatMap((expedition, index) => {
         if (!expedition.trace || expedition.trace.length < 2) return [];
-        const points = createRoute(
+        const route = createRoute(
           terrain,
           activity.metadata,
           expedition.trace,
           core.metadata,
         );
+        const { points, progresses } = route;
+        // Route altitude remains canonical feed data, but the disposable
+        // observatory mesh may use a different visual DEM outside the core.
+        // Ground the rendered trace on that visible surface so the climber
+        // cannot be buried by a display-only elevation offset.
+        points.forEach((point) => {
+          point.y =
+            detailedSurfaceY(
+              authority,
+              authorityTerrain,
+              point.x,
+              point.z,
+            ) +
+            0.08 * WORLD_UNITS_PER_METER;
+        });
         if (
+          !route.exact &&
           baseCampObject &&
           points[0].distanceTo(baseCampObject.siteGroup.position) > 0.8
         ) {
           points.unshift(baseCampObject.siteGroup.position.clone());
+          progresses.unshift(0);
           if (expedition.returned) {
             points.push(baseCampObject.siteGroup.position.clone());
+            progresses.push(1);
           }
         }
         const material = new THREE.LineBasicMaterial({
@@ -2807,7 +3318,7 @@ export default function EverestObservatory() {
         );
         scene.add(line);
 
-        const breadcrumbGeometry = new THREE.BoxGeometry(0.22, 0.22, 0.22);
+        const breadcrumbGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
         const breadcrumbMaterial = new THREE.MeshBasicMaterial({
           color: expedition.color,
           transparent: true,
@@ -2832,41 +3343,150 @@ export default function EverestObservatory() {
 
         const climber = createVoxelClimber(expedition.color);
         scene.add(climber.group);
+        const agentSignal = createAgentSignal(expedition.color);
+        scene.add(agentSignal.group);
 
         const enduranceHalo = createEnduranceHalo();
         scene.add(enduranceHalo.group);
 
-        const actionIndex = Math.min(
-          points.length - 1,
-          Math.round(expedition.releaseFraction * (points.length - 1)),
+        const actionWindows: ReplayActionWindow[] =
+          expedition.actions?.map((action) => ({
+            pickupFraction: action.pickupFraction,
+            releaseFraction: action.releaseFraction,
+          })) ??
+          (expedition.actionFractions ?? [expedition.releaseFraction]).map(
+            (fraction) => ({
+              pickupFraction: fraction,
+              releaseFraction: fraction,
+            }),
+          );
+        const pickupPoints = actionWindows.map(({ pickupFraction }) =>
+          routeSampleAtProgress(
+            points,
+            progresses,
+            pickupFraction,
+          ).point,
         );
-        const actionMaterial = new THREE.MeshBasicMaterial({
+        const releasePoints = actionWindows.map(({ releaseFraction }) =>
+          routeSampleAtProgress(
+            points,
+            progresses,
+            releaseFraction,
+          ).point,
+        );
+        const matterVoxelEdgeM =
+          sceneFeed.surfaceDelta?.voxelEdgeM ?? 0.2;
+        const matterVerticalDatumM =
+          sceneFeed.surfaceDelta?.verticalDatumM ?? 5_259;
+        const createMatterEndpoint = (
+          cell: ObservatoryVoxelCell | undefined,
+          routePoint: THREE.Vector3,
+        ): MatterReplayEndpoint | null => {
+          if (!cell) return null;
+          const canonicalX = (cell.x + 0.5) * matterVoxelEdgeM;
+          const canonicalZ = (cell.z + 0.5) * matterVoxelEdgeM;
+          return {
+            cell,
+            point:
+              canonicalCoordinatePoint(
+                activity,
+                terrain,
+                canonicalX,
+                canonicalZ,
+              ) ?? routePoint.clone(),
+          };
+        };
+        const matterEndpoints =
+          expedition.actions?.map((action, actionIndex) => ({
+            source: createMatterEndpoint(
+              action.sourceCell,
+              pickupPoints[actionIndex],
+            ),
+            destination: createMatterEndpoint(
+              action.destinationCell,
+              releasePoints[actionIndex],
+            ),
+          })) ?? [];
+        const matterReplay = createMatterReplay();
+        scene.add(matterReplay.group);
+        let cumulativeRouteDistanceM = 0;
+        const distanceKeyframes = points.map((point, pointIndex) => {
+          if (pointIndex > 0) {
+            cumulativeRouteDistanceM +=
+              point.distanceTo(points[pointIndex - 1]) /
+              WORLD_UNITS_PER_METER;
+          }
+          return {
+            progress: progresses[pointIndex],
+            distanceM: cumulativeRouteDistanceM,
+          };
+        });
+        const fullTimeline = createNormalReplayTimeline(
+          distanceKeyframes,
+          actionWindows,
+        );
+        const actionMarkerGeometry = new THREE.BoxGeometry(1, 1, 1);
+        const actionMarkerMaterial = new THREE.MeshBasicMaterial({
           color: "#ffc86b",
           transparent: true,
-          opacity: 0.25,
+          opacity: 0.5,
           depthWrite: false,
         });
-        const actionMarker = new THREE.Mesh(
-          new THREE.BoxGeometry(0.34, 0.34, 0.34),
-          actionMaterial,
+        const actionMarkers = new THREE.InstancedMesh(
+          actionMarkerGeometry,
+          actionMarkerMaterial,
+          Math.max(1, releasePoints.length),
         );
-        actionMarker.position.copy(points[actionIndex]);
-        actionMarker.position.y += 0.2;
-        scene.add(actionMarker);
+        actionMarkers.count = releasePoints.length;
+        const actionMarkerDummy = new THREE.Object3D();
+        const initialMarkerWorld = 0.24 * WORLD_UNITS_PER_METER;
+        releasePoints.forEach((point, pointIndex) => {
+          actionMarkerDummy.position.copy(point);
+          actionMarkerDummy.position.y += initialMarkerWorld * 1.5;
+          actionMarkerDummy.scale.setScalar(initialMarkerWorld);
+          actionMarkerDummy.updateMatrix();
+          actionMarkers.setMatrixAt(
+            pointIndex,
+            actionMarkerDummy.matrix,
+          );
+        });
+        actionMarkers.instanceMatrix.needsUpdate = true;
+        scene.add(actionMarkers);
+
+        const actionSignal = createAgentSignal("#ffc86b");
+        scene.add(actionSignal.group);
 
         return [{
           expeditionIndex: index,
           expedition,
           points,
+          progresses,
+          actionWindows,
+          pickupPoints,
+          releasePoints,
+          matterVoxelEdgeM,
+          matterVerticalDatumM,
+          matterEndpoints,
+          matterReplay,
+          fullTimeline,
           line,
           material,
           breadcrumbs,
           breadcrumbGeometry,
           breadcrumbMaterial,
           ...climber,
+          agentSignal,
           enduranceHalo,
-          actionMarker,
-          actionMaterial,
+          actionMarkers,
+          actionMarkerGeometry,
+          actionMarkerMaterial,
+          actionMarkerDummy,
+          actionMarkerSizeM: 0.24,
+          actionSignal,
+          smoothedGroundY: Number.NaN,
+          lastGroundUpdateAt: performance.now(),
+          lastGroundProgress: -1,
+          groundReplayStart: -1,
         }];
       });
 
@@ -2922,10 +3542,25 @@ export default function EverestObservatory() {
       let lastPrefetchKey = "";
       let performanceWindowStartedAt = started;
       let performanceFrameCount = 0;
+      let workCameraReplayStart = -1;
+      const workCameraDirection = new THREE.Vector3(0.72, 0, 0.69);
+      let directorSideSign = 1;
+      let directorCameraLiftM = 0;
+      let directorSmoothedCameraY = Number.NaN;
+      let directorSmoothedTargetY = Number.NaN;
+      let directorLastUpdateAt = started;
+      let lastRenderedFrameAt = started;
       const reduceMotion = window.matchMedia(
         "(prefers-reduced-motion: reduce)",
       ).matches;
       const render = (time: number) => {
+        frame = requestAnimationFrame(render);
+        const elapsedSinceRender = time - lastRenderedFrameAt;
+        if (elapsedSinceRender + 0.5 < MIN_RENDER_INTERVAL_MS) {
+          return;
+        }
+        lastRenderedFrameAt =
+          time - (elapsedSinceRender % MIN_RENDER_INTERVAL_MS);
         const seconds = Math.max(0, (time - started) / 1000);
         const navigationCommand = navigationCommandRef.current;
         if (navigationCommand) {
@@ -3019,7 +3654,9 @@ export default function EverestObservatory() {
           WORLD_UNITS_PER_METER;
         const detailWorldChanged =
           detailClipmap.worldHash !==
-          sceneDataRef.current.feed.worldHash;
+            sceneDataRef.current.feed.worldHash ||
+          detailClipmap.replayTerrainKey !==
+            desiredReplayWorldState.terrainKey;
         if (
           (activeDetailIndex !== detailClipmap.activeIndex ||
             detailWorldChanged) &&
@@ -3084,47 +3721,166 @@ export default function EverestObservatory() {
           setTerrainResolution(renderedResolution);
         }
 
-        const manualPlayback = time < manualReplayUntil.current;
-        const nextActive =
-          sceneExpeditions.length === 0
-            ? 0
-            : reduceMotion
-              ? activeExpeditionRef.current %
-                sceneExpeditions.length
-              : manualPlayback
-                ? activeExpeditionRef.current %
-                  sceneExpeditions.length
-                : Math.floor(seconds / REPLAY_SECONDS) %
-                  sceneExpeditions.length;
+        const manualTrace = traceObjects.find(
+          (trace) =>
+            trace.expeditionIndex === activeExpeditionRef.current,
+        );
+        const selectedManualTimeline = manualTrace?.fullTimeline;
+        const manualElapsedSeconds = Math.max(
+          0,
+          (time - manualReplayStarted.current) / 1000,
+        );
+        const manualPlayback =
+          manualReplayStarted.current > 0 &&
+          selectedManualTimeline !== undefined;
+        let nextActive =
+          traceObjects[0]?.expeditionIndex ??
+          activeExpeditionRef.current;
+        let activeElapsedSeconds = 0;
+        let activeTimeline = traceObjects[0]?.fullTimeline;
+        if (reduceMotion) {
+          nextActive = activeExpeditionRef.current;
+          activeTimeline =
+            traceObjects.find(
+              (trace) => trace.expeditionIndex === nextActive,
+            )?.fullTimeline ?? activeTimeline;
+          activeElapsedSeconds = activeTimeline?.totalSeconds ?? 0;
+        } else if (manualPlayback && selectedManualTimeline) {
+          nextActive = activeExpeditionRef.current;
+          activeTimeline = selectedManualTimeline;
+          activeElapsedSeconds = Math.min(
+            manualElapsedSeconds,
+            selectedManualTimeline.totalSeconds,
+          );
+        } else if (traceObjects.length > 0) {
+          const totalCycleSeconds = traceObjects.reduce(
+            (total, trace) => total + trace.fullTimeline.totalSeconds + 3,
+            0,
+          );
+          let cycleSeconds = positiveModulo(
+            seconds,
+            Math.max(0.001, totalCycleSeconds),
+          );
+          for (const trace of traceObjects) {
+            const slotSeconds = trace.fullTimeline.totalSeconds + 3;
+            if (cycleSeconds <= slotSeconds) {
+              nextActive = trace.expeditionIndex;
+              activeTimeline = trace.fullTimeline;
+              activeElapsedSeconds = Math.min(
+                cycleSeconds,
+                trace.fullTimeline.totalSeconds,
+              );
+              break;
+            }
+            cycleSeconds -= slotSeconds;
+          }
+        }
         if (activeExpeditionRef.current !== nextActive) {
           activeExpeditionRef.current = nextActive;
           setActiveExpedition(nextActive);
         }
-        const activeSeconds = manualPlayback
-          ? Math.max(0, (time - manualReplayStarted.current) / 1000)
-          : seconds;
-        const rawPhase = reduceMotion
-          ? 1
-          : positiveModulo(activeSeconds / REPLAY_SECONDS, 1);
-
+        let frameReplayWorldState = FINAL_WORLD_REPLAY_STATE;
+        terrainStreaming.setReplayWorldState(frameReplayWorldState);
+        let displayedRouteProgress = 0;
         traceObjects.forEach((trace, index) => {
           const isActive = nextActive === trace.expeditionIndex;
-          const phase = isActive
-            ? replayPhase(rawPhase, trace.expedition.releaseFraction)
-            : 1;
-          const scaled = phase * (trace.points.length - 1);
-          const pointIndex = Math.min(
-            trace.points.length - 2,
-            Math.floor(scaled),
+          const humanWorkView =
+            isActive && manualPlayback;
+          const playback = isActive
+            ? sampleReplayTimeline(
+                activeTimeline ?? trace.fullTimeline,
+                activeElapsedSeconds,
+              )
+            : sampleReplayTimeline(
+                trace.fullTimeline,
+                trace.fullTimeline.totalSeconds,
+              );
+          const phase = playback.progress;
+          if (isActive) displayedRouteProgress = phase;
+          const replayTimeline = isActive
+            ? activeTimeline ?? trace.fullTimeline
+            : trace.fullTimeline;
+          const matterStates =
+            humanWorkView && trace.expedition.actions
+              ? trace.expedition.actions.map((_, actionIndex) =>
+                  sampleActionMatterState(
+                    replayTimeline,
+                    activeElapsedSeconds,
+                    trace.actionWindows[actionIndex],
+                    actionIndex,
+                  ),
+                )
+              : [];
+          if (humanWorkView && trace.expedition.actions) {
+            frameReplayWorldState = expeditionReplayWorldState(
+              trace.expedition.actions,
+              matterStates,
+            );
+            terrainStreaming.setReplayWorldState(
+              frameReplayWorldState,
+            );
+          }
+          const routeSample = routeSampleAtProgress(
+            trace.points,
+            trace.progresses,
+            phase,
           );
-          trace.group.position.lerpVectors(
-            trace.points[pointIndex],
-            trace.points[pointIndex + 1],
-            scaled - pointIndex,
+          trace.group.position.copy(routeSample.point);
+          const exactGroundY =
+            detailedSurfaceY(
+              authority,
+              authorityTerrain,
+              routeSample.point.x,
+              routeSample.point.z,
+              currentCellM,
+              terrainStreaming,
+            ) +
+            0.08 * WORLD_UNITS_PER_METER;
+          // The construction surface stays exactly quantized, but a walking
+          // body follows the continuous terrain underneath those 20 cm steps.
+          // A half-cell boot allowance keeps the climber visually attached to
+          // the voxel field while removing the staircase-shaped body motion.
+          const walkingGroundY =
+            detailedSurfaceY(
+              authority,
+              authorityTerrain,
+              routeSample.point.x,
+              routeSample.point.z,
+            ) +
+            0.18 * WORLD_UNITS_PER_METER;
+          const groundReplayRestarted =
+            (humanWorkView &&
+              trace.groundReplayStart !==
+                manualReplayStarted.current) ||
+            (isActive &&
+              phase + 0.000_001 < trace.lastGroundProgress);
+          const groundDeltaSeconds = THREE.MathUtils.clamp(
+            (time - trace.lastGroundUpdateAt) / 1000,
+            1 / 240,
+            0.08,
           );
-          const direction = trace.points[pointIndex + 1]
-            .clone()
-            .sub(trace.points[pointIndex]);
+          trace.lastGroundUpdateAt = time;
+          trace.lastGroundProgress = phase;
+          trace.groundReplayStart = humanWorkView
+            ? manualReplayStarted.current
+            : -1;
+          const desiredGroundY = playback.moving
+            ? walkingGroundY
+            : exactGroundY;
+          trace.smoothedGroundY =
+            !isActive ||
+            groundReplayRestarted ||
+            !Number.isFinite(trace.smoothedGroundY)
+              ? desiredGroundY
+              : dampDirectorValueAsymmetric(
+                  trace.smoothedGroundY,
+                  desiredGroundY,
+                  groundDeltaSeconds,
+                  playback.moving ? 0.12 : 0.055,
+                  playback.moving ? 0.24 : 0.08,
+                );
+          trace.group.position.y = trace.smoothedGroundY;
+          const direction = routeSample.direction;
           trace.group.rotation.y = Math.atan2(direction.x, direction.z);
           trace.group.rotation.x = THREE.MathUtils.clamp(
             -Math.atan2(
@@ -3134,22 +3890,409 @@ export default function EverestObservatory() {
             -0.18,
             0.18,
           );
-          const stride = reduceMotion
-            ? 0
-            : Math.sin(seconds * 10.5 + index);
-          trace.group.position.y += Math.abs(stride) * 0.035;
+          trace.matterEndpoints.forEach(({ source, destination }) => {
+            if (source) {
+              source.point.copy(
+                terrainStreaming.cellWorldPosition(
+                  source.cell,
+                  detailPatchCenter.x,
+                  detailPatchCenter.y,
+                ),
+              );
+            }
+            if (destination) {
+              destination.point.copy(
+                terrainStreaming.cellWorldPosition(
+                  destination.cell,
+                  detailPatchCenter.x,
+                  detailPatchCenter.y,
+                ),
+              );
+            }
+          });
+          const handlingActionIndex = playback.actionIndex;
+          const handlingEndpoint =
+            handlingActionIndex === null
+              ? null
+              : playback.holdKind === "pickup"
+                ? trace.matterEndpoints[handlingActionIndex]?.source
+                : playback.holdKind === "release"
+                  ? trace.matterEndpoints[handlingActionIndex]
+                      ?.destination
+                  : null;
+          if (handlingEndpoint) {
+            const facing = handlingEndpoint.point
+              .clone()
+              .sub(trace.group.position)
+              .setY(0);
+            if (facing.lengthSq() > 0.000_001) {
+              facing.normalize();
+              trace.group.rotation.y = Math.atan2(facing.x, facing.z);
+              trace.group.rotation.x = 0;
+            }
+          }
+          const handlingReach =
+            playback.holdKind === null
+              ? 0
+              : Math.sin(
+                  Math.PI *
+                    THREE.MathUtils.clamp(
+                      playback.segmentProgress,
+                      0,
+                      1,
+                    ),
+                );
+          trace.group.position.y -=
+            handlingReach * 0.12 * WORLD_UNITS_PER_METER;
+          if (humanWorkView) {
+            const directorReplayRestarted =
+              workCameraReplayStart !== manualReplayStarted.current;
+            if (directorReplayRestarted) {
+              workCameraReplayStart = manualReplayStarted.current;
+              directorCameraLiftM = 0;
+              directorSmoothedCameraY = camera.position.y;
+              directorSmoothedTargetY = controls.target.y;
+              directorLastUpdateAt = time;
+              workCameraDirection
+                .copy(camera.position)
+                .sub(controls.target)
+                .setY(0);
+              if (workCameraDirection.lengthSq() < 0.0001) {
+                workCameraDirection.set(0.72, 0, 0.69);
+              }
+              workCameraDirection.normalize();
+            }
+            const directorDeltaSeconds = directorReplayRestarted
+              ? 1 / 60
+              : THREE.MathUtils.clamp(
+                  (time - directorLastUpdateAt) / 1000,
+                  1 / 240,
+                  0.08,
+                );
+            directorLastUpdateAt = time;
+            const finalEndpoint =
+              trace.matterEndpoints.at(-1)?.destination ?? null;
+            const observedEndpoint =
+              handlingEndpoint ??
+              (playback.ended ? finalEndpoint : null);
+            const subjectDirection = observedEndpoint
+              ? observedEndpoint.point
+                  .clone()
+                  .sub(trace.group.position)
+                  .setY(0)
+              : routeSample.direction.clone().setY(0);
+            if (subjectDirection.lengthSq() < 0.000_001) {
+              subjectDirection.set(0, 0, 1);
+            }
+            subjectDirection.normalize();
+            const cameraSide = new THREE.Vector3(
+              -subjectDirection.z,
+              0,
+              subjectDirection.x,
+            );
+            if (directorReplayRestarted) {
+              directorSideSign =
+                cameraSide.dot(workCameraDirection) < 0 ? -1 : 1;
+            }
+            const desiredDirectionForSide = (sideSign: number) =>
+              cameraSide
+                .clone()
+                .multiplyScalar(0.82 * sideSign)
+                .addScaledVector(
+                  subjectDirection,
+                  playback.moving ? -0.58 : -0.24,
+                )
+                .normalize();
+            let desiredCameraDirection =
+              desiredDirectionForSide(directorSideSign);
+
+            const directorTarget = trace.group.position
+              .clone()
+              .add(
+                new THREE.Vector3(
+                  0,
+                  0.92 * WORLD_UNITS_PER_METER,
+                  0,
+                ),
+              );
+            if (observedEndpoint) {
+              const endpointMix = playback.ended ? 0.58 : 0.34;
+              directorTarget.x = THREE.MathUtils.lerp(
+                directorTarget.x,
+                observedEndpoint.point.x,
+                endpointMix,
+              );
+              directorTarget.z = THREE.MathUtils.lerp(
+                directorTarget.z,
+                observedEndpoint.point.z,
+                endpointMix,
+              );
+            }
+            const directorDistanceM = playback.ended
+              ? 6.4
+              : handlingEndpoint
+                ? 5.8
+                : playback.moving
+                  ? 7.6
+                  : 6.6;
+            const directorHeightM = handlingEndpoint
+              ? 2.25
+              : playback.moving
+                ? 2.75
+                : 2.5;
+            const cameraCandidateForDirection = (
+              cameraDirection: THREE.Vector3,
+            ) => {
+              const candidate = trace.group.position
+                .clone()
+                .addScaledVector(
+                  cameraDirection,
+                  directorDistanceM * WORLD_UNITS_PER_METER,
+                );
+              candidate.y +=
+                directorHeightM * WORLD_UNITS_PER_METER;
+              return candidate;
+            };
+            const sampleDirectorSolidTopY = (
+              worldX: number,
+              worldZ: number,
+            ) => {
+              const terrainTopY = detailedSurfaceY(
+                authority,
+                authorityTerrain,
+                worldX,
+                worldZ,
+                currentCellM,
+                terrainStreaming,
+              );
+              const structureTopY =
+                terrainStreaming.cameraObstacleTopY(
+                  worldX,
+                  worldZ,
+                  0.32,
+                );
+              return Math.max(
+                terrainTopY,
+                structureTopY ?? Number.NEGATIVE_INFINITY,
+              );
+            };
+            const clearanceWorld =
+              0.32 * WORLD_UNITS_PER_METER;
+            const sampleStepWorld =
+              0.22 * WORLD_UNITS_PER_METER;
+            const currentCandidate =
+              cameraCandidateForDirection(
+                desiredCameraDirection,
+              );
+            const alternateDirection = desiredDirectionForSide(
+              -directorSideSign,
+            );
+            const alternateCandidate =
+              cameraCandidateForDirection(alternateDirection);
+            const currentLift = requiredCameraLift(
+              directorTarget,
+              currentCandidate,
+              sampleDirectorSolidTopY,
+              clearanceWorld,
+              sampleStepWorld,
+            );
+            const alternateLift = requiredCameraLift(
+              directorTarget,
+              alternateCandidate,
+              sampleDirectorSolidTopY,
+              clearanceWorld,
+              sampleStepWorld,
+            );
+            if (
+              currentLift > 0.45 * WORLD_UNITS_PER_METER &&
+              alternateLift + 0.35 * WORLD_UNITS_PER_METER <
+                currentLift
+            ) {
+              directorSideSign *= -1;
+              desiredCameraDirection = alternateDirection;
+            }
+            workCameraDirection
+              .lerp(
+                desiredCameraDirection,
+                playback.moving ? 0.045 : 0.075,
+              )
+              .normalize();
+            const directorCameraPosition = trace.group.position
+              .clone()
+              .addScaledVector(
+                workCameraDirection,
+                directorDistanceM * WORLD_UNITS_PER_METER,
+              );
+            directorCameraPosition.y +=
+              directorHeightM * WORLD_UNITS_PER_METER;
+            const requiredLiftWorld = requiredCameraLift(
+              directorTarget,
+              directorCameraPosition,
+              sampleDirectorSolidTopY,
+              clearanceWorld,
+              sampleStepWorld,
+            );
+            const requiredLiftM =
+              requiredLiftWorld / WORLD_UNITS_PER_METER;
+            directorCameraLiftM = THREE.MathUtils.lerp(
+              directorCameraLiftM,
+              Math.min(6, requiredLiftM),
+              requiredLiftM > directorCameraLiftM ? 0.18 : 0.055,
+            );
+            directorCameraPosition.y +=
+              directorCameraLiftM * WORLD_UNITS_PER_METER;
+            const horizontalResponseSeconds = playback.moving
+              ? 0.16
+              : 0.12;
+            camera.position.x = dampDirectorValue(
+              camera.position.x,
+              directorCameraPosition.x,
+              directorDeltaSeconds,
+              horizontalResponseSeconds,
+            );
+            camera.position.z = dampDirectorValue(
+              camera.position.z,
+              directorCameraPosition.z,
+              directorDeltaSeconds,
+              horizontalResponseSeconds,
+            );
+            const cameraSafetyFloor =
+              sampleDirectorSolidTopY(
+                directorCameraPosition.x,
+                directorCameraPosition.z,
+              ) +
+              0.38 * WORLD_UNITS_PER_METER;
+            directorSmoothedCameraY = directorReplayRestarted
+              ? directorCameraPosition.y
+              : dampDirectorValueAsymmetric(
+                  directorSmoothedCameraY,
+                  directorCameraPosition.y,
+                  directorDeltaSeconds,
+                  0.3,
+                  0.78,
+                );
+            directorSmoothedCameraY = Math.max(
+              directorSmoothedCameraY,
+              cameraSafetyFloor,
+            );
+            camera.position.y = directorSmoothedCameraY;
+            controls.target.x = dampDirectorValue(
+              controls.target.x,
+              directorTarget.x,
+              directorDeltaSeconds,
+              0.11,
+            );
+            controls.target.z = dampDirectorValue(
+              controls.target.z,
+              directorTarget.z,
+              directorDeltaSeconds,
+              0.11,
+            );
+            directorSmoothedTargetY = directorReplayRestarted
+              ? directorTarget.y
+              : dampDirectorValueAsymmetric(
+                  directorSmoothedTargetY,
+                  directorTarget.y,
+                  directorDeltaSeconds,
+                  0.4,
+                  0.68,
+                );
+            controls.target.y = directorSmoothedTargetY;
+            camera.lookAt(controls.target);
+          }
+          const stride =
+            reduceMotion || !playback.moving
+              ? 0
+              : Math.sin(seconds * 8.2 + index);
+          trace.group.position.y +=
+            Math.abs(stride) * 0.06 * WORLD_UNITS_PER_METER;
           trace.leftLeg.rotation.x = stride * 0.42;
           trace.rightLeg.rotation.x = -stride * 0.42;
-          trace.material.opacity = isActive ? 0.94 : 0.14;
-          trace.breadcrumbMaterial.opacity = isActive ? 0.86 : 0.1;
-          const ended = isActive && rawPhase > 0.92;
+          trace.material.opacity = humanWorkView
+            ? 0.24
+            : isActive
+              ? 0.94
+              : 0.14;
+          const ended = isActive && playback.ended;
+          const agentDistance = camera.position.distanceTo(
+            trace.group.position,
+          );
+          const agentDistanceM =
+            agentDistance / WORLD_UNITS_PER_METER;
+          const visualLod = agentVisualLod(agentDistanceM);
+          trace.breadcrumbMaterial.opacity = isActive
+            ? visualLod.breadcrumbOpacity * 0.78
+            : 0.08;
           trace.materials.forEach((material) => {
-            material.opacity = ended ? 0.28 : isActive ? 1 : 0;
+            material.opacity = ended
+              ? humanWorkView
+                ? 0.92
+                : 0.24
+              : isActive
+                ? visualLod.physicalOpacity
+                : 0;
           });
-          trace.line.visible = overviewContextVisible;
-          trace.breadcrumbs.visible = overviewContextVisible;
-          trace.group.visible = isActive && overviewContextVisible;
-          trace.group.scale.setScalar(isActive ? 1.22 : 0.72);
+          trace.line.visible =
+            !humanWorkView && (isActive || overviewContextVisible);
+          trace.breadcrumbs.visible =
+            overviewContextVisible &&
+            visualLod.breadcrumbOpacity > 0.02;
+          trace.group.visible =
+            isActive && visualLod.physicalOpacity > 0.01;
+          trace.group.scale.setScalar(visualLod.physicalScale);
+          const climberOpacity = ended
+            ? humanWorkView
+              ? 0.92
+              : 0.24
+            : isActive
+              ? visualLod.physicalOpacity
+              : 0;
+          trace.visorMaterial.opacity = climberOpacity * 0.9;
+          trace.veilMaterial.opacity =
+            climberOpacity * (humanWorkView ? 0.16 : 0.1);
+          trace.charmMaterial.opacity =
+            climberOpacity *
+            (0.56 + Math.sin(seconds * 2.2) * 0.12);
+          const veilBases = [
+            [-0.07, 1.35, -0.36],
+            [-0.09, 1.29, -0.47],
+            [-0.06, 1.24, -0.58],
+          ] as const;
+          trace.veilSegments.forEach((segment, veilIndex) => {
+            const wave =
+              Math.sin(seconds * 2.1 - veilIndex * 0.72) *
+              (0.018 + veilIndex * 0.012);
+            segment.position.set(
+              (veilBases[veilIndex][0] + wave) *
+                WORLD_UNITS_PER_METER,
+              (veilBases[veilIndex][1] +
+                Math.sin(seconds * 1.7 - veilIndex) * 0.012) *
+                WORLD_UNITS_PER_METER,
+              veilBases[veilIndex][2] * WORLD_UNITS_PER_METER,
+            );
+            segment.rotation.x = -0.08 + wave * 2.4;
+            segment.rotation.y = wave * 3.1;
+          });
+          trace.charm.rotation.y = seconds * 1.2;
+          trace.charm.rotation.z =
+            Math.sin(seconds * 1.8) * 0.18;
+
+          trace.agentSignal.group.visible =
+            isActive && !ended && visualLod.signalOpacity > 0.01;
+          trace.agentSignal.group.position.copy(trace.group.position);
+          trace.agentSignal.group.position.y +=
+            1.15 * WORLD_UNITS_PER_METER;
+          trace.agentSignal.group.quaternion.copy(camera.quaternion);
+          const agentSignalScale = worldSizeForPixels(
+            agentDistance,
+            visualLod.signalPixels,
+            host.clientHeight,
+            THREE.MathUtils.degToRad(camera.fov),
+          );
+          trace.agentSignal.group.scale.setScalar(agentSignalScale);
+          trace.agentSignal.materials.forEach((material) => {
+            material.opacity = visualLod.signalOpacity * 0.92;
+          });
 
           const reserve =
             1 -
@@ -3164,40 +4307,372 @@ export default function EverestObservatory() {
             ? 0.5
             : (Math.sin(seconds * 4.2) + 1) / 2;
           trace.enduranceHalo.group.visible =
-            isActive && !ended && overviewContextVisible;
+            isActive && !ended && !humanWorkView;
           trace.enduranceHalo.group.position.copy(trace.group.position);
-          trace.enduranceHalo.group.position.y += 0.54;
+          trace.enduranceHalo.group.position.y +=
+            2.15 * WORLD_UNITS_PER_METER;
           trace.enduranceHalo.group.quaternion.copy(camera.quaternion);
           const haloDistance = camera.position.distanceTo(
             trace.enduranceHalo.group.position,
           );
           const haloScale =
-            THREE.MathUtils.clamp(haloDistance / 72, 0.82, 2.25) *
+            worldSizeForPixels(
+              haloDistance,
+              24 + smoothstep(30, 600, agentDistanceM) * 14,
+              host.clientHeight,
+              THREE.MathUtils.degToRad(camera.fov),
+            ) *
             (0.98 + haloPulse * (reserve < 0.2 ? 0.08 : 0.025));
           trace.enduranceHalo.group.scale.setScalar(haloScale);
           updateEnduranceHalo(trace.enduranceHalo, reserve, haloPulse);
 
-          const actionDistance = Math.abs(
-            phase - trace.expedition.releaseFraction,
+          const actionState = replayActionState(
+            phase,
+            trace.actionWindows,
           );
-          const actionSignal = THREE.MathUtils.clamp(
-            1 - actionDistance / 0.035,
-            0,
-            1,
+          const handlingPickup = playback.holdKind === "pickup";
+          const handlingRelease = playback.holdKind === "release";
+          trace.matterReplay.group.visible = humanWorkView;
+          const activeMatterIndex = matterStates.findIndex(
+            ({ phase: matterPhase }) =>
+              matterPhase === "picking-up" ||
+              matterPhase === "carrying" ||
+              matterPhase === "placing",
           );
-          trace.actionMaterial.opacity = isActive
-            ? 0.13 + actionSignal * 0.82
-            : 0.06;
-          trace.actionMarker.visible = overviewContextVisible;
-          trace.actionMarker.scale.setScalar(
-            0.8 + actionSignal * (1.2 + haloPulse * 0.24),
-          );
+
+          const activeMatterState =
+            activeMatterIndex >= 0
+              ? matterStates[activeMatterIndex]
+              : null;
+          const replayTerrainReady =
+            detailClipmap.replayTerrainKey ===
+            frameReplayWorldState.terrainKey;
+          const transferVisible =
+            humanWorkView &&
+            activeMatterState !== null &&
+            replayTerrainReady;
+          trace.matterReplay.activeMatter.visible = false;
+          trace.matterReplay.fragments.visible = false;
+          trace.matterReplay.motes.visible = false;
+          if (activeMatterState && transferVisible) {
+            trace.group.updateMatrixWorld(true);
+            const handPosition = trace.group.localToWorld(
+              new THREE.Vector3(
+                0,
+                0.88 * WORLD_UNITS_PER_METER,
+                0.42 * WORLD_UNITS_PER_METER,
+              ),
+            );
+            const activeEndpoints =
+              trace.matterEndpoints[activeMatterIndex];
+            const sourcePosition = activeEndpoints?.source
+              ? activeEndpoints.source.point.clone()
+              : trace.group.localToWorld(
+                  new THREE.Vector3(
+                    0.48 * WORLD_UNITS_PER_METER,
+                    0.12 * WORLD_UNITS_PER_METER,
+                    0.24 * WORLD_UNITS_PER_METER,
+                  ),
+                );
+            const destinationPosition =
+              activeEndpoints?.destination
+                ? activeEndpoints.destination.point.clone()
+                : handPosition;
+            const transferProgress =
+              activeMatterState.phaseProgress;
+            if (activeMatterState.phase === "picking-up") {
+              const collapseProgress = smoothstep(
+                0.08,
+                0.74,
+                transferProgress,
+              );
+              const streamProgress = smoothstep(
+                0.12,
+                0.96,
+                transferProgress,
+              );
+              trace.matterReplay.activeMatter.visible =
+                collapseProgress < 0.96;
+              trace.matterReplay.activeMaterial.color.copy(
+                MATTER_TRANSFER_WHITE,
+              );
+              trace.matterReplay.activeMatter.position.copy(
+                sourcePosition,
+              );
+              trace.matterReplay.activeMatter.scale.setScalar(
+                Math.max(0.72, 1 - collapseProgress * 0.28),
+              );
+              trace.matterReplay.activeMatter.rotation.y =
+                collapseProgress * 0.18;
+              trace.matterReplay.activeMaterial.opacity =
+                1 - collapseProgress;
+
+              trace.matterReplay.fragments.visible =
+                transferProgress > 0.08;
+              trace.matterReplay.fragmentMaterial.opacity =
+                Math.min(0.96, streamProgress * 1.7);
+              updateWindFragments(
+                trace.matterReplay.fragments,
+                trace.matterReplay.fragmentDummy,
+                sourcePosition,
+                handPosition,
+                streamProgress,
+                seconds,
+                activeMatterIndex,
+                "stream",
+              );
+
+              trace.matterReplay.motes.visible =
+                transferProgress > 0.1;
+              trace.matterReplay.moteMaterial.opacity =
+                Math.sin(Math.PI * streamProgress) * 0.48 + 0.16;
+              updateWindMotes(
+                trace.matterReplay.motePositions,
+                sourcePosition,
+                handPosition,
+                streamProgress,
+                seconds,
+                activeMatterIndex,
+                "stream",
+              );
+            } else if (
+              activeMatterState.phase === "placing"
+            ) {
+              const settleProgress = smoothstep(
+                0.04,
+                0.92,
+                transferProgress,
+              );
+              const settleFade = smoothstep(
+                0.84,
+                1,
+                transferProgress,
+              );
+              const formProgress = smoothstep(
+                0.46,
+                0.94,
+                transferProgress,
+              );
+
+              trace.matterReplay.activeMatter.visible =
+                formProgress > 0.01;
+              trace.matterReplay.activeMatter.position.copy(
+                destinationPosition,
+              );
+              trace.matterReplay.activeMatter.scale.setScalar(
+                0.72 + formProgress * 0.28,
+              );
+              trace.matterReplay.activeMatter.rotation.set(0, 0, 0);
+              trace.matterReplay.activeMaterial.opacity =
+                formProgress;
+              trace.matterReplay.activeMaterial.color
+                .copy(MATTER_TRANSFER_WHITE)
+                .lerp(
+                  MATTER_TRANSFER_SETTLED,
+                  smoothstep(0.68, 1, transferProgress),
+                );
+
+              trace.matterReplay.fragments.visible = true;
+              trace.matterReplay.fragmentMaterial.opacity =
+                0.96 *
+                (1 -
+                  Math.max(
+                    settleFade,
+                    smoothstep(0.18, 0.9, formProgress),
+                  ));
+              updateWindFragments(
+                trace.matterReplay.fragments,
+                trace.matterReplay.fragmentDummy,
+                handPosition,
+                destinationPosition,
+                settleProgress,
+                seconds,
+                activeMatterIndex,
+                "stream",
+              );
+
+              trace.matterReplay.motes.visible = true;
+              trace.matterReplay.moteMaterial.opacity =
+                (0.28 + settleProgress * 0.3) *
+                (1 -
+                  Math.max(
+                    settleFade * 0.82,
+                    formProgress * 0.72,
+                  ));
+              updateWindMotes(
+                trace.matterReplay.motePositions,
+                handPosition,
+                destinationPosition,
+                settleProgress,
+                seconds,
+                activeMatterIndex,
+                "stream",
+              );
+            } else {
+              trace.matterReplay.fragments.visible = true;
+              trace.matterReplay.fragmentMaterial.opacity = 0.96;
+              updateWindFragments(
+                trace.matterReplay.fragments,
+                trace.matterReplay.fragmentDummy,
+                handPosition,
+                handPosition,
+                1,
+                seconds,
+                activeMatterIndex,
+                "carry",
+              );
+              trace.matterReplay.motes.visible = true;
+              trace.matterReplay.moteMaterial.opacity = 0.3;
+              updateWindMotes(
+                trace.matterReplay.motePositions,
+                handPosition,
+                handPosition,
+                1,
+                seconds,
+                activeMatterIndex,
+                "orbit",
+              );
+            }
+            (
+              trace.matterReplay.motes.geometry.getAttribute(
+                "position",
+              ) as THREE.BufferAttribute
+            ).needsUpdate = true;
+          }
+
+          const carryingMatter = activeMatterState !== null;
+          const handlingMatter = handlingPickup || handlingRelease;
+          trace.leftArm.rotation.x = playback.moving
+            ? -stride * 0.34
+            : handlingMatter || carryingMatter
+              ? -0.82 - handlingReach * 0.34
+              : 0;
+          trace.rightArm.rotation.x = playback.moving
+            ? stride * 0.34
+            : handlingMatter || carryingMatter
+              ? -0.82 - handlingReach * 0.34
+              : 0;
+          trace.actionMarkers.visible =
+            isActive &&
+            !humanWorkView &&
+            cameraDistanceM < 1_600;
+          trace.actionMarkerMaterial.opacity = isActive ? 0.5 : 0.08;
+          if (
+            Math.abs(
+              trace.actionMarkerSizeM - visualLod.actionMarkerM,
+            ) >
+            Math.max(0.04, trace.actionMarkerSizeM * 0.12)
+          ) {
+            trace.actionMarkerSizeM = visualLod.actionMarkerM;
+            const markerWorld =
+              visualLod.actionMarkerM * WORLD_UNITS_PER_METER;
+            trace.releasePoints.forEach((point, pointIndex) => {
+              trace.actionMarkerDummy.position.copy(point);
+              trace.actionMarkerDummy.position.y += markerWorld * 1.5;
+              trace.actionMarkerDummy.scale.setScalar(markerWorld);
+              trace.actionMarkerDummy.updateMatrix();
+              trace.actionMarkers.setMatrixAt(
+                pointIndex,
+                trace.actionMarkerDummy.matrix,
+              );
+            });
+            trace.actionMarkers.instanceMatrix.needsUpdate = true;
+          }
+          if (
+            actionState &&
+            trace.releasePoints[actionState.index]
+          ) {
+            const placing =
+              actionState.phase === "placing" || handlingRelease;
+            trace.actionSignal.group.visible =
+              isActive &&
+              !ended &&
+              !humanWorkView &&
+              cameraDistanceM < 1_600;
+            trace.actionSignal.group.position.copy(
+              trace.releasePoints[actionState.index],
+            );
+            trace.actionSignal.group.position.y +=
+              visualLod.actionMarkerM *
+              1.5 *
+              WORLD_UNITS_PER_METER;
+            trace.actionSignal.group.quaternion.copy(camera.quaternion);
+            const actionSignalScale =
+              visualLod.actionMarkerM *
+              WORLD_UNITS_PER_METER *
+              (placing ? 1.45 + haloPulse * 0.24 : 0.9);
+            trace.actionSignal.group.scale.setScalar(actionSignalScale);
+            trace.actionSignal.materials.forEach((material) => {
+              material.opacity = placing ? 0.96 : 0.34;
+            });
+          } else {
+            trace.actionSignal.group.visible = false;
+          }
+
+          if (isActive && actionStatusHost.current) {
+            const action =
+              actionState &&
+              trace.expedition.actions?.[actionState.index];
+            const phaseLabel =
+              playback.ended
+                ? "TASK COMPLETE"
+                : handlingPickup
+                  ? action?.sourceKind === "TERRAIN"
+                    ? "LOOSENING SOURCE STONE"
+                    : "LIFTING BASE STONE"
+                : handlingRelease
+                  ? "SETTLING TARGET CELL"
+                  : actionState?.phase === "approaching"
+                ? "APPROACHING PICKUP"
+                : actionState?.phase === "carrying"
+                  ? "CARRYING STONE LOAD"
+                  : actionState?.phase === "placing"
+                    ? "SETTLING STONE"
+                    : "TASK COMPLETE";
+            const actionNumber = actionState
+              ? Math.min(actionState.index + 1, trace.actionWindows.length)
+              : 0;
+            const status = trace.actionWindows.length
+              ? `ACTION ${actionNumber}/${trace.actionWindows.length} · ${
+                  action?.operation ?? trace.expedition.action
+                }${
+                  action
+                    ? ` · ${action.sourceKind} → ${action.destinationKind}`
+                    : ""
+                } · ${phaseLabel}`
+              : "ROUTE REPLAY";
+            if (actionStatusHost.current.textContent !== status) {
+              actionStatusHost.current.textContent = status;
+            }
+          }
         });
 
+        detailClipmap.patches.forEach((patch) => {
+          patch.setHiddenStoneIds?.(
+            frameReplayWorldState.hiddenStoneIds,
+          );
+        });
+        if (
+          desiredReplayWorldState.terrainKey !==
+          frameReplayWorldState.terrainKey
+        ) {
+          desiredReplayWorldState = frameReplayWorldState;
+          if (activeDetailIndex >= 0) {
+            requestDetailPatches(activeDetailIndex);
+          }
+        }
+
         if (replayProgressHost.current) {
+          const playbackProgress = activeTimeline
+            ? THREE.MathUtils.clamp(
+                activeElapsedSeconds / activeTimeline.totalSeconds,
+                0,
+                1,
+              )
+            : displayedRouteProgress;
           replayProgressHost.current.style.setProperty(
             "--replay-progress",
-            `${rawPhase * 100}%`,
+            `${playbackProgress * 100}%`,
           );
         }
 
@@ -3336,7 +4811,6 @@ export default function EverestObservatory() {
           performanceWindowStartedAt = time;
           performanceFrameCount = 0;
         }
-        frame = requestAnimationFrame(render);
       };
       frame = requestAnimationFrame(render);
 
@@ -3378,22 +4852,35 @@ export default function EverestObservatory() {
             breadcrumbMaterial,
             group,
             materials,
+            agentSignal,
             enduranceHalo,
-            actionMarker,
-            actionMaterial,
+            actionMarkerGeometry,
+            actionMarkerMaterial,
+            actionSignal,
+            matterReplay,
           }) => {
-          line.geometry.dispose();
-          material.dispose();
-          breadcrumbGeometry.dispose();
-          breadcrumbMaterial.dispose();
-          group.traverse((object) => {
-            if (object instanceof THREE.Mesh) object.geometry.dispose();
-          });
-          materials.forEach((item) => item.dispose());
-          enduranceHalo.geometry.dispose();
-          enduranceHalo.materials.forEach((item) => item.dispose());
-          actionMarker.geometry.dispose();
-          actionMaterial.dispose();
+            line.geometry.dispose();
+            material.dispose();
+            breadcrumbGeometry.dispose();
+            breadcrumbMaterial.dispose();
+            group.traverse((object) => {
+              if (object instanceof THREE.Mesh) object.geometry.dispose();
+            });
+            materials.forEach((item) => item.dispose());
+            agentSignal.group.traverse((object) => {
+              if (object instanceof THREE.Mesh) object.geometry.dispose();
+            });
+            agentSignal.materials.forEach((item) => item.dispose());
+            enduranceHalo.geometry.dispose();
+            enduranceHalo.materials.forEach((item) => item.dispose());
+            actionMarkerGeometry.dispose();
+            actionMarkerMaterial.dispose();
+            actionSignal.group.traverse((object) => {
+              if (object instanceof THREE.Mesh) object.geometry.dispose();
+            });
+            actionSignal.materials.forEach((item) => item.dispose());
+            matterReplay.geometries.forEach((item) => item.dispose());
+            matterReplay.materials.forEach((item) => item.dispose());
           },
         );
         memorialField.meshes.forEach((mesh) => {
@@ -3453,11 +4940,26 @@ export default function EverestObservatory() {
   const selectReplay = (index: number, now: number) => {
     activeExpeditionRef.current = index;
     manualReplayStarted.current = now;
-    manualReplayUntil.current = now + REPLAY_SECONDS * 1000;
     setActiveExpedition(index);
   };
   const navigate = (command: NavigationCommand) => {
     navigationCommandRef.current = command;
+  };
+  const focusCanonicalCoordinates = (
+    x: number,
+    z: number,
+    distanceM = 18,
+  ) => {
+    const xLabel = Number(x.toFixed(2)).toString();
+    const zLabel = Number(z.toFixed(2)).toString();
+    setCoordinateX(xLabel);
+    setCoordinateZ(zLabel);
+    const url = new URL(window.location.href);
+    url.searchParams.set("x", xLabel);
+    url.searchParams.set("z", zLabel);
+    window.history.replaceState(null, "", url);
+    setCoordinateStatus("queued");
+    navigate({ type: "coordinates", x, z, distanceM });
   };
   const focusCoordinates = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -3467,12 +4969,19 @@ export default function EverestObservatory() {
       setCoordinateStatus("invalid");
       return;
     }
-    const url = new URL(window.location.href);
-    url.searchParams.set("x", String(x));
-    url.searchParams.set("z", String(z));
-    window.history.replaceState(null, "", url);
-    setCoordinateStatus("queued");
-    navigate({ type: "coordinates", x, z, distanceM: 18 });
+    focusCanonicalCoordinates(x, z);
+  };
+  const watchActiveExpedition = (now: number) => {
+    if (!active) return;
+    const startingPoint = active.actions?.[0]?.pickup;
+    if (startingPoint) {
+      focusCanonicalCoordinates(
+        startingPoint.x,
+        startingPoint.z,
+        7.6,
+      );
+    }
+    selectReplay(activeExpedition, now);
   };
 
   return (
@@ -3724,13 +5233,33 @@ export default function EverestObservatory() {
                 boxShadow: `0 0 22px ${active.color}`,
               }}
             />
-            <small>{active.trace ? "LAST TRACE" : "LAST EVENT"}</small>
+            <small>
+              {active.trace
+                ? `${active.actions?.length ?? 1}-ACTION TRACE`
+                : "LAST EVENT"}
+            </small>
           </div>
           <strong>{active.agent}</strong>
           <div className="expedition-result">
-            <span>{active.action}</span>
+            <span>
+              {active.action}
+              {active.actions?.length
+                ? ` · ${active.actions.length} RELOCATIONS`
+                : ""}
+            </span>
             <em>+{active.score}</em>
           </div>
+          {active.trace ? (
+            <div
+              className="expedition-action-status"
+              ref={actionStatusHost}
+              aria-live="polite"
+            >
+              {active.actions?.length
+                ? `ACTION 1/${active.actions.length}`
+                : "ROUTE REPLAY"}
+            </div>
+          ) : null}
           <div className="endurance-language">
             <span className="endurance-orbit" aria-hidden="true">
               {Array.from({ length: 12 }, (_, index) => (
@@ -3739,6 +5268,18 @@ export default function EverestObservatory() {
             </span>
             <small>ENDURANCE ORBITS THE CLIMBER</small>
           </div>
+          {active.trace ? (
+            <div className="expedition-controls">
+              <button
+                type="button"
+                onClick={(event) =>
+                  watchActiveExpedition(event.timeStamp)
+                }
+              >
+                WATCH EXPEDITION
+              </button>
+            </div>
+          ) : null}
         </aside>
       ) : (
         <aside className="expedition-card" aria-label="No expeditions yet">
@@ -3772,7 +5313,9 @@ export default function EverestObservatory() {
           <strong>
             {active
               ? active.trace
-                ? "ONE SIGNAL AT A TIME"
+                ? active.actions?.length
+                  ? "FULL EXPEDITION · AUTO-DIRECTED"
+                  : "REAL-TIME ROUTE"
                 : "TRACE NOT PUBLISHED"
               : "AWAITING FIRST EXPEDITION"}
           </strong>
@@ -3783,12 +5326,19 @@ export default function EverestObservatory() {
               key={expedition.id}
               type="button"
               aria-pressed={index === activeExpedition}
-              onClick={(event) => selectReplay(index, event.timeStamp)}
+              onClick={(event) =>
+                selectReplay(index, event.timeStamp)
+              }
             >
               <i style={{ background: expedition.color }} />
               <span>
                 <strong>{expedition.agent}</strong>
-                <small>{expedition.action}</small>
+                <small>
+                  {expedition.action}
+                  {expedition.actions?.length
+                    ? ` · ${expedition.actions.length} ACTIONS`
+                    : ""}
+                </small>
               </span>
             </button>
           ))}

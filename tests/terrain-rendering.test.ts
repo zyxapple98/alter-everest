@@ -7,6 +7,10 @@ import type {
 import { ScreenSpaceLodSelector } from "../app/everest/terrain-runtime";
 import { buildTerrainMesh } from "../app/everest/terrain-mesher";
 import { SurfaceTileStore } from "../app/everest/surface-tile-store";
+import {
+  anchoredCanonicalWorldPosition,
+  pointBelongsToPatchRing,
+} from "../app/everest/terrain-streaming";
 
 test("screen-space terrain LOD follows projected voxel density", () => {
   const levels = [
@@ -27,6 +31,31 @@ test("screen-space terrain LOD follows projected voxel density", () => {
     selector.update(1_000, 1_000, Math.PI / 4, 300, false),
     "20 CM",
   );
+});
+
+test("a stone belongs to only one nested clipmap ring", () => {
+  assert.equal(pointBelongsToPatchRing(2, 1, 25.6, 0), true);
+  assert.equal(pointBelongsToPatchRing(2, 1, 51.2, 25.6), false);
+  assert.equal(pointBelongsToPatchRing(14, 1, 51.2, 25.6), true);
+  assert.equal(pointBelongsToPatchRing(14, 1, 102.4, 51.2), false);
+});
+
+test("matter animation and final stone share one anchored transform", () => {
+  const position = anchoredCanonicalWorldPosition(
+    -4_135.5,
+    5_268.1,
+    -6_545.7,
+    -4_136,
+    -6_546,
+    -172.2,
+    -272.75,
+    1.25 / 30,
+  );
+  assert.deepEqual(position.toArray(), [
+    -172.17916666666665,
+    219.50416666666666,
+    -272.7375,
+  ]);
 });
 
 test("terrain mesher emits an opaque-backed transition without invalid data", () => {
@@ -83,6 +112,44 @@ test("terrain mesher emits an opaque-backed transition without invalid data", ()
   assert.ok(result.visibility.some((value) => value > 0 && value < 255));
   assert.ok(result.colors instanceof Uint8Array);
   assert.ok(result.visibility instanceof Uint8Array);
+  const expectedMinimumX =
+    blockSize * 6 -
+    (8 * 0.8 + 0.4) * (blockSize / 30);
+  let hasOuterBoundarySkirt = false;
+  for (
+    let faceIndex = 0;
+    faceIndex < result.positions.length / 12;
+    faceIndex += 1
+  ) {
+    const positionOffset = faceIndex * 12;
+    const y0 = result.positions[positionOffset + 1];
+    const isVertical = [1, 2, 3].some(
+      (vertex) =>
+        Math.abs(
+          result.positions[positionOffset + vertex * 3 + 1] - y0,
+        ) > 0.000_001,
+    );
+    if (!isVertical) continue;
+    const liesOnMinimumX = [0, 1, 2, 3].every(
+      (vertex) =>
+        Math.abs(
+          result.positions[positionOffset + vertex * 3] -
+            expectedMinimumX,
+        ) < 0.000_001,
+    );
+    hasOuterBoundarySkirt ||= liesOnMinimumX;
+    const visibilityOffset = faceIndex * 4;
+    assert.deepEqual(
+      Array.from(
+        result.visibility.subarray(
+          visibilityOffset,
+          visibilityOffset + 4,
+        ),
+      ),
+      [255, 255, 255, 255],
+    );
+  }
+  assert.equal(hasOuterBoundarySkirt, true);
   assert.ok(
     result.positions.every((value) => Number.isFinite(value)) &&
       result.colors.every((value) => Number.isFinite(value)),
@@ -106,7 +173,12 @@ test("surface tile eviction releases its collision index", async () => {
           z: 0,
           hash: `chunk-${x}`,
           removedTerrainVoxels: [{ x: x * 1_280, y: 1, z: 0 }],
-          stones: [],
+          stones: [
+            {
+              id: `stone-${x}`,
+              cell: { x: x * 1_280, y: 2, z: 0 },
+            },
+          ],
         },
       ],
     };
@@ -119,7 +191,7 @@ test("surface tile eviction releases its collision index", async () => {
       path: `tiles/${hash}.json`,
       chunkCount: 1,
       removedTerrainVoxelCount: 1,
-      stoneCount: 0,
+      stoneCount: 1,
       lodSummary: [],
     };
   });
@@ -156,7 +228,23 @@ test("surface tile eviction releases its collision index", async () => {
     });
     assert.equal(store.stats().residentTiles, 48);
     assert.equal(store.removedLevels(0, 0), undefined);
+    assert.equal(
+      store.highestStoneLevel(0, 0, new Set()),
+      undefined,
+    );
     assert.ok(store.removedLevels(49 * 1_280, 0)?.has(1));
+    assert.equal(
+      store.highestStoneLevel(49 * 1_280, 0, new Set()),
+      2,
+    );
+    assert.equal(
+      store.highestStoneLevel(
+        49 * 1_280,
+        0,
+        new Set(["stone-49"]),
+      ),
+      undefined,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

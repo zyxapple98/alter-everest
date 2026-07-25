@@ -236,6 +236,21 @@ export function buildTerrainMesh(
     }
   }
 
+  let minimumTopLevel = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < topLevels.length; index += 1) {
+    if (included[index]) {
+      minimumTopLevel = Math.min(minimumTopLevel, topLevels[index]);
+    }
+  }
+  if (!Number.isFinite(minimumTopLevel)) minimumTopLevel = 0;
+  const skirtDepthLevels = Math.max(
+    2,
+    Math.ceil(
+      Math.max(innerOverlapM, outerTransitionM, cellM * 2) / cellM,
+    ),
+  );
+  const skirtBottomLevel = minimumTopLevel - skirtDepthLevels;
+
   let faceCount = renderedTopCount;
   for (let row = 0; row < gridCells; row += 1) {
     for (let column = 0; column < gridCells; column += 1) {
@@ -243,29 +258,29 @@ export function buildTerrainMesh(
       if (!included[index]) continue;
       const level = topLevels[index];
       if (
-        column + 1 < gridCells &&
-        included[index + 1] &&
+        column + 1 >= gridCells ||
+        !included[index + 1] ||
         topLevels[index + 1] < level
       ) {
         faceCount += 1;
       }
       if (
-        column > 0 &&
-        included[index - 1] &&
+        column === 0 ||
+        !included[index - 1] ||
         topLevels[index - 1] < level
       ) {
         faceCount += 1;
       }
       if (
-        row + 1 < gridCells &&
-        included[index + gridCells] &&
+        row + 1 >= gridCells ||
+        !included[index + gridCells] ||
         topLevels[index + gridCells] < level
       ) {
         faceCount += 1;
       }
       if (
-        row > 0 &&
-        included[index - gridCells] &&
+        row === 0 ||
+        !included[index - gridCells] ||
         topLevels[index - gridCells] < level
       ) {
         faceCount += 1;
@@ -416,40 +431,58 @@ export function buildTerrainMesh(
           TERRAIN_COLOR_SCRATCH.r,
           TERRAIN_COLOR_SCRATCH.g,
           TERRAIN_COLOR_SCRATCH.b,
-          faceVisibility,
+          // LOD dithering is safe on horizontal tops because the coarser
+          // ring sits underneath them. Vertical faces are the closure between
+          // different voxel heights; discarding pixels there exposes the
+          // empty interior of the height field at grazing camera angles.
+          1,
         );
       };
       if (
-        column + 1 < gridCells &&
-        included[index + 1] &&
+        column + 1 >= gridCells ||
+        !included[index + 1] ||
         topLevels[index + 1] < topLevel
       ) {
         const yBottom =
-          (centerTopVoxel + topLevels[index + 1] + 1) * cellWorld;
+          (centerTopVoxel +
+            (column + 1 < gridCells && included[index + 1]
+              ? topLevels[index + 1]
+              : skirtBottomLevel) +
+            1) *
+          cellWorld;
         writeSide(
           [x1, yBottom, z0, x1, yTop, z0, x1, yTop, z1, x1, yBottom, z1],
           0.72,
         );
       }
       if (
-        column > 0 &&
-        included[index - 1] &&
+        column === 0 ||
+        !included[index - 1] ||
         topLevels[index - 1] < topLevel
       ) {
         const yBottom =
-          (centerTopVoxel + topLevels[index - 1] + 1) * cellWorld;
+          (centerTopVoxel +
+            (column > 0 && included[index - 1]
+              ? topLevels[index - 1]
+              : skirtBottomLevel) +
+            1) *
+          cellWorld;
         writeSide(
           [x0, yBottom, z1, x0, yTop, z1, x0, yTop, z0, x0, yBottom, z0],
           0.56,
         );
       }
       if (
-        row + 1 < gridCells &&
-        included[index + gridCells] &&
+        row + 1 >= gridCells ||
+        !included[index + gridCells] ||
         topLevels[index + gridCells] < topLevel
       ) {
         const yBottom =
-          (centerTopVoxel + topLevels[index + gridCells] + 1) *
+          (centerTopVoxel +
+            (row + 1 < gridCells && included[index + gridCells]
+              ? topLevels[index + gridCells]
+              : skirtBottomLevel) +
+            1) *
           cellWorld;
         writeSide(
           [x0, yBottom, z1, x1, yBottom, z1, x1, yTop, z1, x0, yTop, z1],
@@ -457,12 +490,16 @@ export function buildTerrainMesh(
         );
       }
       if (
-        row > 0 &&
-        included[index - gridCells] &&
+        row === 0 ||
+        !included[index - gridCells] ||
         topLevels[index - gridCells] < topLevel
       ) {
         const yBottom =
-          (centerTopVoxel + topLevels[index - gridCells] + 1) *
+          (centerTopVoxel +
+            (row > 0 && included[index - gridCells]
+              ? topLevels[index - gridCells]
+              : skirtBottomLevel) +
+            1) *
           cellWorld;
         writeSide(
           [x1, yBottom, z0, x0, yBottom, z0, x0, yTop, z0, x1, yTop, z0],

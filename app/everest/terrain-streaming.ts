@@ -1,5 +1,9 @@
 import * as THREE from "three";
 import type { ObservatoryFeed } from "../../lib/world";
+import {
+  FINAL_WORLD_REPLAY_STATE,
+  type ExpeditionReplayWorldState,
+} from "./expedition-world-state";
 import { MOUNTAIN_MATERIALS } from "./terrain-palette";
 import {
   buildTerrainMesh,
@@ -20,6 +24,7 @@ export interface StreamedDetailPatch {
   windowM: number;
   voxelCount: number;
   setOpacity(opacity: number): void;
+  setHiddenStoneIds(hiddenStoneIds: ReadonlySet<string>): void;
   dispose(): void;
 }
 
@@ -33,6 +38,7 @@ export interface TerrainPatchRequest {
   innerOverlapM: number;
   outerTransitionM: number;
   terrainTint: string;
+  replayWorldState?: ExpeditionReplayWorldState;
 }
 
 export interface TerrainStreamingStats {
@@ -49,15 +55,22 @@ export interface TerrainStreamingStats {
   fetchedTileBytes: number;
 }
 
+interface SurfaceCell {
+  x: number;
+  y: number;
+  z: number;
+}
+
 interface PendingBuild {
   resolve(result: TerrainMeshResult): void;
   reject(error: Error): void;
 }
 
-// Current geometry remains alive through Three.js even after its reusable
-// cache entry is evicted. A 64 MiB reuse budget keeps useful neighboring rings
-// without retaining a second large clipmap after a long zoom session.
-const MAX_MESH_CACHE_BYTES = 64 * 1024 * 1024;
+// The active geometry remains alive through Three.js even after its reusable
+// cache entry is evicted. Forward expedition playback rarely revisits an old
+// terrain state, so a compact cache avoids retaining obsolete clipmaps after
+// every quarry or placement phase.
+const MAX_MESH_CACHE_BYTES = 24 * 1024 * 1024;
 
 function meshByteLength(result: TerrainMeshResult) {
   return (
@@ -65,6 +78,39 @@ function meshByteLength(result: TerrainMeshResult) {
     result.colors.byteLength +
     result.visibility.byteLength +
     result.indices.byteLength
+  );
+}
+
+export function pointBelongsToPatchRing(
+  localX: number,
+  localZ: number,
+  windowM: number,
+  innerHoleM: number,
+) {
+  const inset = Math.max(Math.abs(localX), Math.abs(localZ));
+  return (
+    Math.abs(localX) < windowM / 2 &&
+    Math.abs(localZ) < windowM / 2 &&
+    (innerHoleM <= 0 || inset >= innerHoleM / 2)
+  );
+}
+
+export function anchoredCanonicalWorldPosition(
+  canonicalX: number,
+  canonicalY: number,
+  canonicalZ: number,
+  anchorCanonicalX: number,
+  anchorCanonicalZ: number,
+  anchorWorldX: number,
+  anchorWorldZ: number,
+  worldUnitsPerMeter: number,
+) {
+  return new THREE.Vector3(
+    anchorWorldX +
+      (canonicalX - anchorCanonicalX) * worldUnitsPerMeter,
+    canonicalY * worldUnitsPerMeter,
+    anchorWorldZ +
+      (canonicalZ - anchorCanonicalZ) * worldUnitsPerMeter,
   );
 }
 
@@ -123,6 +169,7 @@ export class TerrainStreamingEngine {
   private meshCacheHits = 0;
   private meshCacheMisses = 0;
   private lastWorkerBuildMs = 0;
+  private replayWorldState = FINAL_WORLD_REPLAY_STATE;
 
   constructor(context: TerrainMesherContext, feed: ObservatoryFeed) {
     this.context = context;
@@ -173,7 +220,94 @@ export class TerrainStreamingEngine {
   }
 
   removedLevels(columnX: number, columnZ: number) {
-    return this.tiles.removedLevels(columnX, columnZ);
+    const finalLevels = this.tiles.removedLevels(columnX, columnZ);
+    if (!finalLevels) return undefined;
+    const effectiveLevels = new Set<number>();
+    finalLevels.forEach((level) => {
+      const key = `${columnX}:${level}:${columnZ}`;
+      if (!this.replayWorldState.restoredTerrainVoxelKeys.has(key)) {
+        effectiveLevels.add(level);
+      }
+    });
+    return effectiveLevels.size > 0 ? effectiveLevels : undefined;
+  }
+
+  setReplayWorldState(state: ExpeditionReplayWorldState) {
+    this.replayWorldState = state;
+  }
+
+  cellWorldPosition(
+    cell: SurfaceCell,
+    anchorWorldX: number,
+    anchorWorldZ: number,
+  ) {
+    const anchorCanonical = this.worldToCanonical(
+      anchorWorldX,
+      anchorWorldZ,
+    );
+    const voxelEdgeM = this.tiles.definition.voxelEdgeM;
+    return anchoredCanonicalWorldPosition(
+      (cell.x + 0.5) * voxelEdgeM,
+      this.tiles.definition.verticalDatumM +
+        (cell.y + 0.5) * voxelEdgeM,
+      (cell.z + 0.5) * voxelEdgeM,
+      anchorCanonical.x,
+      anchorCanonical.z,
+      anchorWorldX,
+      anchorWorldZ,
+      this.context.worldUnitsPerMeter,
+    );
+  }
+
+  cameraObstacleTopY(
+    worldX: number,
+    worldZ: number,
+    safetyRadiusM = 0.32,
+  ) {
+    const canonical = this.worldToCanonical(worldX, worldZ);
+    const voxelEdgeM = this.tiles.definition.voxelEdgeM;
+    const minimumColumnX = Math.floor(
+      (canonical.x - safetyRadiusM) / voxelEdgeM,
+    );
+    const maximumColumnX = Math.floor(
+      (canonical.x + safetyRadiusM) / voxelEdgeM,
+    );
+    const minimumColumnZ = Math.floor(
+      (canonical.z - safetyRadiusM) / voxelEdgeM,
+    );
+    const maximumColumnZ = Math.floor(
+      (canonical.z + safetyRadiusM) / voxelEdgeM,
+    );
+    let highestLevel: number | undefined;
+    for (
+      let columnZ = minimumColumnZ;
+      columnZ <= maximumColumnZ;
+      columnZ += 1
+    ) {
+      for (
+        let columnX = minimumColumnX;
+        columnX <= maximumColumnX;
+        columnX += 1
+      ) {
+        const level = this.tiles.highestStoneLevel(
+          columnX,
+          columnZ,
+          this.replayWorldState.hiddenStoneIds,
+        );
+        if (
+          level !== undefined &&
+          (highestLevel === undefined || level > highestLevel)
+        ) {
+          highestLevel = level;
+        }
+      }
+    }
+    if (highestLevel === undefined) return undefined;
+    return (
+      (this.tiles.definition.verticalDatumM +
+        (highestLevel + 1) * voxelEdgeM) *
+      this.context.worldUnitsPerMeter
+    );
   }
 
   setFeed(feed: ObservatoryFeed) {
@@ -303,13 +437,28 @@ export class TerrainStreamingEngine {
   ): Promise<StreamedDetailPatch> {
     this.setFeed(this.feed);
     const windowM = request.cellM * request.gridCells;
-    const chunks = await this.tiles.chunksInBounds(
+    const finalChunks = await this.tiles.chunksInBounds(
       this.boundsForPatch(
         request.centerWorldX,
         request.centerWorldZ,
         windowM,
       ),
     );
+    const replayWorldState =
+      request.replayWorldState ?? FINAL_WORLD_REPLAY_STATE;
+    const chunks =
+      replayWorldState.restoredTerrainVoxelKeys.size === 0
+        ? finalChunks
+        : finalChunks.map((chunk) => ({
+            ...chunk,
+            removedTerrainVoxels:
+              chunk.removedTerrainVoxels.filter(
+                (cell) =>
+                  !replayWorldState.restoredTerrainVoxelKeys.has(
+                    `${cell.x}:${cell.y}:${cell.z}`,
+                  ),
+              ),
+          }));
     const meshRequest: TerrainMeshRequest = {
       centerWorldX: request.centerWorldX,
       centerWorldZ: request.centerWorldZ,
@@ -362,6 +511,30 @@ export class TerrainStreamingEngine {
     group.add(surfaceMesh);
 
     let stoneVoxelCount = 0;
+    let stoneMesh: THREE.InstancedMesh | null = null;
+    let stoneIds: string[] = [];
+    let stoneMatrices: THREE.Matrix4[] = [];
+    let hiddenStoneSignature = "";
+    const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+    const applyHiddenStoneIds = (
+      hiddenStoneIds: ReadonlySet<string>,
+    ) => {
+      if (!stoneMesh) return;
+      const signature = stoneIds
+        .filter((id) => hiddenStoneIds.has(id))
+        .join("\u0000");
+      if (signature === hiddenStoneSignature) return;
+      hiddenStoneSignature = signature;
+      stoneIds.forEach((id, index) => {
+        stoneMesh!.setMatrixAt(
+          index,
+          hiddenStoneIds.has(id)
+            ? hiddenMatrix
+            : stoneMatrices[index],
+        );
+      });
+      stoneMesh.instanceMatrix.needsUpdate = true;
+    };
     if (request.cellM <= 1.6) {
       const stones = chunks
         .flatMap((chunk) => chunk.stones)
@@ -370,10 +543,13 @@ export class TerrainStreamingEngine {
             (cell.x + 0.5) * this.tiles.definition.voxelEdgeM;
           const z =
             (cell.z + 0.5) * this.tiles.definition.voxelEdgeM;
-          const half = windowM / 2 - this.tiles.definition.voxelEdgeM;
-          return (
-            Math.abs(x - result!.centerCanonicalX) < half &&
-            Math.abs(z - result!.centerCanonicalZ) < half
+          const localX = x - result!.centerCanonicalX;
+          const localZ = z - result!.centerCanonicalZ;
+          return pointBelongsToPatchRing(
+            localX,
+            localZ,
+            windowM,
+            request.innerHoleM,
           );
         });
       if (stones.length > 0) {
@@ -388,34 +564,39 @@ export class TerrainStreamingEngine {
         const stoneMaterial = new THREE.MeshLambertMaterial({
           color: MOUNTAIN_MATERIALS.placedGranite,
         });
-        const stoneMesh = new THREE.InstancedMesh(
+        stoneMesh = new THREE.InstancedMesh(
           stoneGeometry,
           stoneMaterial,
           stones.length,
         );
         const transform = new THREE.Object3D();
-        stones.forEach(({ cell }, index) => {
+        stoneIds = stones.map(({ id }) => id);
+        stoneMatrices = stones.map(({ cell }, index) => {
           const x =
             (cell.x + 0.5) * this.tiles.definition.voxelEdgeM;
           const y =
             (cell.y + 0.5) * this.tiles.definition.voxelEdgeM;
           const z =
             (cell.z + 0.5) * this.tiles.definition.voxelEdgeM;
-          transform.position.set(
-            request.centerWorldX +
-              (x - result!.centerCanonicalX) *
-                this.context.worldUnitsPerMeter,
-            (y + this.tiles.definition.verticalDatumM) *
+          transform.position.copy(
+            anchoredCanonicalWorldPosition(
+              x,
+              y + this.tiles.definition.verticalDatumM,
+              z,
+              result!.centerCanonicalX,
+              result!.centerCanonicalZ,
+              request.centerWorldX,
+              request.centerWorldZ,
               this.context.worldUnitsPerMeter,
-            request.centerWorldZ +
-              (z - result!.centerCanonicalZ) *
-                this.context.worldUnitsPerMeter,
+            ),
           );
           transform.quaternion.identity();
           transform.updateMatrix();
-          stoneMesh.setMatrixAt(index, transform.matrix);
+          stoneMesh!.setMatrixAt(index, transform.matrix);
+          return transform.matrix.clone();
         });
         stoneMesh.instanceMatrix.needsUpdate = true;
+        applyHiddenStoneIds(replayWorldState.hiddenStoneIds);
         stoneMesh.computeBoundingSphere();
         group.add(stoneMesh);
         stoneVoxelCount = stones.length;
@@ -431,6 +612,9 @@ export class TerrainStreamingEngine {
       setOpacity(opacity: number) {
         const safeOpacity = THREE.MathUtils.clamp(opacity, 0, 1);
         group.visible = safeOpacity > 0.01;
+      },
+      setHiddenStoneIds(hiddenStoneIds: ReadonlySet<string>) {
+        applyHiddenStoneIds(hiddenStoneIds);
       },
       dispose() {
         group.traverse((object) => {
