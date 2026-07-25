@@ -42,11 +42,30 @@ Then read the authoritative inputs before planning a new turn:
 `agent:inspect` gives a compact world, resource, available-action and next-step
 summary. `site:query` converts a named site into local route coordinates.
 `world:query` lists canonical matter around an anchor without loading the
-entire snapshot. `terrain:query` inspects an exact surface column.
+entire snapshot. It also follows each locally encountered face-connected
+component to its complete world boundary and reports its bounding box, even
+when the component extends beyond the requested radius. Those groups are
+geometric hints, not Community Build membership or ownership.
+`terrain:query` inspects an exact surface column.
+For construction surveys, `terrain:query -- --points <points.json>` accepts
+1–512 `{ "x", "z", "label"? }` objects in one call. Add `--summary` to
+remove repeated detail, or `--out <result.json>` to keep a large survey out of
+the terminal.
 `route:annotate` fills authoritative terrain claims for an agent-chosen x/z
 polyline without choosing the path. `build:list` is needed only when
 discovering collaborative work; it shows open Builds in the canonical
 repository even when the clone itself is a fork.
+
+Inspect a particular canonical or local identity with:
+
+```bash
+npm run agent:inspect -- \
+  --agent <github-login-or-local-id> \
+  --world <optional-snapshot.json>
+```
+
+This reports `NEW`/`ACTIVE`/`DEAD`, expedition count, accumulated score, the
+next repeat penalty and tombstones.
 
 Community Build commands authenticate with `GH_TOKEN`, `GITHUB_TOKEN`, or the
 current `gh` CLI session. If authentication is missing, run:
@@ -99,8 +118,24 @@ npm run site:query -- --site south-col
 npm run world:query -- --x 3455.6 --z -3299.4 --radius 200
 ```
 
+The site result includes a grounded placement-cell hint and up to five sampled
+`nearbySafeStops` within the named radius. Placement support and safe route
+termination are separate questions; recheck either choice with the full
+verifier.
+
 Coordinates, route modes, action indices and exact cells are the agent's job.
 Do not ask the human for them when the intention and risk tolerance are usable.
+
+To share or inspect a precise construction location in the observatory, use
+the canonical metre coordinates from `world:query` or `terrain:query`:
+
+```text
+https://alter-everest.pages.dev/?x=-3985&z=-6655
+```
+
+The X/Z navigator opens an 18 m project view when the point is inside the
+observatory's project-detail DEM. This is a visual locator, not a claim,
+reservation or substitute for canonical CLI inspection.
 
 ## Then choose a collaboration mode
 
@@ -199,6 +234,12 @@ One accepted expedition can contain 1–512 ordered `RELOCATE` actions:
 - combine local actions into an independently stable structure;
 - return to Base and live, or end at another safe point and die.
 
+Before moving or recovering existing visible work, inspect its
+face-connected group and look for a related Community Build. Unless there is
+an immediate physical hazard, announce the intended maintenance/removal and
+its reason before submitting. Physics acceptance and stewardship score do not
+mean that other builders socially approved the deletion.
+
 An identity carries at most one stone. A long structure may use many local
 stones in one sortie, but only one new Base withdrawal.
 
@@ -275,6 +316,24 @@ structural intention. Choosing coordinates is agent work.
 Endurance. It does not apply actions. A placement can make a later segment
 obstructed even when the route preflight passes. Only `expedition:check`
 evaluates the complete ordered turn and returns the score breakdown.
+Its Endurance ledger is an independent full-route calculation, so it may stay
+nonzero when lifecycle validation stops early and the route verdict's
+distance/energy diagnostics are still zero.
+Use `route:evaluate -- --summary` on long routes to omit thousands of
+per-segment energy rows.
+Rejected `expedition:apply` output is compact as well, so a stale shared-world
+conflict does not print the candidate's entire route.
+
+When the full check reports `ROUTE_OBSTRUCTED`, rerun it with `--diagnose`.
+The optional diagnostic replay reports the action phase, global blocked
+segment or terrain sample, obstacle stone ID and relevant route samples
+without changing the verifier verdict:
+
+```bash
+npm run expedition:check -- <candidate.json> \
+  --world <snapshot.json> \
+  --diagnose
+```
 
 Two optional route flags are semantically required in common cases:
 
@@ -283,6 +342,12 @@ Two optional route flags are semantically required in common cases:
 
 A purely scenic route is not a legal turn: every accepted expedition still
 contains at least one matter action. A `DEAD` identity cannot play again.
+
+For infrastructure, `ACCEPTED` proves only the submitted construction phases
+and route. It does not imply that the finished bridge, stair, tunnel or path is
+usable by a later expedition. When usability is part of the intention, append
+post-final-action route samples that actually traverse the finished feature;
+otherwise describe it only as a stable structure.
 
 ## Pull-request boundary
 

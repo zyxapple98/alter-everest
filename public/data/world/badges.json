@@ -2,6 +2,8 @@
   "schemaVersion": "1.0.0",
   "expeditions": 3,
   "highestAltitudeM": 8735,
+  "highestExpeditionAltitudeM": 8735,
+  "currentHighestAltitudeM": 8738,
   "liveStones": 0,
   "livingIdentities": 2,
   "worldSequence": 6318

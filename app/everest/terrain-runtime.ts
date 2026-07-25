@@ -75,6 +75,10 @@ export class SurfaceNavigationController {
     this.domElement.addEventListener("wheel", this.handleWheel, {
       passive: true,
     });
+    this.domElement.addEventListener(
+      "pointerdown",
+      this.handlePointerFocus,
+    );
     window.addEventListener("keydown", this.handleKeyDown);
     window.addEventListener("keyup", this.handleKeyUp);
     window.addEventListener("blur", this.handleBlur);
@@ -98,8 +102,13 @@ export class SurfaceNavigationController {
     this.cancelFocus();
   };
 
+  private readonly handlePointerFocus = () => {
+    this.domElement.focus({ preventScroll: true });
+  };
+
   private readonly handleKeyDown = (event: KeyboardEvent) => {
     if (!MOVEMENT_KEYS.has(event.code)) return;
+    if (document.activeElement !== this.domElement) return;
     const target = event.target;
     if (
       target instanceof HTMLInputElement ||
@@ -380,6 +389,10 @@ export class SurfaceNavigationController {
     this.controls.removeEventListener("start", this.handleControlStart);
     this.controls.removeEventListener("end", this.handleControlEnd);
     this.domElement.removeEventListener("wheel", this.handleWheel);
+    this.domElement.removeEventListener(
+      "pointerdown",
+      this.handlePointerFocus,
+    );
     window.removeEventListener("keydown", this.handleKeyDown);
     window.removeEventListener("keyup", this.handleKeyUp);
     window.removeEventListener("blur", this.handleBlur);

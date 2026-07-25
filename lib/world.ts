@@ -85,6 +85,16 @@ export interface ObservatoryFeed {
     longitude: number;
     altitudeM: number;
   };
+  worldSummary?: {
+    stoneCount: number;
+    removedTerrainVoxelCount: number;
+    identityCount: number;
+    activeIdentityCount: number;
+    deadIdentityCount: number;
+    tombstoneCount: number;
+    expeditionCount: number;
+    modifiedTileCount: number;
+  };
   surfaceDelta?: {
     voxelEdgeM: number;
     physicsChunkEdgeM: number;
@@ -173,6 +183,16 @@ export function fallbackObservatoryFeed(): ObservatoryFeed {
     sequence: 6318,
     worldHash: "world-000006318",
     summitHeightM: 8848.86,
+    worldSummary: {
+      stoneCount: 0,
+      removedTerrainVoxelCount: 0,
+      identityCount: 3,
+      activeIdentityCount: 2,
+      deadIdentityCount: 1,
+      tombstoneCount: 1,
+      expeditionCount: 3,
+      modifiedTileCount: 0,
+    },
     recentExpeditions: recentExpeditions(),
     memorialClusters: [
       {
@@ -217,6 +237,18 @@ export async function loadObservatoryFeed(signal: AbortSignal) {
     if (signal.aborted) throw error;
   }
 
+  if (typeof window !== "undefined") {
+    const localFeed = new URLSearchParams(window.location.search).get(
+      "world",
+    );
+    if (
+      localFeed &&
+      /^\/data\/[A-Za-z0-9/_-]+$/.test(localFeed)
+    ) {
+      worldBaseUrl = localFeed.replace(/\/+$/, "");
+    }
+  }
+
   const response = await fetch(`${worldBaseUrl}/latest.json`, {
     cache: "no-store",
     signal,
@@ -230,7 +262,6 @@ export async function loadObservatoryFeed(signal: AbortSignal) {
     !Number.isSafeInteger(feed.sequence) ||
     typeof feed.worldHash !== "string" ||
     !Array.isArray(feed.recentExpeditions) ||
-    feed.recentExpeditions.length === 0 ||
     !Array.isArray(feed.leaderboard)
   ) {
     throw new Error("World feed is not a supported observatory document.");

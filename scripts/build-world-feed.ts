@@ -9,11 +9,28 @@ import type {
 import { currentHighestPoint } from "../engine/highest-point";
 import { loadDemBundle } from "./expedition-kit";
 
-const OUTPUT_PATH = resolve("public/data/world/latest.json");
-const BADGES_OUTPUT_PATH = resolve("public/data/world/badges.json");
-const SURFACE_TILES_OUTPUT_PATH = resolve(
-  "public/data/world/tiles",
+function argument(name: string) {
+  const index = process.argv.indexOf(name);
+  return index === -1 ? undefined : process.argv[index + 1];
+}
+
+const usage =
+  "Usage: npm run world:feed -- [--world <snapshot.json>] [--output-dir <directory>]";
+if (process.argv.includes("--help")) {
+  console.log(usage);
+  process.exit(0);
+}
+const inputWorldPath = resolve(
+  argument("--world") ?? "world/snapshot.json",
 );
+const outputDirectory = resolve(
+  argument("--output-dir") ?? "public/data/world",
+);
+const OUTPUT_PATH = resolve(outputDirectory, "latest.json");
+const BADGES_OUTPUT_PATH = resolve(outputDirectory, "badges.json");
+const SURFACE_TILES_OUTPUT_PATH = resolve(outputDirectory, "tiles");
+const usesCanonicalWorld =
+  inputWorldPath === resolve("world/snapshot.json");
 const COLORS = ["#ff7138", "#d2dd72", "#70c6cf", "#bb91ff", "#f1bd59"];
 const METERS_PER_DEGREE_LATITUDE = 111_320;
 const MAX_MEMORIAL_CLUSTERS = 512;
@@ -218,7 +235,7 @@ async function traceForEvent(
 }
 
 const [world, config, terrain] = await Promise.all([
-  readFile(resolve("world/snapshot.json"), "utf8").then(
+  readFile(inputWorldPath, "utf8").then(
     (text) => JSON.parse(text) as CanonicalWorld,
   ),
   readFile(resolve("world/terrain.json"), "utf8").then(
@@ -229,7 +246,7 @@ const [world, config, terrain] = await Promise.all([
 const metadata = JSON.parse(
   await readFile(resolve("public/data/everest-dem.json"), "utf8"),
 ) as DemMetadata;
-const events = await loadEvents();
+const events = usesCanonicalWorld ? await loadEvents() : [];
 const totals = new Map<string, number>();
 for (const expedition of world.expeditions) {
   totals.set(
@@ -264,7 +281,10 @@ const recentExpeditions =
           };
         }),
       )
-    : world.expeditions.slice(0, 3).map((expedition, index) => ({
+    : (usesCanonicalWorld
+        ? world.expeditions.slice(0, 3)
+        : world.expeditions.slice(-3).reverse()
+      ).map((expedition, index) => ({
         id: expedition.id,
         agent: expedition.agentId,
         action: actionLabel(expedition.action),
@@ -276,7 +296,6 @@ const recentExpeditions =
           expedition.enduranceUsed ?? expedition.oxygenUsed ?? 0,
         score: expedition.score,
         releaseFraction: 0.5,
-        actionFractions: [],
         totalScore: totals.get(expedition.agentId) ?? expedition.score,
         trace: null,
       }));
@@ -426,6 +445,20 @@ const feed = {
     world.removedTerrainVoxels,
     world.stones,
   ),
+  worldSummary: {
+    stoneCount: world.stones.length,
+    removedTerrainVoxelCount: world.removedTerrainVoxels.length,
+    identityCount: world.identities.length,
+    activeIdentityCount: world.identities.filter(
+      (identity) => identity.status === "ACTIVE",
+    ).length,
+    deadIdentityCount: world.identities.filter(
+      (identity) => identity.status === "DEAD",
+    ).length,
+    tombstoneCount: world.tombstones.length,
+    expeditionCount: world.expeditions.length,
+    modifiedTileCount: surfaceTileArtifacts.length,
+  },
   surfaceTiles: {
     voxelEdgeM: surfaceVoxelEdgeM,
     physicsChunkEdgeM:
@@ -443,9 +476,15 @@ const feed = {
 const badgeStats = {
   schemaVersion: "1.0.0",
   expeditions: world.expeditions.length,
+  // Kept for the existing README badge. This is the highest altitude reached
+  // by an expedition, not necessarily the current highest piece of matter.
   highestAltitudeM: Math.round(
     Math.max(0, ...world.expeditions.map((expedition) => expedition.altitudeM)),
   ),
+  highestExpeditionAltitudeM: Math.round(
+    Math.max(0, ...world.expeditions.map((expedition) => expedition.altitudeM)),
+  ),
+  currentHighestAltitudeM: Math.round(feed.currentHighestPoint.altitudeM),
   liveStones: world.stones.length,
   livingIdentities: world.identities.filter(
     (identity) => identity.status === "ACTIVE",
@@ -466,5 +505,5 @@ await Promise.all([
   ),
 ]);
 console.log(
-  `Wrote ${OUTPUT_PATH} and ${BADGES_OUTPUT_PATH} for world ${world.sequence}.`,
+  `Wrote ${OUTPUT_PATH} and ${BADGES_OUTPUT_PATH} for world ${world.sequence} from ${inputWorldPath}.`,
 );

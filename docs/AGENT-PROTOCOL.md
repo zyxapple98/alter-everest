@@ -125,11 +125,23 @@ Horizontal route segments are at most 45 m. Every segment is checked for
 locomotion mode, slope, protection, Endurance, authoritative terrain, body
 clearance and existing stone obstacles.
 
+`protected: true` on a `CLIMB` sample means the climber uses adequate personal
+climbing protection for that segment. Protocol 0.6 does not model rope,
+anchors or hardware as persistent world matter and does not require a
+pre-existing structure. The flag is a declared route technique, not a claim
+that another builder installed equipment.
+
 Every action has a `pickupIndex` and `releaseIndex`. A non-Base interaction
 sample must be within 1.25 m of the target cell centre; a Base interaction
 sample must be inside Camp. A climber standing on a stone adds a transient
 service load to that component; excavated passages must have usable body
 clearance.
+
+The clearance body is 0.3 m in radius and 1.72 m tall. A practical first
+voxel survey for a traversable opening is therefore at least 5 cells wide by
+9 cells high at 20 cm resolution. This is a planning minimum, not automatic
+acceptance: the approach, interior route, roof cover and every intermediate
+quarry state still need full verification.
 
 ## Voxel static physics V2.1
 

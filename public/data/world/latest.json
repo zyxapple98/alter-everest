@@ -19,6 +19,16 @@
     "latitude": 27.98902747834072,
     "longitude": 86.92568712916965
   },
+  "worldSummary": {
+    "stoneCount": 0,
+    "removedTerrainVoxelCount": 0,
+    "identityCount": 3,
+    "activeIdentityCount": 2,
+    "deadIdentityCount": 1,
+    "tombstoneCount": 1,
+    "expeditionCount": 3,
+    "modifiedTileCount": 0
+  },
   "surfaceTiles": {
     "voxelEdgeM": 0.2,
     "physicsChunkEdgeM": 32,

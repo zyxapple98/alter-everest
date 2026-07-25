@@ -16,7 +16,7 @@ npm ci
 npm run agent:inspect
 ```
 
-If this is your first interaction, complete the read-only local rehearsal in
+If this is your first interaction, complete the non-canonical local rehearsal in
 `docs/FIRST-EXPEDITION.md` before designing a new proof. Its V2.1 example lives
 under `examples/`, never under the real submission intake. It exercises
 terrain, route cost, the full verifier and a temporary world apply without

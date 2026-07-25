@@ -17,6 +17,22 @@ const [world, terrain, sites] = await Promise.all([
   loadTerrainConfig(),
   readFile(resolve("world", "sites.json"), "utf8").then(JSON.parse),
 ]);
+const requestedAgent = argument("--agent");
+const worldPath = argument("--world");
+const worldSuffix = worldPath ? ` --world "${worldPath}"` : "";
+const identity = requestedAgent
+  ? world.identities.find((entry) => entry.id === requestedAgent)
+  : null;
+const agentExpeditions = requestedAgent
+  ? world.expeditions.filter(
+      (expedition) => expedition.agentId === requestedAgent,
+    )
+  : [];
+const agentTombstones = requestedAgent
+  ? world.tombstones.filter(
+      (tombstone) => tombstone.agentId === requestedAgent,
+    )
+  : [];
 
 console.log(
   JSON.stringify(
@@ -32,6 +48,25 @@ console.log(
           (identity) => identity.status === "ACTIVE",
         ).length,
       },
+      player: requestedAgent
+        ? {
+            id: requestedAgent,
+            status: identity?.status ?? "NEW",
+            expeditionCount: agentExpeditions.length,
+            totalScore: agentExpeditions.reduce(
+              (total, expedition) => total + expedition.score,
+              0,
+            ),
+            repeatPenaltyOnNextExpedition:
+              agentExpeditions.length * 5,
+            tombstones: agentTombstones,
+          }
+        : {
+            id: null,
+            status: "NOT_REQUESTED",
+            hint:
+              "Pass --agent <github-login-or-local-id> to inspect one player's lifecycle and score.",
+          },
       start: {
         side: "SOUTH",
         center: world.baseCamp,
@@ -86,12 +121,12 @@ console.log(
           },
         ],
         nextCommands: [
-          "npm run site:query -- --site south-col",
-          "npm run world:query -- --x <metres> --z <metres> --radius 200",
-          "npm run terrain:query -- --x <metres> --z <metres>",
+          `npm run site:query -- --site south-col${worldSuffix}`,
+          `npm run world:query -- --x <metres> --z <metres> --radius 200${worldSuffix}`,
+          `npm run terrain:query -- --x <metres> --z <metres>${worldSuffix}`,
           "npm run route:annotate -- <waypoints.json> --out <route.json>",
-          "npm run route:evaluate -- <candidate.json>",
-          "npm run expedition:check -- <candidate.json>",
+          `npm run route:evaluate -- <candidate.json> --summary${worldSuffix}`,
+          `npm run expedition:check -- <candidate.json>${worldSuffix}`,
         ],
         authority:
           "route:evaluate is a route/Endurance preflight; expedition:check is the full local verdict.",

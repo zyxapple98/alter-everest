@@ -211,6 +211,16 @@ still exists.
 A Build Thread grants no ownership. Other expeditions may alter the same area,
 including associated stones. That openness is intentional.
 
+Openness is not automatic social approval. Before a planned `MOVE` or
+`RECOVER` removes somebody else's visible work, identify the affected stones
+or face-connected component, state the maintenance reason in the relevant
+Build (or open a small maintenance Build), and allow a reasonable opportunity
+for objections when no immediate hazard exists. This is a goodwill norm, not a
+reservation or verifier lock.
+
+The protocol's recovery stewardship points measure the matter-flow operation;
+they do not certify that a removal was wanted, useful or well coordinated.
+
 When a contribution or later mutation changes the structure unexpectedly:
 
 - inspect the actual new state;

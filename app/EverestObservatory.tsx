@@ -261,6 +261,12 @@ type NavigationCommand =
       type: "nudge";
       forward: number;
       right: number;
+    }
+  | {
+      type: "coordinates";
+      x: number;
+      z: number;
+      distanceM: number;
     };
 
 const TERRAIN_SCREEN_LODS = [
@@ -1577,8 +1583,6 @@ function createSiteLabel(site: SiteAnchor) {
 function createRoute(
   terrain: VoxelTerrain,
   terrainMetadata: DemMetadata,
-  lateralOffset: number,
-  returned: boolean,
   suppliedTrace?: Array<{ column: number; row: number }> | null,
   suppliedTraceMetadata?: DemMetadata,
 ) {
@@ -1604,28 +1608,37 @@ function createRoute(
       );
     });
   }
-  const startColumn = terrain.width * 0.25 + lateralOffset * 4;
-  const startRow = terrain.height - 18;
-  const route: THREE.Vector3[] = [];
-  const steps = 104;
+  return [];
+}
 
-  for (let index = 0; index <= steps; index += 1) {
-    const t = index / steps;
-    const bend = Math.sin(t * Math.PI) * lateralOffset * 17;
-    const column = THREE.MathUtils.lerp(
-      startColumn,
-      terrain.peakColumn,
-      t,
-    ) + bend;
-    const row =
-      THREE.MathUtils.lerp(startRow, terrain.peakRow, t) +
-      Math.sin(t * Math.PI * 2) * lateralOffset * 4;
-    route.push(gridPoint(terrain, column, row));
+function canonicalCoordinatePoint(
+  activity: DemLayer,
+  activityTerrain: VoxelTerrain,
+  x: number,
+  z: number,
+) {
+  const metersPerDegreeLongitude =
+    METERS_PER_DEGREE_LATITUDE *
+    Math.cos((CANONICAL_ORIGIN_LATITUDE * Math.PI) / 180);
+  const latitude =
+    CANONICAL_ORIGIN_LATITUDE - z / METERS_PER_DEGREE_LATITUDE;
+  const longitude =
+    CANONICAL_ORIGIN_LONGITUDE + x / metersPerDegreeLongitude;
+  if (
+    containsCoordinate(
+      activity.metadata.bounds,
+      latitude,
+      longitude,
+    )
+  ) {
+    return coordinatePoint(
+      activityTerrain,
+      activity.metadata,
+      latitude,
+      longitude,
+    );
   }
-
-  return returned
-    ? [...route, ...route.slice(0, -1).reverse()]
-    : route;
+  return null;
 }
 
 function positiveModulo(value: number, modulus: number) {
@@ -1980,6 +1993,10 @@ export default function EverestObservatory() {
   const activeExpeditionRef = useRef(0);
   const manualReplayUntil = useRef(0);
   const manualReplayStarted = useRef(0);
+  const cameraViewRef = useRef<{
+    position: THREE.Vector3;
+    target: THREE.Vector3;
+  } | null>(null);
   const terrainResolutionRef =
     useRef<TerrainResolution>("30 M");
   const navigationCommandRef = useRef<NavigationCommand | null>(
@@ -1987,6 +2004,11 @@ export default function EverestObservatory() {
   );
   const [activeExpedition, setActiveExpedition] = useState(0);
   const [rankingsOpen, setRankingsOpen] = useState(false);
+  const [coordinateX, setCoordinateX] = useState("");
+  const [coordinateZ, setCoordinateZ] = useState("");
+  const [coordinateStatus, setCoordinateStatus] = useState<
+    "idle" | "queued" | "focused" | "invalid" | "outside"
+  >("idle");
   const [terrainResolution, setTerrainResolution] =
     useState<TerrainResolution>("30 M");
   const [terrainPerformance, setTerrainPerformance] =
@@ -2007,6 +2029,9 @@ export default function EverestObservatory() {
   const [sceneStatus, setSceneStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
+  const [feedStatus, setFeedStatus] = useState<
+    "loading" | "live" | "fallback"
+  >("loading");
   const [feed, setFeed] = useState(fallbackObservatoryFeed);
   const expeditions = feed.recentExpeditions;
   const leaderboard = feed.leaderboard;
@@ -2047,12 +2072,14 @@ export default function EverestObservatory() {
             ? result.feed
             : current,
         );
+        setFeedStatus("live");
         firstLoad = false;
         if (!interval) {
           interval = window.setInterval(refresh, result.pollIntervalMs);
         }
       } catch (error) {
         if (!abortController.signal.aborted) {
+          setFeedStatus("fallback");
           console.warn(
             "The live world feed is unavailable; using fallback data.",
             error,
@@ -2069,6 +2096,31 @@ export default function EverestObservatory() {
       abortController.abort();
       if (interval) window.clearInterval(interval);
     };
+  }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const parameters = new URLSearchParams(window.location.search);
+      const x = parameters.get("x");
+      const z = parameters.get("z");
+      if (x === null || z === null) return;
+      const parsedX = Number(x);
+      const parsedZ = Number(z);
+      if (!Number.isFinite(parsedX) || !Number.isFinite(parsedZ)) {
+        setCoordinateStatus("invalid");
+        return;
+      }
+      setCoordinateX(x);
+      setCoordinateZ(z);
+      setCoordinateStatus("queued");
+      navigationCommandRef.current = {
+        type: "coordinates",
+        x: parsedX,
+        z: parsedZ,
+        distanceM: 18,
+      };
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   useEffect(() => {
@@ -2119,6 +2171,10 @@ export default function EverestObservatory() {
       );
       renderer.domElement.setAttribute("role", "application");
       renderer.domElement.tabIndex = 0;
+      renderer.domElement.setAttribute(
+        "aria-label",
+        "Interactive Everest terrain. Focus, then use WASD or arrow keys to move.",
+      );
       host.appendChild(renderer.domElement);
 
       const activity = createActivityDem(core, mid, sites);
@@ -2344,6 +2400,10 @@ export default function EverestObservatory() {
       controls.minPolarAngle = 0.2;
       controls.maxPolarAngle = 1.48;
       controls.autoRotate = false;
+      if (cameraViewRef.current) {
+        camera.position.copy(cameraViewRef.current.position);
+        controls.target.copy(cameraViewRef.current.target);
+      }
       const activityWorldBounds = {
         minX: terrain.xOrigin + terrain.blockSize,
         maxX:
@@ -2718,12 +2778,11 @@ export default function EverestObservatory() {
         handleDoubleClick,
       );
 
-      const traceObjects = sceneExpeditions.map((expedition, index) => {
+      const traceObjects = sceneExpeditions.flatMap((expedition, index) => {
+        if (!expedition.trace || expedition.trace.length < 2) return [];
         const points = createRoute(
           terrain,
           activity.metadata,
-          (index - 1) * 1.15,
-          expedition.returned,
           expedition.trace,
           core.metadata,
         );
@@ -2795,7 +2854,8 @@ export default function EverestObservatory() {
         actionMarker.position.y += 0.2;
         scene.add(actionMarker);
 
-        return {
+        return [{
+          expeditionIndex: index,
           expedition,
           points,
           line,
@@ -2807,7 +2867,7 @@ export default function EverestObservatory() {
           enduranceHalo,
           actionMarker,
           actionMaterial,
-        };
+        }];
       });
 
       const memorialPoints = sceneMemorialClusters.map((cluster) => {
@@ -2862,6 +2922,9 @@ export default function EverestObservatory() {
       let lastPrefetchKey = "";
       let performanceWindowStartedAt = started;
       let performanceFrameCount = 0;
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
       const render = (time: number) => {
         const seconds = Math.max(0, (time - started) / 1000);
         const navigationCommand = navigationCommandRef.current;
@@ -2873,7 +2936,7 @@ export default function EverestObservatory() {
               navigationCommand.forward,
               navigationCommand.right,
             );
-          } else {
+          } else if (navigationCommand.type === "focus") {
             const siteObject = siteObjects.find(
               ({ site }) =>
                 site.id === navigationCommand.siteId,
@@ -2889,6 +2952,21 @@ export default function EverestObservatory() {
                 siteObject.siteGroup.position,
                 navigationCommand.distanceM,
               );
+            }
+          } else {
+            const point = canonicalCoordinatePoint(
+              activity,
+              terrain,
+              navigationCommand.x,
+              navigationCommand.z,
+            );
+            if (!point) {
+              setCoordinateStatus("outside");
+            } else {
+              suppressOverviewUntilDetailReady = true;
+              overviewSuppressedAt = time;
+              navigation.focus(point, navigationCommand.distanceM);
+              setCoordinateStatus("focused");
             }
           }
         }
@@ -3007,10 +3085,17 @@ export default function EverestObservatory() {
         }
 
         const manualPlayback = time < manualReplayUntil.current;
-        const nextActive = manualPlayback
-          ? activeExpeditionRef.current
-          : Math.floor(seconds / REPLAY_SECONDS) %
-            sceneExpeditions.length;
+        const nextActive =
+          sceneExpeditions.length === 0
+            ? 0
+            : reduceMotion
+              ? activeExpeditionRef.current %
+                sceneExpeditions.length
+              : manualPlayback
+                ? activeExpeditionRef.current %
+                  sceneExpeditions.length
+                : Math.floor(seconds / REPLAY_SECONDS) %
+                  sceneExpeditions.length;
         if (activeExpeditionRef.current !== nextActive) {
           activeExpeditionRef.current = nextActive;
           setActiveExpedition(nextActive);
@@ -3018,13 +3103,12 @@ export default function EverestObservatory() {
         const activeSeconds = manualPlayback
           ? Math.max(0, (time - manualReplayStarted.current) / 1000)
           : seconds;
-        const rawPhase = positiveModulo(
-          activeSeconds / REPLAY_SECONDS,
-          1,
-        );
+        const rawPhase = reduceMotion
+          ? 1
+          : positiveModulo(activeSeconds / REPLAY_SECONDS, 1);
 
         traceObjects.forEach((trace, index) => {
-          const isActive = nextActive === index;
+          const isActive = nextActive === trace.expeditionIndex;
           const phase = isActive
             ? replayPhase(rawPhase, trace.expedition.releaseFraction)
             : 1;
@@ -3050,7 +3134,9 @@ export default function EverestObservatory() {
             -0.18,
             0.18,
           );
-          const stride = Math.sin(seconds * 10.5 + index);
+          const stride = reduceMotion
+            ? 0
+            : Math.sin(seconds * 10.5 + index);
           trace.group.position.y += Math.abs(stride) * 0.035;
           trace.leftLeg.rotation.x = stride * 0.42;
           trace.rightLeg.rotation.x = -stride * 0.42;
@@ -3074,7 +3160,9 @@ export default function EverestObservatory() {
                 100,
               )) /
               100;
-          const haloPulse = (Math.sin(seconds * 4.2) + 1) / 2;
+          const haloPulse = reduceMotion
+            ? 0.5
+            : (Math.sin(seconds * 4.2) + 1) / 2;
           trace.enduranceHalo.group.visible =
             isActive && !ended && overviewContextVisible;
           trace.enduranceHalo.group.position.copy(trace.group.position);
@@ -3155,10 +3243,10 @@ export default function EverestObservatory() {
             siteObject.label.style.visibility = "hidden";
             return;
           }
-          const x = targetLocked
+          const projectedX = targetLocked
             ? host.clientWidth / 2
             : (projected.x * 0.5 + 0.5) * host.clientWidth;
-          const y = targetLocked
+          const projectedY = targetLocked
             ? host.clientHeight / 2
             : (-projected.y * 0.5 + 0.5) * host.clientHeight;
           const width =
@@ -3168,6 +3256,16 @@ export default function EverestObservatory() {
                 ? 188
                 : 150;
           const height = 50;
+          const x = THREE.MathUtils.clamp(
+            projectedX,
+            width / 2 + 10,
+            host.clientWidth - width / 2 - 10,
+          );
+          const y = THREE.MathUtils.clamp(
+            projectedY,
+            height + (host.clientWidth <= 720 ? 70 : 88),
+            host.clientHeight - 92,
+          );
           const rectangle = {
             left: x - width / 2,
             right: x + width / 2,
@@ -3197,7 +3295,10 @@ export default function EverestObservatory() {
                 ? "mid"
                 : "far";
           siteObject.ringMaterial.opacity =
-            0.18 + Math.sin(seconds * 1.6 + priority) * 0.08;
+            0.18 +
+            (reduceMotion
+              ? 0
+              : Math.sin(seconds * 1.6 + priority) * 0.08);
         });
 
         renderer.render(scene, camera);
@@ -3252,9 +3353,12 @@ export default function EverestObservatory() {
       cleanupScene = () => {
         cancelAnimationFrame(frame);
         observer.disconnect();
+        cameraViewRef.current = {
+          position: camera.position.clone(),
+          target: controls.target.clone(),
+        };
         clipmapBuildDisposed = true;
         queuedClipmapBuild = null;
-        navigationCommandRef.current = null;
         navigation.dispose();
         terrainStreaming.dispose();
         renderer.domElement.removeEventListener(
@@ -3334,12 +3438,15 @@ export default function EverestObservatory() {
       abortController.abort();
       cleanupScene();
     };
-    // Live world-feed updates refresh the interface without destroying the
-    // camera, GPU resources, or in-flight terrain builds. The scene is only
-    // recreated when the lighting phase actually changes.
-  }, [skyPhase]);
+    // Rebuild on a real world revision so trace and memorial objects cannot
+    // lag behind the text/feed state. Unchanged polling responses keep the
+    // existing camera and GPU resources.
+  }, [feed.worldHash, skyPhase]);
 
-  const active = expeditions[activeExpedition % expeditions.length];
+  const active =
+    expeditions.length > 0
+      ? expeditions[activeExpedition % expeditions.length]
+      : null;
   const activeDetailLod = DETAIL_LODS.find(
     ({ label }) => label === terrainResolution,
   );
@@ -3351,6 +3458,21 @@ export default function EverestObservatory() {
   };
   const navigate = (command: NavigationCommand) => {
     navigationCommandRef.current = command;
+  };
+  const focusCoordinates = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const x = Number(coordinateX);
+    const z = Number(coordinateZ);
+    if (!Number.isFinite(x) || !Number.isFinite(z)) {
+      setCoordinateStatus("invalid");
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set("x", String(x));
+    url.searchParams.set("z", String(z));
+    window.history.replaceState(null, "", url);
+    setCoordinateStatus("queued");
+    navigate({ type: "coordinates", x, z, distanceM: 18 });
   };
 
   return (
@@ -3394,8 +3516,10 @@ export default function EverestObservatory() {
         </div>
         <div className="live-state">
           <i />
-          {sceneStatus === "ready"
+          {sceneStatus === "ready" && feedStatus === "live"
             ? "LIVE"
+            : sceneStatus === "ready" && feedStatus === "fallback"
+              ? "FEED OFFLINE"
             : sceneStatus === "error"
               ? "DEM ERROR"
               : "LOADING DEM"}
@@ -3427,6 +3551,17 @@ export default function EverestObservatory() {
           ).toLocaleString("en-US")} M`}
         </strong>
       </section>
+
+      {feed.worldSummary ? (
+        <section className="world-summary" aria-label="World matter summary">
+          <span>{feed.worldSummary.stoneCount} STONES</span>
+          <span>
+            {feed.worldSummary.removedTerrainVoxelCount} QUARRIED
+          </span>
+          <span>{feed.worldSummary.expeditionCount} EXPEDITIONS</span>
+          <span>{feed.worldSummary.tombstoneCount} TOMBSTONES</span>
+        </section>
+      ) : null}
 
       {activeDetailLod ? (
         <section className="inspection-readout" aria-label="Live terrain detail">
@@ -3488,13 +3623,6 @@ export default function EverestObservatory() {
             <button
               key={preset.siteId}
               type="button"
-              onPointerDown={() =>
-                navigate({
-                  type: "focus",
-                  siteId: preset.siteId,
-                  distanceM: preset.distanceM,
-                })
-              }
               onClick={() =>
                 navigate({
                   type: "focus",
@@ -3507,13 +3635,48 @@ export default function EverestObservatory() {
             </button>
           ))}
         </div>
+        <form className="coordinate-focus" onSubmit={focusCoordinates}>
+          <label>
+            <span>X</span>
+            <input
+              inputMode="decimal"
+              aria-label="Canonical X coordinate in metres"
+              value={coordinateX}
+              onChange={(event) => {
+                setCoordinateX(event.target.value);
+                setCoordinateStatus("idle");
+              }}
+              placeholder="-3985.0"
+            />
+          </label>
+          <label>
+            <span>Z</span>
+            <input
+              inputMode="decimal"
+              aria-label="Canonical Z coordinate in metres"
+              value={coordinateZ}
+              onChange={(event) => {
+                setCoordinateZ(event.target.value);
+                setCoordinateStatus("idle");
+              }}
+              placeholder="-6655.0"
+            />
+          </label>
+          <button type="submit">GO</button>
+          <small aria-live="polite">
+            {coordinateStatus === "invalid"
+              ? "ENTER FINITE X / Z"
+              : coordinateStatus === "outside"
+                ? "OUTSIDE PROJECT DETAIL DEM"
+                : coordinateStatus === "focused"
+                  ? "PROJECT FOCUS"
+                  : "CANONICAL METRES"}
+          </small>
+        </form>
         <div className="terrain-move-pad">
           <button
             type="button"
             aria-label="Move view forward"
-            onPointerDown={() =>
-              navigate({ type: "nudge", forward: 1, right: 0 })
-            }
             onClick={() =>
               navigate({ type: "nudge", forward: 1, right: 0 })
             }
@@ -3523,9 +3686,6 @@ export default function EverestObservatory() {
           <button
             type="button"
             aria-label="Move view left"
-            onPointerDown={() =>
-              navigate({ type: "nudge", forward: 0, right: -1 })
-            }
             onClick={() =>
               navigate({ type: "nudge", forward: 0, right: -1 })
             }
@@ -3536,9 +3696,6 @@ export default function EverestObservatory() {
           <button
             type="button"
             aria-label="Move view right"
-            onPointerDown={() =>
-              navigate({ type: "nudge", forward: 0, right: 1 })
-            }
             onClick={() =>
               navigate({ type: "nudge", forward: 0, right: 1 })
             }
@@ -3548,9 +3705,6 @@ export default function EverestObservatory() {
           <button
             type="button"
             aria-label="Move view backward"
-            onPointerDown={() =>
-              navigate({ type: "nudge", forward: -1, right: 0 })
-            }
             onClick={() =>
               navigate({ type: "nudge", forward: -1, right: 0 })
             }
@@ -3560,31 +3714,44 @@ export default function EverestObservatory() {
         </div>
       </aside>
 
-      <aside className="expedition-card" aria-label="Last expedition trace">
-        <div className="expedition-card-heading">
-          <span
-            className="route-swatch"
-            style={{
-              background: active.color,
-              boxShadow: `0 0 22px ${active.color}`,
-            }}
-          />
-          <small>LAST TRACE</small>
-        </div>
-        <strong>{active.agent}</strong>
-        <div className="expedition-result">
-          <span>{active.action}</span>
-          <em>+{active.score}</em>
-        </div>
-        <div className="endurance-language">
-          <span className="endurance-orbit" aria-hidden="true">
-            {Array.from({ length: 12 }, (_, index) => (
-              <i key={index} />
-            ))}
-          </span>
-          <small>ENDURANCE ORBITS THE CLIMBER</small>
-        </div>
-      </aside>
+      {active ? (
+        <aside className="expedition-card" aria-label="Last expedition event">
+          <div className="expedition-card-heading">
+            <span
+              className="route-swatch"
+              style={{
+                background: active.color,
+                boxShadow: `0 0 22px ${active.color}`,
+              }}
+            />
+            <small>{active.trace ? "LAST TRACE" : "LAST EVENT"}</small>
+          </div>
+          <strong>{active.agent}</strong>
+          <div className="expedition-result">
+            <span>{active.action}</span>
+            <em>+{active.score}</em>
+          </div>
+          <div className="endurance-language">
+            <span className="endurance-orbit" aria-hidden="true">
+              {Array.from({ length: 12 }, (_, index) => (
+                <i key={index} />
+              ))}
+            </span>
+            <small>ENDURANCE ORBITS THE CLIMBER</small>
+          </div>
+        </aside>
+      ) : (
+        <aside className="expedition-card" aria-label="No expeditions yet">
+          <div className="expedition-card-heading">
+            <span className="route-swatch" />
+            <small>NO EXPEDITIONS</small>
+          </div>
+          <strong>THE FIELD IS OPEN</strong>
+          <div className="expedition-result">
+            <span>AWAITING A FIRST CLIMBER</span>
+          </div>
+        </aside>
+      )}
 
       <nav
         className="replay-dock"
@@ -3595,8 +3762,20 @@ export default function EverestObservatory() {
           <i />
         </div>
         <div className="replay-title">
-          <small>LIVE REPLAY</small>
-          <strong>ONE SIGNAL AT A TIME</strong>
+          <small>
+            {active
+              ? active.trace
+                ? "LIVE REPLAY"
+                : "RECENT EVENTS"
+              : "OPEN FIELD"}
+          </small>
+          <strong>
+            {active
+              ? active.trace
+                ? "ONE SIGNAL AT A TIME"
+                : "TRACE NOT PUBLISHED"
+              : "AWAITING FIRST EXPEDITION"}
+          </strong>
         </div>
         <div className="replay-list">
           {expeditions.map((expedition, index) => (
@@ -3618,7 +3797,9 @@ export default function EverestObservatory() {
 
       {rankingsOpen ? (
         <aside className="rankings" aria-label="Agent leaderboard">
-          <small>ALL-TIME</small>
+          <small>
+            ALL-TIME · {leaderboard.length} IDENTITIES SHOWN
+          </small>
           {leaderboard.map((entry, index) => (
             <div key={entry.agent}>
               <span>{String(index + 1).padStart(2, "0")}</span>

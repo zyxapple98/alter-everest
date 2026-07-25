@@ -1,4 +1,5 @@
 import { voxelCenter } from "../engine/mutation";
+import { TERRAIN } from "../engine/constants";
 import { loadCanonicalWorld } from "./expedition-kit";
 
 const MAXIMUM_RESULTS = 200;
@@ -82,6 +83,93 @@ const matchingTombstones = sortByDistance(
     .filter((tombstone) => withinRadius(tombstone.position)),
 );
 
+const cellKey = (cell: { x: number; y: number; z: number }) =>
+  `${cell.x}:${cell.y}:${cell.z}`;
+const stonesByCell = new Map(
+  world.stones.map((stone) => [cellKey(stone.cell), stone]),
+);
+const visitedStoneIds = new Set<string>();
+const faceConnectedStoneGroups = matchingStones
+  .map((seed) => {
+    if (visitedStoneIds.has(seed.id)) return null;
+    const members: typeof world.stones = [];
+    const pending: typeof world.stones = [seed];
+    visitedStoneIds.add(seed.id);
+    while (pending.length > 0) {
+      const stone = pending.pop()!;
+      members.push(stone);
+      for (const [dx, dy, dz] of [
+        [1, 0, 0],
+        [-1, 0, 0],
+        [0, 1, 0],
+        [0, -1, 0],
+        [0, 0, 1],
+        [0, 0, -1],
+      ]) {
+        const neighbor = stonesByCell.get(
+          cellKey({
+            x: stone.cell.x + dx,
+            y: stone.cell.y + dy,
+            z: stone.cell.z + dz,
+          }),
+        );
+        if (neighbor && !visitedStoneIds.has(neighbor.id)) {
+          visitedStoneIds.add(neighbor.id);
+          pending.push(neighbor);
+        }
+      }
+    }
+    if (members.length < 2) return null;
+    members.sort((left, right) => left.id.localeCompare(right.id));
+    const minimum = {
+      x: Math.min(...members.map((stone) => stone.cell.x)),
+      y: Math.min(...members.map((stone) => stone.cell.y)),
+      z: Math.min(...members.map((stone) => stone.cell.z)),
+    };
+    const maximum = {
+      x: Math.max(...members.map((stone) => stone.cell.x)),
+      y: Math.max(...members.map((stone) => stone.cell.y)),
+      z: Math.max(...members.map((stone) => stone.cell.z)),
+    };
+    return {
+      id: `face-group:${members[0].id}`,
+      stoneCount: members.length,
+      localStoneCount: members.filter((stone) =>
+        withinRadius(voxelCenter(stone.cell)),
+      ).length,
+      extendsBeyondQuery: members.some(
+        (stone) => !withinRadius(voxelCenter(stone.cell)),
+      ),
+      complete: true,
+      stoneIds: members.slice(0, 50).map((stone) => stone.id),
+      stoneIdsTruncated: members.length > 50,
+      bounds: { minimum, maximum },
+      dimensionsM: {
+        x: Number(
+          ((maximum.x - minimum.x + 1) * TERRAIN.voxelEdgeM).toFixed(3),
+        ),
+        y: Number(
+          ((maximum.y - minimum.y + 1) * TERRAIN.voxelEdgeM).toFixed(3),
+        ),
+        z: Number(
+          ((maximum.z - minimum.z + 1) * TERRAIN.voxelEdgeM).toFixed(3),
+        ),
+      },
+      distanceM: Math.min(
+        ...members.map((stone) => {
+          const position = voxelCenter(stone.cell);
+          return Math.hypot(position.x - x, position.z - z);
+        }),
+      ),
+    };
+  })
+  .filter((group) => group !== null)
+  .sort(
+    (left, right) =>
+      right.stoneCount - left.stoneCount ||
+      left.distanceM - right.distanceM,
+  );
+
 console.log(
   JSON.stringify(
     {
@@ -95,6 +183,7 @@ console.log(
         stones: matchingStones.length,
         removedTerrainVoxels: matchingRemovedTerrain.length,
         tombstones: matchingTombstones.length,
+        faceConnectedStoneGroups: faceConnectedStoneGroups.length,
       },
       truncated: {
         stones: matchingStones.length > MAXIMUM_RESULTS,
@@ -108,8 +197,9 @@ console.log(
         MAXIMUM_RESULTS,
       ),
       tombstones: matchingTombstones.slice(0, MAXIMUM_RESULTS),
+      faceConnectedStoneGroups,
       next:
-        "Use terrain:query at exact interaction points; this spatial result is canonical matter, not a physics verdict.",
+        "Face-connected groups include the complete world component even when it extends beyond the query radius. They are geometric hints, not project ownership or a physics verdict. Use terrain:query at exact interaction points.",
     },
     null,
     2,

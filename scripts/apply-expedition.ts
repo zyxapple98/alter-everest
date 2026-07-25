@@ -1,7 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { applyAcceptedCandidate } from "../engine/world";
-import { verifyCandidateFile } from "./verification";
+import {
+  verificationSummary,
+  verifyCandidateFile,
+} from "./verification";
 
 function argument(name: string) {
   const index = process.argv.indexOf(name);
@@ -25,7 +28,7 @@ if (
   !result.canonicalWorld ||
   !result.verdict
 ) {
-  console.error(JSON.stringify(result, null, 2));
+  console.error(JSON.stringify(verificationSummary(result), null, 2));
   process.exitCode = 1;
 } else {
   const applied = await applyAcceptedCandidate(

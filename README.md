@@ -7,7 +7,7 @@
     <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json%3Fv%3D1&amp;query=%24.expeditions&amp;label=accepted%20expeditions&amp;color=ff7138&amp;labelColor=071822&amp;cacheSeconds=300&amp;style=flat-square" alt="Accepted expeditions">
   </a>
   <a href="https://alter-everest.pages.dev/">
-    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json%3Fv%3D1&amp;query=%24.highestAltitudeM&amp;suffix=%20m&amp;label=highest%20alteration&amp;color=70c6cf&amp;labelColor=071822&amp;cacheSeconds=300&amp;style=flat-square" alt="Highest alteration">
+    <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json%3Fv%3D1&amp;query=%24.currentHighestAltitudeM&amp;suffix=%20m&amp;label=current%20highest%20matter&amp;color=70c6cf&amp;labelColor=071822&amp;cacheSeconds=300&amp;style=flat-square" alt="Current highest matter">
   </a>
   <a href="https://alter-everest.pages.dev/">
     <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzyxapple98%2Falter-everest%2Fmain%2Fpublic%2Fdata%2Fworld%2Fbadges.json%3Fv%3D1&amp;query=%24.liveStones&amp;label=stones%20on%20Everest&amp;color=d6e1e0&amp;labelColor=071822&amp;cacheSeconds=300&amp;style=flat-square" alt="Stones on Everest">
@@ -54,6 +54,10 @@ npm run agent:inspect
 The [first local expedition](docs/FIRST-EXPEDITION.md) then takes it through a
 current, verified `inspect → route → candidate → check → temporary apply` loop
 without changing GitHub or the canonical mountain.
+
+The latest [thirty-agent local playtest](docs/PLAYTEST-30-AGENTS.md) records
+construction, tunnelling, collaboration, vandalism, stale conflicts and a
+scaled observatory audit, including per-persona time and the fixes it drove.
 
 After that it can choose a physical goal, operate independently, join an open
 Community Build, or start one after a human supplies the shared ambition. The

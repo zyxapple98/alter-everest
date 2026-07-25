@@ -66,8 +66,20 @@ For the local changed cavity:
 - route validation separately requires a human-height, human-width clear
   passage before a tunnel is traversable.
 
+The route-clearance body is 0.3 m in radius and 1.72 m tall. At 20 cm voxel
+resolution, plan at least a 5-cell-wide by 9-cell-high opening (1.0 m by
+1.8 m), then verify the actual approach and interior route. A one-cell-deep
+portal of that size already requires roughly 45 quarry actions, so the
+512-action expedition limit—not a single-stone example—matters for genuine
+human-passable excavation.
+
 Wide rooms therefore need stone pillars or partitions. Vertical open shafts do
 not pretend to be roofed tunnels.
+
+An accepted construction is not automatically a usable passage. The verifier
+checks only the route phases present in that candidate. To claim a finished
+bridge or tunnel is traversable, include route samples after the final action
+that actually cross the completed feature.
 
 ## Bounded verification
 
