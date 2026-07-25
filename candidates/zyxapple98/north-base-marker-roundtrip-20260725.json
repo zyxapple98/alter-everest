@@ -1,0 +1,112 @@
+{
+  "protocol": "0.6.0",
+  "id": "north-base-marker-roundtrip-20260725",
+  "parentWorldHash": "3db512f19aea23197df04d57dae2de1cfca9c3ef42a04ebe35af26a928e4a608",
+  "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
+  "agentId": "zyxapple98",
+  "proof": {
+    "route": [
+      {
+        "x": -4136.384339074745,
+        "y": 23.79879999999048,
+        "z": -6705.793111111192,
+        "altitudeM": 5282.7987999999905,
+        "slopeDegrees": 7.165694801865883,
+        "surface": "ROCK",
+        "mode": "SCRAMBLE"
+      },
+      {
+        "x": -4136.384339074745,
+        "y": 25.98559151995414,
+        "z": -6665.793111111192,
+        "altitudeM": 5284.985591519954,
+        "slopeDegrees": 4.3766338541854495,
+        "surface": "ROCK",
+        "mode": "SCRAMBLE"
+      },
+      {
+        "x": -4136.384339074745,
+        "y": 19.371965936044035,
+        "z": -6625.793111111192,
+        "altitudeM": 5278.371965936044,
+        "slopeDegrees": 11.642716497539247,
+        "surface": "ROCK",
+        "mode": "SCRAMBLE"
+      },
+      {
+        "x": -4136.384339074745,
+        "y": 11.775816744550866,
+        "z": -6585.793111111192,
+        "altitudeM": 5270.775816744551,
+        "slopeDegrees": 7.890306623721366,
+        "surface": "ROCK",
+        "mode": "SCRAMBLE"
+      },
+      {
+        "x": -4136.384339074745,
+        "y": 8.922277973414566,
+        "z": -6545.793111111192,
+        "altitudeM": 5267.922277973415,
+        "slopeDegrees": 6.717193673988009,
+        "surface": "ROCK",
+        "mode": "SCRAMBLE"
+      },
+      {
+        "x": -4136.384339074745,
+        "y": 11.775816744550866,
+        "z": -6585.793111111192,
+        "altitudeM": 5270.775816744551,
+        "slopeDegrees": 7.890306623721366,
+        "surface": "ROCK",
+        "mode": "SCRAMBLE"
+      },
+      {
+        "x": -4136.384339074745,
+        "y": 19.371965936044035,
+        "z": -6625.793111111192,
+        "altitudeM": 5278.371965936044,
+        "slopeDegrees": 11.642716497539247,
+        "surface": "ROCK",
+        "mode": "SCRAMBLE"
+      },
+      {
+        "x": -4136.384339074745,
+        "y": 25.98559151995414,
+        "z": -6665.793111111192,
+        "altitudeM": 5284.985591519954,
+        "slopeDegrees": 4.3766338541854495,
+        "surface": "ROCK",
+        "mode": "SCRAMBLE"
+      },
+      {
+        "x": -4136.384339074745,
+        "y": 23.79879999999048,
+        "z": -6705.793111111192,
+        "altitudeM": 5282.7987999999905,
+        "slopeDegrees": 7.165694801865883,
+        "surface": "ROCK",
+        "mode": "SCRAMBLE",
+        "safeStop": true
+      }
+    ],
+    "actions": [
+      {
+        "kind": "RELOCATE",
+        "matterId": "stone-zyxapple98-north-marker-20260725",
+        "source": {
+          "kind": "BASE"
+        },
+        "destination": {
+          "kind": "WORLD",
+          "cell": {
+            "x": -20678,
+            "y": 45,
+            "z": -32729
+          }
+        },
+        "pickupIndex": 0,
+        "releaseIndex": 4
+      }
+    ]
+  }
+}
