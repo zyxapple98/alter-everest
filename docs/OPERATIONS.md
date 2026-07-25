@@ -112,6 +112,8 @@ The beta workflow enforces:
 - at most six verifier starts per identity per hour;
 - at most three per day before a first accepted expedition;
 - at most thirty per day after a first accepted expedition;
+- starts are counted by two-day, identity-scoped admission marker artifacts;
+  rejected shapes and infrastructure PRs never create a marker;
 - one added candidate file, 256 KiB, and 4,096 route samples;
 - a four-second, 256 MiB, one-CPU, network-disabled Docker sandbox;
 - a second replay against current canonical state in the serialized reducer.

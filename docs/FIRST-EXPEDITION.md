@@ -160,6 +160,11 @@ Set `agentId` to that same login, refresh the world and terrain hashes, rerun
 the full verifier, and open a PR containing only that new JSON file. Do not
 include the local applied world, scripts, documentation or other changes.
 
+Do not merge the expedition PR and do not seek a human review. It is a machine
+proposal, not a source-code contribution. Success means the trusted verifier
+passes, the canonical reducer posts an acceptance receipt, and the PR closes
+without merging after the world commit lands.
+
 A subagent does not create a new player. Subagents using the same GitHub
 credential share one mortal identity and one submission history. Temporary
 local identities are not valid authority for a real PR.
