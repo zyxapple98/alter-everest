@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.4.0",
-  "sequence": 0,
-  "worldHash": "3db512f19aea23197df04d57dae2de1cfca9c3ef42a04ebe35af26a928e4a608",
+  "sequence": 1,
+  "worldHash": "7c02277e03f97397c680c9a61d2768ea785624a308b41b0380844b41ee1cac6e",
   "summitHeightM": 8848.86,
   "historicalSummit": {
     "name": "Everest Summit",
@@ -20,23 +20,201 @@
     "longitude": 86.92568712916965
   },
   "worldSummary": {
-    "stoneCount": 0,
-    "removedTerrainVoxelCount": 0,
-    "identityCount": 0,
-    "activeIdentityCount": 0,
+    "stoneCount": 9,
+    "removedTerrainVoxelCount": 8,
+    "identityCount": 1,
+    "activeIdentityCount": 1,
     "deadIdentityCount": 0,
     "tombstoneCount": 0,
-    "expeditionCount": 0,
-    "modifiedTileCount": 0
+    "expeditionCount": 1,
+    "modifiedTileCount": 1
   },
   "surfaceTiles": {
     "voxelEdgeM": 0.2,
     "physicsChunkEdgeM": 32,
     "tileEdgeM": 256,
     "verticalDatumM": 5259,
-    "tiles": []
+    "tiles": [
+      {
+        "id": "-17:-26",
+        "x": -17,
+        "z": -26,
+        "hash": "1c87f5aa67359ff7718e37a576d00cba0a519ad0f5160f75540e19af7274075b",
+        "path": "tiles/1c87f5aa67359ff7718e37a576d00cba0a519ad0f5160f75540e19af7274075b.json",
+        "chunkCount": 1,
+        "removedTerrainVoxelCount": 8,
+        "stoneCount": 9,
+        "lodSummary": [
+          {
+            "cellM": 0.2,
+            "touchedCellCount": 17
+          },
+          {
+            "cellM": 0.4,
+            "touchedCellCount": 8
+          },
+          {
+            "cellM": 0.8,
+            "touchedCellCount": 8
+          },
+          {
+            "cellM": 1.6,
+            "touchedCellCount": 4
+          },
+          {
+            "cellM": 3.2,
+            "touchedCellCount": 1
+          },
+          {
+            "cellM": 6.4,
+            "touchedCellCount": 1
+          },
+          {
+            "cellM": 15,
+            "touchedCellCount": 1
+          },
+          {
+            "cellM": 30,
+            "touchedCellCount": 1
+          }
+        ]
+      }
+    ]
   },
-  "recentExpeditions": [],
+  "recentExpeditions": [
+    {
+      "id": "base-camp-civic-square-foundation-20260725",
+      "agent": "zyxapple98",
+      "action": "BUILT",
+      "commit": "7bd5410",
+      "color": "#ff7138",
+      "returned": true,
+      "outcome": "ACTIVE",
+      "enduranceUsed": 0.5295440217876876,
+      "score": 205,
+      "releaseFraction": 0.8333333333333334,
+      "actionFractions": [
+        0.16666666666666666,
+        0.25,
+        0.3333333333333333,
+        0.4166666666666667,
+        0.5,
+        0.5833333333333334,
+        0.6666666666666666,
+        0.75,
+        0.8333333333333334
+      ],
+      "totalScore": 205,
+      "trace": [
+        {
+          "column": -62.42000000000917,
+          "row": 116.13999999999675
+        },
+        {
+          "column": -62.42000000000917,
+          "row": 117.43356809198627
+        },
+        {
+          "column": -62.42000000000917,
+          "row": 118.7271361839758
+        },
+        {
+          "column": -62.42000000000917,
+          "row": 120.02070427595254
+        },
+        {
+          "column": -62.42000000000917,
+          "row": 121.31427236794207
+        },
+        {
+          "column": -62.4095912421983,
+          "row": 121.31566654689675
+        },
+        {
+          "column": -62.405930557259126,
+          "row": 121.31728350700496
+        },
+        {
+          "column": -62.4095912421983,
+          "row": 121.31890046712596
+        },
+        {
+          "column": -62.405930557259126,
+          "row": 121.32051742723417
+        },
+        {
+          "column": -62.4095912421983,
+          "row": 121.32213438735516
+        },
+        {
+          "column": -62.405930557259126,
+          "row": 121.32375134746337
+        },
+        {
+          "column": -62.4095912421983,
+          "row": 121.32536830758437
+        },
+        {
+          "column": -62.405930557259126,
+          "row": 121.32698526769258
+        },
+        {
+          "column": -62.4095912421983,
+          "row": 121.32860222781358
+        },
+        {
+          "column": -62.405930557259126,
+          "row": 121.33021918792178
+        },
+        {
+          "column": -62.4095912421983,
+          "row": 121.33183614804278
+        },
+        {
+          "column": -62.405930557259126,
+          "row": 121.33345310815099
+        },
+        {
+          "column": -62.4095912421983,
+          "row": 121.33507006827199
+        },
+        {
+          "column": -62.405930557259126,
+          "row": 121.3366870283802
+        },
+        {
+          "column": -62.4095912421983,
+          "row": 121.3383039885012
+        },
+        {
+          "column": -62.405930557259126,
+          "row": 121.3399209486222
+        },
+        {
+          "column": -62.42000000000917,
+          "row": 120.02070427595254
+        },
+        {
+          "column": -62.42000000000917,
+          "row": 118.7271361839758
+        },
+        {
+          "column": -62.42000000000917,
+          "row": 117.43356809198627
+        },
+        {
+          "column": -62.42000000000917,
+          "row": 116.13999999999675
+        }
+      ]
+    }
+  ],
   "memorialClusters": [],
-  "leaderboard": []
+  "leaderboard": [
+    {
+      "agent": "zyxapple98",
+      "totalScore": 205,
+      "outcome": "ACTIVE"
+    }
+  ]
 }

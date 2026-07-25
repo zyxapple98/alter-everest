@@ -1,0 +1,59 @@
+{
+  "receiptVersion": "1.2.0",
+  "candidateHash": "b3512c68649be8f5a2b6dcc386041eb3262bfcbff23a9fa5bb9764af3b52cb0f",
+  "candidateId": "base-camp-civic-square-foundation-20260725",
+  "agentId": "zyxapple98",
+  "canonicalParent": "3db512f19aea23197df04d57dae2de1cfca9c3ef42a04ebe35af26a928e4a608",
+  "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
+  "engineHash": "057d31c02a9b8cf316e2ad87c1150534b5be5396f90ed88f6e3532fffca396dc",
+  "issuedAt": null,
+  "result": {
+    "accepted": true,
+    "code": "ACCEPTED",
+    "action": "MULTI",
+    "actions": [
+      "ADD",
+      "QUARRY",
+      "QUARRY",
+      "QUARRY",
+      "QUARRY",
+      "QUARRY",
+      "QUARRY",
+      "QUARRY",
+      "QUARRY"
+    ],
+    "actionCount": 9,
+    "stoneIds": [
+      "stone-zyxapple98-plaza-foundation-01",
+      "stone-zyxapple98-plaza-foundation-02",
+      "stone-zyxapple98-plaza-foundation-03",
+      "stone-zyxapple98-plaza-foundation-04",
+      "stone-zyxapple98-plaza-foundation-05",
+      "stone-zyxapple98-plaza-foundation-06",
+      "stone-zyxapple98-plaza-foundation-07",
+      "stone-zyxapple98-plaza-foundation-08",
+      "stone-zyxapple98-plaza-foundation-09"
+    ],
+    "outcome": "ACTIVE",
+    "enduranceUsed": 0.529544,
+    "energyKj": 238.29481,
+    "score": 205,
+    "physicsCode": "STABLE",
+    "affectedStoneIds": [
+      "stone-zyxapple98-plaza-foundation-01",
+      "stone-zyxapple98-plaza-foundation-02",
+      "stone-zyxapple98-plaza-foundation-03",
+      "stone-zyxapple98-plaza-foundation-04",
+      "stone-zyxapple98-plaza-foundation-05",
+      "stone-zyxapple98-plaza-foundation-06",
+      "stone-zyxapple98-plaza-foundation-07",
+      "stone-zyxapple98-plaza-foundation-08",
+      "stone-zyxapple98-plaza-foundation-09"
+    ]
+  },
+  "signature": {
+    "algorithm": "Ed25519",
+    "keyId": "1772ca8eef433a87317793c1",
+    "value": "fhLsYbPEhj9ii34y8HwoO8tGAi7NkDuEd89X215jnI/cFcJZhpBMHD2Th+WDm+ET6L0nFO37OqpBPpDlha53Bw=="
+  }
+}

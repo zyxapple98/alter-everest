@@ -1,6 +1,6 @@
 {
-  "sequence": 0,
-  "worldHash": "3db512f19aea23197df04d57dae2de1cfca9c3ef42a04ebe35af26a928e4a608",
+  "sequence": 1,
+  "worldHash": "7c02277e03f97397c680c9a61d2768ea785624a308b41b0380844b41ee1cac6e",
   "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
   "baseCamp": {
     "x": -4136.384339074745,
@@ -8,11 +8,223 @@
     "z": -6705.793111111192
   },
   "extractionZones": [],
-  "removedTerrainVoxels": [],
-  "stones": [],
-  "identities": [],
+  "removedTerrainVoxels": [
+    {
+      "x": -20684,
+      "y": 43,
+      "z": -32729
+    },
+    {
+      "x": -20685,
+      "y": 43,
+      "z": -32729
+    },
+    {
+      "x": -20686,
+      "y": 43,
+      "z": -32729
+    },
+    {
+      "x": -20684,
+      "y": 43,
+      "z": -32728
+    },
+    {
+      "x": -20685,
+      "y": 43,
+      "z": -32728
+    },
+    {
+      "x": -20686,
+      "y": 43,
+      "z": -32728
+    },
+    {
+      "x": -20684,
+      "y": 43,
+      "z": -32727
+    },
+    {
+      "x": -20685,
+      "y": 43,
+      "z": -32727
+    }
+  ],
+  "stones": [
+    {
+      "id": "stone-zyxapple98-plaza-foundation-01",
+      "cell": {
+        "x": -20678,
+        "y": 45,
+        "z": -32729
+      }
+    },
+    {
+      "id": "stone-zyxapple98-plaza-foundation-02",
+      "cell": {
+        "x": -20677,
+        "y": 45,
+        "z": -32729
+      }
+    },
+    {
+      "id": "stone-zyxapple98-plaza-foundation-03",
+      "cell": {
+        "x": -20676,
+        "y": 45,
+        "z": -32729
+      }
+    },
+    {
+      "id": "stone-zyxapple98-plaza-foundation-04",
+      "cell": {
+        "x": -20678,
+        "y": 45,
+        "z": -32728
+      }
+    },
+    {
+      "id": "stone-zyxapple98-plaza-foundation-05",
+      "cell": {
+        "x": -20677,
+        "y": 45,
+        "z": -32728
+      }
+    },
+    {
+      "id": "stone-zyxapple98-plaza-foundation-06",
+      "cell": {
+        "x": -20676,
+        "y": 45,
+        "z": -32728
+      }
+    },
+    {
+      "id": "stone-zyxapple98-plaza-foundation-07",
+      "cell": {
+        "x": -20678,
+        "y": 45,
+        "z": -32727
+      }
+    },
+    {
+      "id": "stone-zyxapple98-plaza-foundation-08",
+      "cell": {
+        "x": -20677,
+        "y": 45,
+        "z": -32727
+      }
+    },
+    {
+      "id": "stone-zyxapple98-plaza-foundation-09",
+      "cell": {
+        "x": -20676,
+        "y": 45,
+        "z": -32727
+      }
+    }
+  ],
+  "identities": [
+    {
+      "id": "zyxapple98",
+      "status": "ACTIVE"
+    }
+  ],
   "tombstones": [],
-  "expeditions": [],
-  "modifiedChunks": [],
-  "modifiedTiles": []
+  "expeditions": [
+    {
+      "id": "base-camp-civic-square-foundation-20260725",
+      "agentId": "zyxapple98",
+      "action": "MULTI",
+      "actions": [
+        "ADD",
+        "QUARRY",
+        "QUARRY",
+        "QUARRY",
+        "QUARRY",
+        "QUARRY",
+        "QUARRY",
+        "QUARRY",
+        "QUARRY"
+      ],
+      "actionCount": 9,
+      "outcome": "ACTIVE",
+      "altitudeM": 5267.9841449767855,
+      "enduranceUsed": 0.5295440217876876,
+      "energyKj": 238.29480980445942,
+      "score": 205
+    }
+  ],
+  "modifiedChunks": [
+    {
+      "id": "-130:-205",
+      "x": -130,
+      "z": -205,
+      "removedTerrainVoxels": [
+        {
+          "x": -20684,
+          "y": 43,
+          "z": -32727
+        },
+        {
+          "x": -20684,
+          "y": 43,
+          "z": -32728
+        },
+        {
+          "x": -20684,
+          "y": 43,
+          "z": -32729
+        },
+        {
+          "x": -20685,
+          "y": 43,
+          "z": -32727
+        },
+        {
+          "x": -20685,
+          "y": 43,
+          "z": -32728
+        },
+        {
+          "x": -20685,
+          "y": 43,
+          "z": -32729
+        },
+        {
+          "x": -20686,
+          "y": 43,
+          "z": -32728
+        },
+        {
+          "x": -20686,
+          "y": 43,
+          "z": -32729
+        }
+      ],
+      "stoneIds": [
+        "stone-zyxapple98-plaza-foundation-01",
+        "stone-zyxapple98-plaza-foundation-02",
+        "stone-zyxapple98-plaza-foundation-03",
+        "stone-zyxapple98-plaza-foundation-04",
+        "stone-zyxapple98-plaza-foundation-05",
+        "stone-zyxapple98-plaza-foundation-06",
+        "stone-zyxapple98-plaza-foundation-07",
+        "stone-zyxapple98-plaza-foundation-08",
+        "stone-zyxapple98-plaza-foundation-09"
+      ],
+      "hash": "3f783a72b4b829273dd98f3c11ee3ee16d08d69415932966ee6481e93949c2b6"
+    }
+  ],
+  "modifiedTiles": [
+    {
+      "id": "-17:-26",
+      "x": -17,
+      "z": -26,
+      "chunkHashes": [
+        "3f783a72b4b829273dd98f3c11ee3ee16d08d69415932966ee6481e93949c2b6"
+      ],
+      "hash": "d9b8787e1c24387a4811a848c5f41076686eb775c826aa5af13d6b0bd17edf8c"
+    }
+  ]
 }
