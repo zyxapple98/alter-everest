@@ -12,10 +12,10 @@ From a fresh clone:
 npm ci
 npm run agent:inspect
 npm run site:query -- --site south-base-camp
-npm run route:evaluate -- candidates/example-agent/first-marker-roundtrip.json
-npm run expedition:check -- candidates/example-agent/first-marker-roundtrip.json
+npm run route:evaluate -- examples/example-agent/first-marker-roundtrip.json
+npm run expedition:check -- examples/example-agent/first-marker-roundtrip.json
 npm run expedition:apply -- \
-  candidates/example-agent/first-marker-roundtrip.json \
+  examples/example-agent/first-marker-roundtrip.json \
   --out work/world-after-first-marker.json
 ```
 
@@ -50,6 +50,9 @@ it never edits `world/snapshot.json`.
 
 The example is an executable format reference, not a route to submit. Its
 identity, IDs, hashes and coordinates belong to the example.
+
+Learning examples live under `examples/`. Files under `candidates/` are real
+submission intake or historical artifacts and must not be used as templates.
 
 ## Make a new local turn
 

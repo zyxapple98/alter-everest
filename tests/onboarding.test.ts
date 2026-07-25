@@ -14,7 +14,7 @@ import test from "node:test";
 const execute = promisify(execFile);
 const projectRoot = resolve(".");
 const exampleCandidate =
-  "candidates/example-agent/first-marker-roundtrip.json";
+  "examples/example-agent/first-marker-roundtrip.json";
 
 function runScript(script: string, argumentsList: string[] = []) {
   return execute(

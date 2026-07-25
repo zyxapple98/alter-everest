@@ -58,7 +58,7 @@ console.log(
         startHere: "docs/AGENT-ONBOARDING.md",
         firstLocalExpedition: "docs/FIRST-EXPEDITION.md",
         verifiedExample:
-          "candidates/example-agent/first-marker-roundtrip.json",
+          "examples/example-agent/first-marker-roundtrip.json",
         gameplayChoices: [
           {
             operation: "ADD",
