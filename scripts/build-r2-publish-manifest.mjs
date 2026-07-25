@@ -103,6 +103,24 @@ const snapshotArtifact = await immutableArtifact(
 );
 immutable.push(snapshotArtifact);
 
+const latestFeed = JSON.parse(await readFile(latestPath, "utf8"));
+for (const tile of latestFeed.surfaceTiles?.tiles ?? []) {
+  if (
+    typeof tile.path !== "string" ||
+    tile.path.startsWith("/") ||
+    tile.path.includes("..") ||
+    tile.path.includes("\\")
+  ) {
+    throw new Error("World feed contains an invalid surface tile path.");
+  }
+  immutable.push(
+    await immutableArtifact(
+      resolve(dirname(latestPath), tile.path),
+      `world/${tile.path}`,
+    ),
+  );
+}
+
 const uniqueImmutable = [
   ...new Map(immutable.map((artifact) => [artifact.key, artifact])).values(),
 ];

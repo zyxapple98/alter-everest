@@ -21,8 +21,53 @@ export interface ObservatoryMemorialCluster {
   latestAgent?: string;
 }
 
+export interface ObservatorySurfaceDeltaChunk {
+  id: string;
+  x: number;
+  z: number;
+  hash: string;
+  removedTerrainVoxels: Array<{
+    x: number;
+    y: number;
+    z: number;
+  }>;
+  stones: Array<{
+    id: string;
+    pose: {
+      translation: { x: number; y: number; z: number };
+      rotation: { x: number; y: number; z: number; w: number };
+    };
+  }>;
+}
+
+export interface ObservatorySurfaceLodSummary {
+  cellM: number;
+  touchedCellCount: number;
+}
+
+export interface ObservatorySurfaceTileManifest {
+  id: string;
+  x: number;
+  z: number;
+  hash: string;
+  path: string;
+  chunkCount: number;
+  removedTerrainVoxelCount: number;
+  stoneCount: number;
+  lodSummary: ObservatorySurfaceLodSummary[];
+}
+
+export interface ObservatorySurfaceTile {
+  schemaVersion: "1.0.0";
+  id: string;
+  x: number;
+  z: number;
+  hash: string;
+  chunks: ObservatorySurfaceDeltaChunk[];
+}
+
 export interface ObservatoryFeed {
-  schemaVersion: "1.0.0" | "1.1.0";
+  schemaVersion: "1.0.0" | "1.1.0" | "1.2.0" | "1.3.0";
   sequence: number;
   worldHash: string;
   summitHeightM: number;
@@ -42,6 +87,25 @@ export interface ObservatoryFeed {
     longitude: number;
     altitudeM: number;
   };
+  surfaceDelta?: {
+    voxelEdgeM: number;
+    physicsChunkEdgeM: number;
+    verticalDatumM: number;
+    chunks: ObservatorySurfaceDeltaChunk[];
+  };
+  surfaceTiles?: {
+    voxelEdgeM: number;
+    physicsChunkEdgeM: number;
+    tileEdgeM: number;
+    verticalDatumM: number;
+    tiles: ObservatorySurfaceTileManifest[];
+  };
+  /**
+   * Runtime-only base URL attached by loadObservatoryFeed. It is not part of
+   * the canonical JSON and lets immutable tile paths work with either local
+   * assets or an external world object store.
+   */
+  assetBaseUrl?: string;
   recentExpeditions: ObservatoryExpedition[];
   memorialClusters?: ObservatoryMemorialCluster[];
   leaderboard: Array<{
@@ -164,7 +228,9 @@ export async function loadObservatoryFeed(signal: AbortSignal) {
   }
   const feed = (await response.json()) as ObservatoryFeed;
   if (
-    !["1.0.0", "1.1.0"].includes(feed.schemaVersion) ||
+    !["1.0.0", "1.1.0", "1.2.0", "1.3.0"].includes(
+      feed.schemaVersion,
+    ) ||
     !Number.isSafeInteger(feed.sequence) ||
     typeof feed.worldHash !== "string" ||
     !Array.isArray(feed.recentExpeditions) ||
@@ -173,5 +239,6 @@ export async function loadObservatoryFeed(signal: AbortSignal) {
   ) {
     throw new Error("World feed is not a supported observatory document.");
   }
+  feed.assetBaseUrl = worldBaseUrl;
   return { feed, pollIntervalMs };
 }

@@ -428,36 +428,6 @@ button {
     background 160ms ease;
 }
 
-.inspect-trigger {
-  position: absolute;
-  top: 27px;
-  right: 94px;
-  min-width: 64px;
-  height: 28px;
-  padding: 0 10px;
-  color: rgba(239, 245, 242, 0.7);
-  pointer-events: auto;
-  cursor: pointer;
-  border: 1px solid rgba(225, 237, 236, 0.2);
-  border-radius: 0;
-  background: rgba(4, 13, 20, 0.34);
-  font: 620 8px/1 var(--mono);
-  letter-spacing: 0.1em;
-}
-
-.inspect-trigger:hover,
-.inspect-trigger:focus-visible,
-.inspect-trigger[aria-pressed="true"] {
-  color: var(--paper);
-  border-color: rgba(255, 200, 107, 0.74);
-  background: rgba(19, 28, 31, 0.84);
-  outline: none;
-}
-
-.observatory:has(.inspect-trigger) .live-state {
-  margin-right: 142px;
-}
-
 .rank-trigger:hover,
 .rank-trigger:focus-visible,
 .rank-trigger[aria-expanded="true"] {
@@ -465,6 +435,42 @@ button {
   border-color: rgba(114, 233, 255, 0.72);
   background: rgba(7, 21, 31, 0.82);
   outline: none;
+}
+
+.lod-indicator {
+  position: absolute;
+  top: 27px;
+  right: 94px;
+  min-width: 82px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  padding: 0 9px;
+  color: rgba(239, 245, 242, 0.64);
+  pointer-events: none;
+  border: 1px solid rgba(225, 237, 236, 0.2);
+  border-radius: 0;
+  background: rgba(4, 13, 20, 0.34);
+  font-family: var(--mono);
+}
+
+.lod-indicator small {
+  color: rgba(218, 235, 238, 0.4);
+  font-size: 6px;
+  letter-spacing: 0.09em;
+}
+
+.lod-indicator strong {
+  color: var(--amber);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+}
+
+.observatory-header .live-state {
+  margin-right: 162px;
 }
 
 .world-id {
@@ -498,68 +504,6 @@ button {
   font-size: 12px;
   font-weight: 580;
   letter-spacing: 0.06em;
-}
-
-.inspection-readout {
-  position: absolute;
-  z-index: 7;
-  top: 112px;
-  left: 34px;
-  display: grid;
-  width: 286px;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px 16px;
-  padding: 17px 18px 15px;
-  pointer-events: none;
-  border-top: 1px solid rgba(255, 200, 107, 0.68);
-  border-right: 1px solid rgba(225, 238, 238, 0.1);
-  border-bottom: 1px solid rgba(225, 238, 238, 0.1);
-  border-left: 1px solid rgba(225, 238, 238, 0.1);
-  background: rgba(4, 14, 22, 0.72);
-  backdrop-filter: blur(12px);
-  font-family: var(--mono);
-}
-
-.inspection-readout > small,
-.inspection-readout > strong,
-.inspection-readout > p {
-  grid-column: 1 / -1;
-}
-
-.inspection-readout > small {
-  color: rgba(255, 200, 107, 0.72);
-  font-size: 8px;
-  letter-spacing: 0.16em;
-}
-
-.inspection-readout > strong {
-  color: rgba(247, 251, 247, 0.95);
-  font: 560 13px/1.1 var(--mono);
-  letter-spacing: 0.045em;
-}
-
-.inspection-readout > span {
-  display: grid;
-  gap: 4px;
-  color: rgba(211, 230, 233, 0.42);
-  font-size: 7px;
-  letter-spacing: 0.11em;
-}
-
-.inspection-readout b {
-  color: rgba(231, 242, 242, 0.86);
-  font-size: 9px;
-  font-weight: 580;
-}
-
-.inspection-readout > p {
-  margin: 2px 0 0;
-  padding-top: 10px;
-  color: rgba(196, 218, 223, 0.48);
-  border-top: 1px solid rgba(225, 238, 238, 0.09);
-  font-size: 7px;
-  line-height: 1.55;
-  letter-spacing: 0.08em;
 }
 
 .expedition-card {
@@ -813,42 +757,6 @@ button {
   background: linear-gradient(90deg, rgba(114, 233, 255, 0.6), transparent);
 }
 
-.render-metrics {
-  position: absolute;
-  z-index: 7;
-  right: 34px;
-  bottom: 116px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: rgba(214, 232, 234, 0.46);
-  pointer-events: none;
-  font: 530 7px/1 var(--mono);
-  letter-spacing: 0.08em;
-}
-
-.render-metrics i {
-  width: 5px;
-  height: 5px;
-  background: var(--green);
-  box-shadow: 0 0 10px rgba(141, 255, 193, 0.6);
-}
-
-.observatory[data-view="inspect"] .world-id,
-.observatory[data-view="inspect"] .expedition-card,
-.observatory[data-view="inspect"] .replay-dock,
-.observatory[data-view="inspect"] .site-overlay {
-  display: none;
-}
-
-.observatory[data-view="inspect"] .orbit-hint {
-  bottom: 30px;
-}
-
-.observatory[data-view="inspect"] .render-metrics {
-  bottom: 30px;
-}
-
 .dem-credit {
   position: absolute;
   z-index: 6;
@@ -859,6 +767,147 @@ button {
   pointer-events: auto;
   font: 520 7px/1 var(--mono);
   letter-spacing: 0.09em;
+}
+
+.inspection-readout {
+  position: absolute;
+  z-index: 7;
+  top: 112px;
+  left: 34px;
+  display: block;
+  width: 270px;
+  padding: 15px 17px;
+  pointer-events: none;
+  border-top: 1px solid rgba(255, 191, 102, 0.56);
+  border-left: 1px solid rgba(225, 238, 239, 0.12);
+  background: rgba(4, 13, 20, 0.72);
+  box-shadow: 0 22px 64px rgba(1, 7, 11, 0.26);
+  backdrop-filter: blur(12px);
+  font-family: var(--mono);
+}
+
+.inspection-readout small,
+.inspection-readout span {
+  display: block;
+  color: rgba(218, 235, 238, 0.46);
+  font-size: 8px;
+  letter-spacing: 0.13em;
+}
+
+.inspection-readout strong {
+  display: block;
+  margin: 8px 0 11px;
+  color: rgba(247, 251, 247, 0.94);
+  font-size: 13px;
+  font-weight: 590;
+  letter-spacing: 0.06em;
+}
+
+.inspection-readout span {
+  margin-top: 5px;
+  line-height: 1.45;
+}
+
+.terrain-navigator {
+  position: absolute;
+  z-index: 8;
+  top: 126px;
+  right: 34px;
+  width: 244px;
+  padding: 13px;
+  border-top: 1px solid rgba(114, 233, 255, 0.48);
+  border-right: 1px solid rgba(226, 239, 240, 0.12);
+  border-bottom: 1px solid rgba(226, 239, 240, 0.12);
+  background: rgba(4, 13, 20, 0.72);
+  box-shadow: 0 22px 64px rgba(1, 7, 11, 0.25);
+  backdrop-filter: blur(12px);
+  font-family: var(--mono);
+}
+
+.terrain-navigator-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.terrain-navigator-heading small {
+  color: rgba(244, 249, 246, 0.82);
+  font-size: 8px;
+  letter-spacing: 0.15em;
+}
+
+.terrain-navigator-heading span {
+  color: rgba(213, 233, 236, 0.34);
+  font-size: 6px;
+  letter-spacing: 0.08em;
+}
+
+.terrain-destinations {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.terrain-destinations button,
+.terrain-move-pad button {
+  min-height: 27px;
+  color: rgba(221, 238, 240, 0.62);
+  cursor: pointer;
+  border: 1px solid rgba(202, 229, 234, 0.14);
+  background: rgba(8, 23, 31, 0.68);
+  font: 560 7px/1 var(--mono);
+  letter-spacing: 0.08em;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease,
+    background 150ms ease;
+}
+
+.terrain-destinations button:hover,
+.terrain-destinations button:focus-visible,
+.terrain-move-pad button:hover,
+.terrain-move-pad button:focus-visible {
+  color: var(--paper);
+  border-color: rgba(114, 233, 255, 0.54);
+  outline: none;
+  background: rgba(15, 43, 57, 0.82);
+}
+
+.terrain-move-pad {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  align-items: center;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.terrain-move-pad button {
+  min-height: 25px;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.terrain-move-pad span {
+  color: rgba(215, 235, 238, 0.32);
+  text-align: center;
+  font-size: 6px;
+  letter-spacing: 0.08em;
+}
+
+.observatory[data-detail="true"] .world-id,
+.observatory[data-detail="true"] .expedition-card,
+.observatory[data-detail="true"] .replay-dock,
+.observatory[data-detail="true"] .site-overlay {
+  display: none;
+}
+
+.observatory[data-detail="true"] .voxel-sky > i {
+  display: none;
+}
+
+.observatory[data-detail="true"] .orbit-hint {
+  bottom: 30px;
 }
 
 .rankings {
@@ -987,15 +1036,19 @@ button {
     height: 26px;
   }
 
-  .inspect-trigger {
+  .lod-indicator {
     top: 19px;
     right: 68px;
-    min-width: 52px;
+    min-width: 68px;
     height: 26px;
-    padding: 0 7px;
+    padding: 0 6px;
   }
 
-  .observatory:has(.inspect-trigger) .live-state {
+  .lod-indicator small {
+    display: none;
+  }
+
+  .observatory-header .live-state {
     display: none;
   }
 
@@ -1011,6 +1064,21 @@ button {
 
   .dem-credit {
     display: none;
+  }
+
+  .terrain-navigator {
+    top: 120px;
+    right: 17px;
+    width: 190px;
+    padding: 10px;
+  }
+
+  .terrain-navigator-heading span {
+    display: none;
+  }
+
+  .observatory[data-detail="true"] .terrain-navigator {
+    top: 245px;
   }
 
   .expedition-card {
@@ -1068,28 +1136,22 @@ button {
     transform: none;
   }
 
-  .render-metrics {
-    right: 17px;
-    bottom: 92px;
+  .orbit-hint i {
+    display: none;
   }
 
-  .observatory[data-view="inspect"] .inspection-readout {
+  .observatory[data-detail="true"] .inspection-readout {
     top: 82px;
     left: 17px;
     width: 250px;
   }
 
-  .observatory[data-view="inspect"] .orbit-hint {
+  .observatory[data-detail="true"] .orbit-hint {
     top: auto;
+    right: auto;
     bottom: 28px;
-  }
-
-  .observatory[data-view="inspect"] .render-metrics {
-    bottom: 28px;
-  }
-
-  .orbit-hint i {
-    display: none;
+    left: 50%;
+    transform: translateX(-50%);
   }
 
   .rankings {
