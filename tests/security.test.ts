@@ -483,7 +483,20 @@ test("R2 manifests bind immutable artifacts and publish latest last", async () =
     );
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
     assert.equal(manifest.schemaVersion, "1.0.0");
-    assert.ok(manifest.immutable.length >= 4);
+    assert.ok(
+      manifest.immutable.some(
+        (artifact: { key?: string }) =>
+          artifact.key === `worlds/${manifest.worldHash}.json`,
+      ),
+    );
+    assert.equal(
+      new Set(
+        manifest.immutable.map(
+          (artifact: { key?: string }) => artifact.key,
+        ),
+      ).size,
+      manifest.immutable.length,
+    );
     assert.ok(
       manifest.immutable.every((artifact: { sha256?: string }) =>
         /^[a-f0-9]{64}$/.test(artifact.sha256 ?? ""),

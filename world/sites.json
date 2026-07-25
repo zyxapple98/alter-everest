@@ -3,18 +3,9 @@
   "coordinateStatus": "Canonical game anchors; camp positions are approximate and may move in the physical world.",
   "sites": [
     {
-      "id": "south-start",
-      "name": "South Start",
-      "kind": "BASE",
-      "side": "SOUTH",
-      "latitude": 27.94236111111111,
-      "longitude": 86.89486111111111,
-      "radiusM": 75
-    },
-    {
       "id": "south-base-camp",
       "name": "Everest Base Camp",
-      "kind": "LANDMARK",
+      "kind": "BASE",
       "side": "SOUTH",
       "latitude": 28.0026,
       "longitude": 86.8528,

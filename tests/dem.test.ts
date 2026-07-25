@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { TERRAIN } from "../engine/constants";
+import { CLIMBER, TERRAIN } from "../engine/constants";
 import {
   chunkForVoxel,
   syntheticReliefM,
@@ -95,6 +95,40 @@ test("the authoritative route grid contains both south and north bases", async (
   const north = local(28.142, 86.852);
   assert.ok(terrain.oracle.sample(south.x, south.z));
   assert.ok(terrain.oracle.sample(north.x, north.z));
+});
+
+test("the canonical spawn is the sole Base site and lies on the DEM", async () => {
+  const [terrain, sites, world] = await Promise.all([
+    loadDemBundle(),
+    readFile(new URL("../world/sites.json", import.meta.url), "utf8").then(
+      JSON.parse,
+    ),
+    readFile(new URL("../world/snapshot.json", import.meta.url), "utf8").then(
+      JSON.parse,
+    ),
+  ]);
+  const bases = sites.sites.filter(
+    (site: { kind: string }) => site.kind === "BASE",
+  );
+  assert.equal(bases.length, 1);
+
+  const [base] = bases;
+  assert.equal(base.id, "south-base-camp");
+  assert.equal(base.radiusM, CLIMBER.baseCampRadiusM);
+  const registration = terrain.config.registration;
+  const longitudeScale =
+    111_320 * Math.cos((registration.originLatitude * Math.PI) / 180);
+  const expected = {
+    x: (base.longitude - registration.originLongitude) * longitudeScale,
+    z: (registration.originLatitude - base.latitude) * 111_320,
+  };
+  const surface = terrain.oracle.sample(expected.x, expected.z);
+  assert.ok(surface);
+  assert.deepEqual(world.baseCamp, {
+    x: expected.x,
+    y: surface.y,
+    z: expected.z,
+  });
 });
 
 test("naturalized 20 cm columns map deterministically into 32 m chunks and 256 m tiles", () => {
