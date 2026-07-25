@@ -1,12 +1,13 @@
 import { CLIMBER } from "./constants";
 import {
+  isInsideBaseCamp,
   isInsideSpawnCore,
   mutationDestinationCell,
   voxelCenter,
 } from "./mutation";
 import type {
   CanonicalWorld,
-  ExpeditionProof,
+  ExpeditionAction,
   RouteSample,
   StoneState,
   Vec3,
@@ -18,7 +19,9 @@ export interface ActionBindingVerdict {
     | "ACTION_BOUND"
     | "ACTION_POSITION_MISMATCH"
     | "SPAWN_CORE_PROTECTED"
-    | "BASE_IMPORT_INSIDE_CAMP";
+    | "BASE_IMPORT_INSIDE_CAMP"
+    | "BASE_PICKUP_OUTSIDE_CAMP"
+    | "BASE_RELEASE_OUTSIDE_CAMP";
 }
 
 function distance(a: Vec3, b: Vec3) {
@@ -29,29 +32,50 @@ function sampleAt(route: RouteSample[], index: number | undefined) {
   return index === undefined ? null : route[index] ?? null;
 }
 
-function stoneById(world: CanonicalWorld, stoneId: string): StoneState | null {
+function stoneById(
+  world: Pick<CanonicalWorld, "stones">,
+  stoneId: string,
+): StoneState | null {
   return world.stones.find((stone) => stone.id === stoneId) ?? null;
 }
 
 export function validateActionBinding(
-  proof: ExpeditionProof,
-  world: CanonicalWorld,
+  action: ExpeditionAction,
+  route: RouteSample[],
+  world: Pick<CanonicalWorld, "baseCamp" | "stones">,
 ): ActionBindingVerdict {
-  const releaseSample = sampleAt(proof.route, proof.releaseIndex);
-  const destinationCell = mutationDestinationCell(proof.mutation);
+  const pickupSample = sampleAt(route, action.pickupIndex);
+  const releaseSample = sampleAt(route, action.releaseIndex);
+  if (!pickupSample || !releaseSample) {
+    return { valid: false, code: "ACTION_POSITION_MISMATCH" };
+  }
+
+  if (
+    action.source.kind === "BASE" &&
+    !isInsideBaseCamp(pickupSample, world)
+  ) {
+    return { valid: false, code: "BASE_PICKUP_OUTSIDE_CAMP" };
+  }
+  if (
+    action.destination.kind === "BASE" &&
+    !isInsideBaseCamp(releaseSample, world)
+  ) {
+    return { valid: false, code: "BASE_RELEASE_OUTSIDE_CAMP" };
+  }
+
+  const destinationCell = mutationDestinationCell(action);
   const releasePoint = destinationCell ? voxelCenter(destinationCell) : null;
   if (
     releasePoint &&
-    (!releaseSample ||
-      distance(releaseSample, releasePoint) > CLIMBER.interactionReachM)
+    distance(releaseSample, releasePoint) > CLIMBER.interactionReachM
   ) {
     return { valid: false, code: "ACTION_POSITION_MISMATCH" };
   }
 
   if (
     releasePoint &&
-    proof.mutation.source.kind === "BASE" &&
-    distance(releasePoint, world.baseCamp) <= CLIMBER.baseCampRadiusM
+    action.source.kind === "BASE" &&
+    isInsideBaseCamp(releasePoint, world)
   ) {
     return { valid: false, code: "BASE_IMPORT_INSIDE_CAMP" };
   }
@@ -59,17 +83,15 @@ export function validateActionBinding(
     return { valid: false, code: "SPAWN_CORE_PROTECTED" };
   }
 
-  if (proof.mutation.source.kind !== "BASE") {
-    const pickupSample = sampleAt(proof.route, proof.pickupIndex);
+  if (action.source.kind !== "BASE") {
     const target =
-      proof.mutation.source.kind === "STONE"
+      action.source.kind === "STONE"
         ? (() => {
-            const stone = stoneById(world, proof.mutation.source.stoneId);
+            const stone = stoneById(world, action.source.stoneId);
             return stone ? voxelCenter(stone.cell) : undefined;
           })()
-        : voxelCenter(proof.mutation.source.voxel);
+        : voxelCenter(action.source.voxel);
     if (
-      !pickupSample ||
       !target ||
       distance(pickupSample, target) >
         CLIMBER.interactionReachM
@@ -79,12 +101,12 @@ export function validateActionBinding(
   }
 
   if (
-    proof.mutation.source.kind !== "BASE" &&
+    action.source.kind !== "BASE" &&
     isInsideSpawnCore(
-      proof.mutation.source.kind === "TERRAIN"
-        ? voxelCenter(proof.mutation.source.voxel)
+      action.source.kind === "TERRAIN"
+        ? voxelCenter(action.source.voxel)
         : (() => {
-            const stone = stoneById(world, proof.mutation.source.stoneId);
+            const stone = stoneById(world, action.source.stoneId);
             return stone ? voxelCenter(stone.cell) : world.baseCamp;
           })(),
       world,

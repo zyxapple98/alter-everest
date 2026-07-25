@@ -20,34 +20,42 @@ export function calculateReward(
   route: RouteVerdict,
 ): RewardBreakdown {
   const proof = candidate.proof;
-  const operation = operationLabel(proof.mutation);
-  const actionIndex =
-    proof.mutation.destination.kind === "BASE"
-      ? proof.pickupIndex!
-      : proof.releaseIndex!;
-  const actionSample = proof.route[actionIndex];
   const baseAltitudeM = proof.route[0].altitudeM;
-  const altitudeM = actionSample.altitudeM;
-  const previousAltitudeM =
-    proof.mutation.source.kind !== "BASE" &&
-    proof.mutation.destination.kind === "WORLD"
-      ? proof.route[proof.pickupIndex!].altitudeM
-      : baseAltitudeM;
-  const effectiveGainM =
-    proof.mutation.destination.kind === "BASE"
-      ? 0
-      : Math.max(0, altitudeM - previousAltitudeM);
+  const actionAltitudes = proof.actions.map((action) => {
+    const actionIndex =
+      action.destination.kind === "BASE"
+        ? action.pickupIndex
+        : action.releaseIndex;
+    return proof.route[actionIndex].altitudeM;
+  });
+  const altitudeM = Math.max(...actionAltitudes);
+  const effectiveGainM = Math.max(
+    0,
+    ...proof.actions.map((action) => {
+      if (action.destination.kind === "BASE") return 0;
+      const previousAltitudeM =
+        action.source.kind === "BASE"
+          ? baseAltitudeM
+          : proof.route[action.pickupIndex].altitudeM;
+      return proof.route[action.releaseIndex].altitudeM - previousAltitudeM;
+    }),
+  );
   const heightPoints = Math.round(effectiveGainM / 10);
   const survivalPoints = route.outcome === "ACTIVE" ? 120 : 0;
   const reservePoints = Math.round(route.enduranceRemaining * 0.6);
-  const stewardshipPoints =
-    operation === "RECOVER"
-      ? 90
-      : operation === "MOVE"
-        ? 35
-        : operation === "QUARRY"
-          ? 25
-        : 0;
+  const stewardshipPoints = Math.max(
+    0,
+    ...proof.actions.map((action) => {
+      const operation = operationLabel(action);
+      return operation === "RECOVER"
+        ? 90
+        : operation === "MOVE"
+          ? 35
+          : operation === "QUARRY"
+            ? 25
+            : 0;
+    }),
+  );
   const duplicatePenalty = world.expeditions.filter(
     (record) => record.agentId === candidate.agentId,
   ).length;

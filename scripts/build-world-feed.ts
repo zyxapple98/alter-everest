@@ -41,7 +41,10 @@ interface DemMetadata {
   };
 }
 
-function actionLabel(action: "ADD" | "MOVE" | "RECOVER" | "QUARRY") {
+function actionLabel(
+  action: "ADD" | "MOVE" | "RECOVER" | "QUARRY" | "MULTI",
+) {
+  if (action === "MULTI") return "BUILT";
   if (action === "ADD") return "ADDED";
   if (action === "MOVE") return "MOVED";
   if (action === "QUARRY") return "QUARRIED";
@@ -148,16 +151,33 @@ async function traceForEvent(
     throw new Error(`Proof hash mismatch for event ${event.eventHash}.`);
   }
   const candidate = JSON.parse(bytes.toString("utf8")) as CandidateCommit;
-  const route = candidate.proof.route;
-  const mutation = candidate.proof.mutation as unknown as {
-    kind?: string;
-    destination?: { kind?: string };
+  const proof = candidate.proof as unknown as {
+    route: CandidateCommit["proof"]["route"];
+    actions?: CandidateCommit["proof"]["actions"];
+    mutation?: {
+      kind?: string;
+      destination?: { kind?: string };
+    };
+    pickupIndex?: number;
+    releaseIndex?: number;
   };
-  const actionIndex =
-    mutation.destination?.kind === "BASE" ||
-    mutation.kind === "RECOVER"
-      ? candidate.proof.pickupIndex!
-      : candidate.proof.releaseIndex!;
+  const route = proof.route;
+  const actionIndices =
+    proof.actions?.map((action) =>
+      action.destination.kind === "BASE"
+        ? action.pickupIndex
+        : action.releaseIndex,
+    ) ??
+    [
+      proof.mutation?.destination?.kind === "BASE" ||
+      proof.mutation?.kind === "RECOVER"
+        ? proof.pickupIndex!
+        : proof.releaseIndex!,
+    ];
+  const actionIndex = actionIndices.reduce((highest, index) =>
+    route[index].altitudeM > route[highest].altitudeM ? index : highest,
+  );
+  const actionIndexSet = new Set(actionIndices);
   const degrees = metadata.sampleSpacingArcSeconds / 3600;
   const stride = Math.max(1, Math.ceil(route.length / 220));
   const trace = route
@@ -165,7 +185,7 @@ async function traceForEvent(
       (_, index) =>
         index === 0 ||
         index === route.length - 1 ||
-        index === actionIndex ||
+        actionIndexSet.has(index) ||
         index % stride === 0,
     )
     .map((sample) => ({
@@ -190,6 +210,10 @@ async function traceForEvent(
     trace,
     releaseFraction:
       route.length > 1 ? actionIndex / (route.length - 1) : 1,
+    actionFractions:
+      route.length > 1
+        ? actionIndices.map((index) => index / (route.length - 1))
+        : actionIndices.map(() => 1),
   };
 }
 
@@ -234,6 +258,7 @@ const recentExpeditions =
               event.enduranceUsed ?? event.energyKj / 450,
             score: event.score,
             releaseFraction: route?.releaseFraction ?? 0.5,
+            actionFractions: route?.actionFractions ?? [],
             totalScore: totals.get(event.agentId) ?? event.score,
             trace: route?.trace ?? null,
           };
@@ -251,6 +276,7 @@ const recentExpeditions =
           expedition.enduranceUsed ?? expedition.oxygenUsed ?? 0,
         score: expedition.score,
         releaseFraction: 0.5,
+        actionFractions: [],
         totalScore: totals.get(expedition.agentId) ?? expedition.score,
         trace: null,
       }));

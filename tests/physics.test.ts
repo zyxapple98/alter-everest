@@ -4,6 +4,10 @@ import { validateCandidateCommit } from "../engine/commit";
 import { validateRouteClearance } from "../engine/clearance";
 import { CLIMBER, PHYSICS } from "../engine/constants";
 import {
+  isInsideBaseCamp,
+  isInsideSpawnCore,
+} from "../engine/mutation";
+import {
   simulateMutation,
   validateStaticServiceLoadCases,
   validateStaticServiceLoads,
@@ -472,6 +476,30 @@ test("route clearance blocks stone sides but permits walking on their tops", asy
   assert.equal(top.clear, true);
 });
 
+test("Base Camp and Spawn Core are horizontal cylinders", () => {
+  const world = { baseCamp: { x: -160, y: 0, z: 0 } };
+
+  assert.equal(
+    isInsideBaseCamp({ x: -160, y: 10_000, z: 0 }, world),
+    true,
+  );
+  assert.equal(
+    isInsideSpawnCore({ x: -160, y: 10_000, z: 0 }, world),
+    true,
+  );
+  assert.equal(
+    isInsideBaseCamp(
+      {
+        x: world.baseCamp.x + CLIMBER.baseCampRadiusM + 0.01,
+        y: world.baseCamp.y,
+        z: world.baseCamp.z,
+      },
+      world,
+    ),
+    false,
+  );
+});
+
 test("return status is inferred from the terminal position", () => {
   const oneWayProof: ExpeditionProof = {
     route: [
@@ -481,8 +509,13 @@ test("return status is inferred from the terminal position", () => {
       routeSample(-40),
       routeSample(0, 0, true),
     ],
-    mutation: importStone("stone-1", { x: 0, y: 1, z: 0 }),
-    releaseIndex: 4,
+    actions: [
+      {
+        ...importStone("stone-1", { x: 0, y: 1, z: 0 }),
+        pickupIndex: 0,
+        releaseIndex: 4,
+      },
+    ],
   };
   const oneWay = validateRoute(oneWayProof, {
     x: -160,
@@ -514,6 +547,416 @@ test("return status is inferred from the terminal position", () => {
   assert.equal(returned.outcome, "ACTIVE");
 });
 
+test("one expedition has one departure, one Base withdrawal, and no redeparture", () => {
+  const baseCamp = { x: -160, y: 0, z: 0 };
+  const neverDeparted = validateRoute(
+    {
+      route: [
+        routeSample(-160),
+        routeSample(-120, 0, true),
+      ],
+      actions: [
+        {
+          ...importStone("never-left", { x: 0, y: 1, z: 0 }),
+          pickupIndex: 0,
+          releaseIndex: 1,
+        },
+      ],
+    },
+    baseCamp,
+  );
+  assert.equal(neverDeparted.code, "ROUTE_NEVER_LEFT_BASE");
+
+  const ordinaryRoute = [
+    routeSample(-160),
+    routeSample(-120),
+    routeSample(-80),
+    routeSample(-40),
+    routeSample(0),
+    routeSample(-40, 0, true),
+  ];
+  const repeatedWithdrawal = validateRoute(
+    {
+      route: ordinaryRoute,
+      actions: [
+        {
+          ...importStone("supply-1", { x: 0, y: 1, z: 4 }),
+          pickupIndex: 0,
+          releaseIndex: 1,
+        },
+        {
+          ...importStone("supply-2", { x: 0, y: 1, z: 5 }),
+          pickupIndex: 1,
+          releaseIndex: 4,
+        },
+      ],
+    },
+    baseCamp,
+  );
+  assert.equal(
+    repeatedWithdrawal.code,
+    "BASE_WITHDRAWAL_LIMIT_EXCEEDED",
+  );
+
+  const redeparture = validateRoute(
+    {
+      route: [
+        ...ordinaryRoute.map((sample) => ({
+          ...sample,
+          safeStop: undefined,
+        })),
+        routeSample(0, 0, true),
+      ],
+      actions: [
+        {
+          ...importStone("supply-1", { x: 0, y: 1, z: 4 }),
+          pickupIndex: 0,
+          releaseIndex: 4,
+        },
+      ],
+    },
+    baseCamp,
+  );
+  assert.equal(redeparture.code, "BASE_REDEPARTURE_FORBIDDEN");
+
+  const boundaryGraze = validateRoute(
+    {
+      route: [
+        routeSample(-160),
+        routeSample(-120),
+        routeSample(-80),
+        routeSample(-40),
+        { ...routeSample(-21), z: -20 },
+        { ...routeSample(-21, 0, true), z: 20 },
+      ],
+      actions: [
+        {
+          ...importStone("graze", { x: -105, y: 1, z: -100 }),
+          pickupIndex: 0,
+          releaseIndex: 4,
+        },
+      ],
+    },
+    baseCamp,
+  );
+  assert.equal(boundaryGraze.code, "BASE_REDEPARTURE_FORBIDDEN");
+
+  const actionAfterReturn = validateRoute(
+    {
+      route: [
+        ...ordinaryRoute.map((sample) => ({
+          ...sample,
+          safeStop: undefined,
+        })),
+        routeSample(-80, 0, true),
+      ],
+      actions: [
+        {
+          ...importStone("return-phase", { x: 0, y: 1, z: 4 }),
+          pickupIndex: 0,
+          releaseIndex: 4,
+        },
+        {
+          kind: "RELOCATE",
+          matterId: "return-phase",
+          source: {
+            kind: "STONE",
+            stoneId: "return-phase",
+          },
+          destination: { kind: "BASE" },
+          pickupIndex: 5,
+          releaseIndex: 6,
+        },
+      ],
+    },
+    baseCamp,
+  );
+  assert.equal(actionAfterReturn.code, "ACTION_AFTER_BASE_RETURN");
+
+  const worldReleaseAfterReturn = validateRoute(
+    {
+      route: ordinaryRoute,
+      actions: [
+        {
+          kind: "RELOCATE",
+          matterId: "carried-home",
+          source: {
+            kind: "STONE",
+            stoneId: "carried-home",
+          },
+          destination: {
+            kind: "WORLD",
+            cell: { x: -200, y: 1, z: 0 },
+          },
+          pickupIndex: 4,
+          releaseIndex: 5,
+        },
+      ],
+    },
+    baseCamp,
+  );
+  assert.equal(
+    worldReleaseAfterReturn.code,
+    "ACTION_AFTER_BASE_RETURN",
+  );
+
+  const lateWithdrawal = validateRoute(
+    {
+      route: [
+        ...ordinaryRoute.map((sample) => ({
+          ...sample,
+          safeStop: undefined,
+        })),
+        routeSample(-80, 0, true),
+      ],
+      actions: [
+        {
+          ...importStone("late-supply", { x: 0, y: 1, z: 4 }),
+          pickupIndex: 5,
+          releaseIndex: 6,
+        },
+      ],
+    },
+    baseCamp,
+  );
+  assert.equal(lateWithdrawal.code, "BASE_PICKUP_AFTER_DEPARTURE");
+});
+
+test("one expedition can place a stable structure while carrying one stone at a time", async () => {
+  const world = canonicalWorld([
+    stone("course-1", 0, 1, 4),
+    stone("course-3", 5, 1, 4),
+  ]);
+  const route = [
+    routeSample(-160),
+    routeSample(-120),
+    routeSample(-80),
+    routeSample(-40),
+    routeSample(0),
+    routeSample(1),
+    routeSample(0),
+    routeSample(-40),
+    routeSample(-80),
+    routeSample(-120),
+    routeSample(-160, 0, true),
+  ];
+  const proof: ExpeditionProof = {
+    route,
+    actions: [
+      {
+        ...importStone("course-2", { x: 0, y: 2, z: 4 }),
+        pickupIndex: 0,
+        releaseIndex: 4,
+      },
+      {
+        kind: "RELOCATE",
+        matterId: "course-3",
+        source: { kind: "STONE", stoneId: "course-3" },
+        destination: {
+          kind: "WORLD",
+          cell: { x: 0, y: 3, z: 4 },
+        },
+        pickupIndex: 5,
+        releaseIndex: 6,
+      },
+    ],
+  };
+  const result = await validateCandidateCommit(
+    {
+      protocol: "0.6.0",
+      id: "two-course-structure",
+      parentWorldHash: world.worldHash,
+      terrainHash: world.terrainHash,
+      agentId: "builder",
+      proof,
+    },
+    world,
+    { baseCamp: world.baseCamp, terrain },
+  );
+
+  assert.equal(result.accepted, true, JSON.stringify(result, null, 2));
+  assert.deepEqual(
+    result.physics?.finalStones.map((entry) => entry.id).sort(),
+    ["course-1", "course-2", "course-3"],
+  );
+  assert.ok((result.route?.loadedDistanceM ?? 0) > 0);
+});
+
+test("recovery releases matter at an explicit Base Camp route sample", async () => {
+  const world = canonicalWorld([
+    stone("return-me", 0, 1, 5),
+  ]);
+  const route = [
+    routeSample(-160),
+    routeSample(-120),
+    routeSample(-80),
+    routeSample(-40),
+    routeSample(0),
+    routeSample(0),
+    routeSample(-40),
+    routeSample(-80),
+    routeSample(-120),
+    routeSample(-160, 0, true),
+  ];
+  const action: ExpeditionProof["actions"][number] = {
+    kind: "RELOCATE",
+    matterId: "return-me",
+    source: { kind: "STONE", stoneId: "return-me" },
+    destination: { kind: "BASE" },
+    pickupIndex: 4,
+    releaseIndex: 9,
+  };
+  const accepted = await validateCandidateCommit(
+    {
+      protocol: "0.6.0",
+      id: "explicit-base-release",
+      parentWorldHash: world.worldHash,
+      terrainHash: world.terrainHash,
+      agentId: "steward",
+      proof: { route, actions: [action] },
+    },
+    world,
+    { baseCamp: world.baseCamp, terrain },
+  );
+  assert.equal(accepted.accepted, true, JSON.stringify(accepted, null, 2));
+  assert.deepEqual(accepted.physics?.finalStones, []);
+
+  const outsideCamp = await validateCandidateCommit(
+    {
+      protocol: "0.6.0",
+      id: "remote-base-release",
+      parentWorldHash: world.worldHash,
+      terrainHash: world.terrainHash,
+      agentId: "steward",
+      proof: {
+        route,
+        actions: [{ ...action, releaseIndex: 5 }],
+      },
+    },
+    world,
+    { baseCamp: world.baseCamp, terrain },
+  );
+  assert.equal(outsideCamp.accepted, false);
+  assert.equal(outsideCamp.route?.code, "BASE_RELEASE_OUTSIDE_CAMP");
+});
+
+test("a multi-action expedition with no net world change is rejected", async () => {
+  const world = canonicalWorld();
+  const route = [
+    routeSample(-160),
+    routeSample(-120),
+    routeSample(-80),
+    routeSample(-40),
+    routeSample(0),
+    routeSample(-40),
+    routeSample(-80),
+    routeSample(-120),
+    routeSample(-160, 0, true),
+  ];
+  const result = await validateCandidateCommit(
+    {
+      protocol: "0.6.0",
+      id: "multi-noop",
+      parentWorldHash: world.worldHash,
+      terrainHash: world.terrainHash,
+      agentId: "builder",
+      proof: {
+        route,
+        actions: [
+          {
+            ...importStone("roundtrip-stone", { x: 0, y: 1, z: 5 }),
+            pickupIndex: 0,
+            releaseIndex: 4,
+          },
+          {
+            kind: "RELOCATE",
+            matterId: "roundtrip-stone",
+            source: {
+              kind: "STONE",
+              stoneId: "roundtrip-stone",
+            },
+            destination: { kind: "BASE" },
+            pickupIndex: 4,
+            releaseIndex: 8,
+          },
+        ],
+      },
+    },
+    world,
+    { baseCamp: world.baseCamp, terrain },
+  );
+  assert.equal(result.accepted, false);
+  assert.equal(result.physics?.code, "NO_STATE_CHANGE");
+});
+
+test("overlapping carry intervals and a failing later action reject the expedition atomically", async () => {
+  const world = canonicalWorld([
+    stone("movable-second", 5, 1, 4),
+  ]);
+  const route = [
+    routeSample(-160),
+    routeSample(-120),
+    routeSample(-80),
+    routeSample(-40),
+    routeSample(0),
+    routeSample(1),
+    routeSample(0),
+    routeSample(-40),
+    routeSample(-80),
+    routeSample(-120),
+    routeSample(-160, 0, true),
+  ];
+  const actions: ExpeditionProof["actions"] = [
+    {
+      ...importStone("stable-first", { x: 0, y: 1, z: 4 }),
+      pickupIndex: 0,
+      releaseIndex: 4,
+    },
+    {
+      kind: "RELOCATE",
+      matterId: "movable-second",
+      source: { kind: "STONE", stoneId: "movable-second" },
+      destination: {
+        kind: "WORLD",
+        cell: { x: 0, y: 4, z: 0 },
+      },
+      pickupIndex: 5,
+      releaseIndex: 6,
+    },
+  ];
+  const overlapping = validateRoute(
+    {
+      route,
+      actions: [
+        actions[0],
+        { ...actions[1], pickupIndex: 3 },
+      ],
+    },
+    world.baseCamp,
+  );
+  assert.equal(overlapping.valid, false);
+  assert.equal(overlapping.code, "ACTION_INDEX_INVALID");
+
+  const result = await validateCandidateCommit(
+    {
+      protocol: "0.6.0",
+      id: "atomic-multi-failure",
+      parentWorldHash: world.worldHash,
+      terrainHash: world.terrainHash,
+      agentId: "builder",
+      proof: { route, actions },
+    },
+    world,
+    { baseCamp: world.baseCamp, terrain },
+  );
+  assert.equal(result.accepted, false);
+  assert.equal(result.code, "PHYSICS_INVALID");
+  assert.equal(result.physics?.code, "DESTINATION_HAS_NO_FACE_CONTACT");
+  assert.deepEqual(world.stones, [
+    stone("movable-second", 5, 1, 4),
+  ]);
+});
+
 test("a stale candidate is replayed against HEAD when still valid", async () => {
   const world: CanonicalWorld = {
     ...canonicalWorld(),
@@ -532,12 +975,17 @@ test("a stale candidate is replayed against HEAD when still valid", async () => 
       routeSample(-120),
       routeSample(-160, 0, true),
     ],
-    mutation: importStone("stone-7", { x: 5, y: 1, z: 0 }),
-    releaseIndex: 4,
+    actions: [
+      {
+        ...importStone("stone-7", { x: 5, y: 1, z: 0 }),
+        pickupIndex: 0,
+        releaseIndex: 4,
+      },
+    ],
   };
   const result = await validateCandidateCommit(
     {
-      protocol: "0.5.0",
+      protocol: "0.6.0",
       id: "candidate-7",
       parentWorldHash: "old-head",
       terrainHash: "terrain-head",
@@ -572,21 +1020,23 @@ test("a move is rejected when its pickup-only intermediate state would collapse"
       routeSample(-120),
       routeSample(-160, 0, true),
     ],
-    pickupIndex: 4,
-    releaseIndex: 5,
-    mutation: {
-      kind: "RELOCATE",
-      matterId: "foot",
-      source: { kind: "STONE", stoneId: "foot" },
-      destination: {
-        kind: "WORLD",
-        cell: { x: 1, y: 1, z: 0 },
+    actions: [
+      {
+        kind: "RELOCATE",
+        matterId: "foot",
+        source: { kind: "STONE", stoneId: "foot" },
+        destination: {
+          kind: "WORLD",
+          cell: { x: 1, y: 1, z: 0 },
+        },
+        pickupIndex: 4,
+        releaseIndex: 5,
       },
-    },
+    ],
   };
   const result = await validateCandidateCommit(
     {
-      protocol: "0.5.0",
+      protocol: "0.6.0",
       id: "intermediate-collapse",
       parentWorldHash: world.worldHash,
       terrainHash: world.terrainHash,
@@ -607,15 +1057,23 @@ test("an action point cannot teleport a stone", async () => {
   const proof: ExpeditionProof = {
     route: [
       routeSample(-160),
-      routeSample(-159.5),
-      routeSample(-160, 0, true),
+      routeSample(-120),
+      routeSample(-80),
+      routeSample(-40),
+      routeSample(0),
+      routeSample(-40, 0, true),
     ],
-    mutation: importStone("remote", { x: 400, y: 1, z: 0 }),
-    releaseIndex: 1,
+    actions: [
+      {
+        ...importStone("remote", { x: 400, y: 1, z: 0 }),
+        pickupIndex: 0,
+        releaseIndex: 4,
+      },
+    ],
   };
   const result = await validateCandidateCommit(
     {
-      protocol: "0.5.0",
+      protocol: "0.6.0",
       id: "remote-action",
       parentWorldHash: world.worldHash,
       terrainHash: world.terrainHash,
@@ -636,12 +1094,17 @@ test("a loaded route cannot exceed 100 Endurance", () => {
   );
   const proof: ExpeditionProof = {
     route,
-    mutation: importStone("too-far", {
-      x: Math.floor(route.at(-1)!.x / PHYSICS.voxelEdgeM),
-      y: 1,
-      z: 0,
-    }),
-    releaseIndex: route.length - 1,
+    actions: [
+      {
+        ...importStone("too-far", {
+          x: Math.floor(route.at(-1)!.x / PHYSICS.voxelEdgeM),
+          y: 1,
+          z: 0,
+        }),
+        pickupIndex: 0,
+        releaseIndex: route.length - 1,
+      },
+    ],
   };
   const result = validateRoute(proof, { x: 0, y: 0, z: 0 });
 

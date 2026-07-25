@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import type { CanonicalExpeditionEvent } from "../engine/types";
-import { mutationStoneId, operationLabel } from "../engine/mutation";
+import {
+  actionStoneIds,
+  operationLabel,
+  operationSummary,
+} from "../engine/mutation";
 import { applyAcceptedCandidate } from "../engine/world";
 import {
   canonicalJson,
@@ -109,11 +113,15 @@ if (
   const receipt = privateKey
     ? signReceiptBody(body, privateKey)
     : unsignedReceipt(body);
-  const actionIndex =
-    candidate.proof.mutation.destination.kind === "BASE"
-      ? candidate.proof.pickupIndex!
-      : candidate.proof.releaseIndex!;
-  const actionSample = candidate.proof.route[actionIndex];
+  const actionAltitudes = candidate.proof.actions.map((action) => {
+    const actionIndex =
+      action.destination.kind === "BASE"
+        ? action.pickupIndex
+        : action.releaseIndex;
+    return candidate.proof.route[actionIndex].altitudeM;
+  });
+  const operations = candidate.proof.actions.map(operationLabel);
+  const stoneIds = actionStoneIds(candidate.proof.actions);
 
   const prefix = `${String(nextWorld.sequence).padStart(9, "0")}-${safeFilePart(
     candidate.id,
@@ -121,7 +129,7 @@ if (
   const proofPath = resolve(proofsDirectory, `${prefix}.json`);
   const proofArtifact = `world/proofs/${prefix}.json`;
   const eventWithoutHash = {
-    eventVersion: "1.0.0" as const,
+    eventVersion: "1.1.0" as const,
     sequence: nextWorld.sequence,
     candidateId: candidate.id,
     candidateHash: verification.candidateHash,
@@ -130,10 +138,13 @@ if (
     worldHash: nextWorld.worldHash,
     terrainHash: candidate.terrainHash,
     engineHash,
-    action: operationLabel(candidate.proof.mutation),
-    stoneId: mutationStoneId(candidate.proof.mutation),
+    action: operationSummary(candidate.proof.actions),
+    actions: operations,
+    actionCount: operations.length,
+    stoneId: stoneIds[0],
+    stoneIds,
     outcome: verdict.nextIdentityStatus!,
-    altitudeM: actionSample.altitudeM,
+    altitudeM: Math.max(...actionAltitudes),
     enduranceUsed: verdict.route!.enduranceUsed,
     energyKj: verdict.route!.energyKj,
     score: verdict.score!,

@@ -1,6 +1,8 @@
 import { CLIMBER, TERRAIN } from "./constants";
 import type {
   CanonicalWorld,
+  ExpeditionAction,
+  ExpeditionOperation,
   MatterMutation,
   MutationOperation,
   VoxelCoordinate,
@@ -49,9 +51,20 @@ export function isInsideSpawnCore(
   return (
     Math.hypot(
       point.x - world.baseCamp.x,
-      point.y - world.baseCamp.y,
       point.z - world.baseCamp.z,
     ) < CLIMBER.protectedSpawnRadiusM
+  );
+}
+
+export function isInsideBaseCamp(
+  point: { x: number; y: number; z: number },
+  world: Pick<CanonicalWorld, "baseCamp">,
+) {
+  return (
+    Math.hypot(
+      point.x - world.baseCamp.x,
+      point.z - world.baseCamp.z,
+    ) <= CLIMBER.baseCampRadiusM + 1e-6
   );
 }
 
@@ -62,4 +75,14 @@ export function operationLabel(
   if (mutation.destination.kind === "BASE") return "RECOVER";
   if (mutation.source.kind === "TERRAIN") return "QUARRY";
   return "MOVE";
+}
+
+export function operationSummary(
+  actions: readonly ExpeditionAction[],
+): ExpeditionOperation {
+  return actions.length === 1 ? operationLabel(actions[0]) : "MULTI";
+}
+
+export function actionStoneIds(actions: readonly ExpeditionAction[]) {
+  return [...new Set(actions.map(mutationStoneId))];
 }

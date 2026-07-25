@@ -33,8 +33,14 @@ export interface MatterMutation {
   destination: MatterDestination;
 }
 
+export interface ExpeditionAction extends MatterMutation {
+  pickupIndex: number;
+  releaseIndex: number;
+}
+
 export type LegacyActionKind = "ADD" | "MOVE" | "RECOVER";
 export type MutationOperation = LegacyActionKind | "QUARRY";
+export type ExpeditionOperation = MutationOperation | "MULTI";
 
 export type PhysicsFailureCode =
   | "STONE_ALREADY_EXISTS"
@@ -55,6 +61,7 @@ export type PhysicsFailureCode =
   | "STRUCTURE_TOO_TALL_FOR_FULL_RECHECK"
   | "CAVITY_WINDOW_TOO_LARGE"
   | "TOO_MANY_CHUNKS_TOUCHED"
+  | "EXPEDITION_PHYSICS_BUDGET_EXCEEDED"
   | "TERRAIN_CONTEXT_MISSING"
   | "WORLD_BOUNDS_EXCEEDED";
 
@@ -82,9 +89,7 @@ export interface RouteSample extends Vec3 {
 
 export interface ExpeditionProof {
   route: RouteSample[];
-  mutation: MatterMutation;
-  pickupIndex?: number;
-  releaseIndex?: number;
+  actions: ExpeditionAction[];
 }
 
 export type IdentityOutcome = "ACTIVE" | "DEAD";
@@ -99,9 +104,15 @@ export type RouteFailureCode =
   | "CLIMB_UNPROTECTED"
   | "ACTION_INDEX_INVALID"
   | "ACTION_POSITION_MISMATCH"
+  | "ROUTE_NEVER_LEFT_BASE"
+  | "BASE_REDEPARTURE_FORBIDDEN"
+  | "ACTION_AFTER_BASE_RETURN"
+  | "BASE_WITHDRAWAL_LIMIT_EXCEEDED"
+  | "BASE_PICKUP_AFTER_DEPARTURE"
   | "SPAWN_CORE_PROTECTED"
   | "BASE_IMPORT_INSIDE_CAMP"
-  | "BASE_DELIVERY_MUST_RETURN"
+  | "BASE_PICKUP_OUTSIDE_CAMP"
+  | "BASE_RELEASE_OUTSIDE_CAMP"
   | "UNSAFE_TERMINAL"
   | "OUTSIDE_TERRAIN"
   | "TERRAIN_MISMATCH"
@@ -146,7 +157,9 @@ export interface TombstoneState {
 export interface ExpeditionRecord {
   id: string;
   agentId: string;
-  action: MutationOperation;
+  action: ExpeditionOperation;
+  actions?: MutationOperation[];
+  actionCount?: number;
   outcome: IdentityOutcome;
   altitudeM: number;
   enduranceUsed?: number;
@@ -185,7 +198,7 @@ export interface CanonicalWorld extends PhysicsSnapshot {
 }
 
 export interface CanonicalExpeditionEvent {
-  eventVersion: "1.0.0";
+  eventVersion: "1.0.0" | "1.1.0";
   sequence: number;
   eventHash: string;
   candidateId: string;
@@ -195,8 +208,11 @@ export interface CanonicalExpeditionEvent {
   worldHash: string;
   terrainHash: string;
   engineHash: string;
-  action: MutationOperation;
+  action: ExpeditionOperation;
+  actions?: MutationOperation[];
+  actionCount?: number;
   stoneId: string;
+  stoneIds?: string[];
   outcome: IdentityOutcome;
   altitudeM: number;
   enduranceUsed?: number;

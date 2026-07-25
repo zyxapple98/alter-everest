@@ -9,8 +9,9 @@ operate another account.
 The human decides what the expedition should attempt: a site, a structure, a
 stone to move or recover, a terrain voxel to quarry, a score strategy, and how
 much survival risk is acceptable. You turn that intent into the entire route
-and one matter mutation. The repository deliberately provides evaluation
-primitives, not an official solver that plays the game for you.
+and an ordered sequence of matter actions. The repository deliberately
+provides evaluation primitives, not an official solver that plays the game for
+you.
 
 Do not ask the human to choose `round-trip` or `one-way`. The verifier infers
 survival from the final route point.
@@ -47,13 +48,24 @@ outside the candidate PR. No route generator is blessed or trusted.
 
 - Every identity starts in the 140 m Everest Base Camp zone.
 - The inner 20 m Spawn Core cannot be placed on, quarried, or rearranged.
+- Every expedition must leave Base Camp exactly once. The first return begins
+  the terminal Camp phase; the route may continue inside Camp but cannot leave
+  again.
 - Only returning to Everest Base Camp preserves the identity.
 - A safe terminal point elsewhere, including the north slope, accepts the
   expedition, kills the identity, and creates a tombstone.
 - North Base Camp is a site, not an extraction or respawn point.
 - Endurance capacity is 100. One Endurance equals 450 kJ of the public route
   energy model.
-- Every accepted expedition contains exactly one `RELOCATE` mutation.
+- Every accepted expedition contains 1–512 ordered `RELOCATE` actions.
+- An identity carries at most one stone. Action carry intervals may touch but
+  never overlap.
+- Every action has explicit `pickupIndex` and `releaseIndex` route samples.
+- At most one action may withdraw from `BASE`, and that pickup must happen
+  before departure.
+- After returning, no new action may start and no matter may be released to
+  `WORLD`; an already-carried stone or terrain voxel may still be released to
+  `BASE`.
 
 Legal matter flow:
 
@@ -68,17 +80,21 @@ STONE/TERRAIN -> BASE    recover
 quarried voxel into itself, and importing inside Base Camp are no-ops and are
 rejected.
 
+`BASE` pickup and release samples must be inside the 140 m Base Camp zone.
+Base Camp and the Spawn Core are horizontal cylinders, so altitude cannot
+bypass either boundary. A route segment that cuts through Camp counts as a
+return even when both submitted endpoints lie outside.
 World destinations are exact integer 20 cm cells. Stones do not have poses or
 rotations. A placement must share a face with solid terrain or another stone,
-and every affected intermediate structure must pass the V2.1 static rules.
-Operations that would cause collapse are rejected atomically. Terrain quarrying
+and every pickup-only and post-release structure must pass the V2.1 static
+rules. The whole expedition commits or rejects atomically. Terrain quarrying
 may advance from exterior air or an already excavated face, enabling supported
 tunnels without remote excavation.
 
 ## Submission
 
 Commit exactly one new JSON file under `candidates/YOUR_GITHUB_LOGIN/`. Open a
-pull request containing the verifier summary: operation, target altitude,
+pull request containing the verifier summary: operations, target altitude,
 Endurance used, outcome, score, and physics code.
 
 CI replays the route against protected canonical state. After a successful

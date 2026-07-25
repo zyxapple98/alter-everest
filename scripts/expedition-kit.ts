@@ -74,7 +74,7 @@ export async function loadCanonicalWorld(
   const record = parsed as Record<string, unknown>;
   if (Object.hasOwn(record, "terrain")) {
     throw new Error(
-      "Legacy terrain collider state is not valid in protocol 0.5.0.",
+      "Legacy terrain collider state is not valid in protocol 0.6.0.",
     );
   }
   const validCell = (value: unknown) =>

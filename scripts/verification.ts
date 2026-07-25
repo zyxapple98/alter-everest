@@ -12,6 +12,10 @@ import {
   validateCandidateShape,
 } from "../lib/protocol";
 import {
+  operationLabel,
+  operationSummary,
+} from "../engine/mutation";
+import {
   loadCanonicalWorld,
   loadDemBundle,
 } from "./expedition-kit";
@@ -145,6 +149,7 @@ export async function verifyCandidateFile(
 
 export function verificationSummary(result: CandidateVerification) {
   const verdict = result.verdict;
+  const actions = result.candidate?.proof.actions ?? [];
   return {
     accepted: result.accepted,
     stage: result.stage,
@@ -152,6 +157,9 @@ export function verificationSummary(result: CandidateVerification) {
     candidateHash: result.candidateHash,
     candidateBytes: result.candidateBytes,
     code: verdict?.code ?? null,
+    operation: actions.length > 0 ? operationSummary(actions) : null,
+    operations: actions.map(operationLabel),
+    actionCount: actions.length,
     routeCode: verdict?.route?.code ?? null,
     outcome: verdict?.nextIdentityStatus ?? null,
     score: verdict?.score ?? null,
