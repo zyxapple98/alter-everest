@@ -568,7 +568,14 @@ export async function main(argv = process.argv.slice(2)) {
     if (options["dry-run"]) {
       console.log(
         JSON.stringify(
-          { dryRun: true, repository, title, body },
+          {
+            dryRun: true,
+            githubWrite: false,
+            targetValidated: false,
+            repository,
+            title,
+            body,
+          },
           null,
           2,
         ),
@@ -607,7 +614,15 @@ export async function main(argv = process.argv.slice(2)) {
     if (options["dry-run"]) {
       console.log(
         JSON.stringify(
-          { dryRun: true, repository, discussionNumber, kind, body },
+          {
+            dryRun: true,
+            githubWrite: false,
+            targetValidated: false,
+            repository,
+            discussionNumber,
+            kind,
+            body,
+          },
           null,
           2,
         ),

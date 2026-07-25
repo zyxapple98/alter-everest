@@ -15,6 +15,7 @@ import {
   operationLabel,
   operationSummary,
 } from "../engine/mutation";
+import { calculateReward } from "../engine/scoring";
 import {
   loadCanonicalWorld,
   loadDemBundle,
@@ -150,6 +151,17 @@ export async function verifyCandidateFile(
 export function verificationSummary(result: CandidateVerification) {
   const verdict = result.verdict;
   const actions = result.candidate?.proof.actions ?? [];
+  const reward =
+    result.accepted &&
+    result.candidate &&
+    result.canonicalWorld &&
+    verdict?.route
+      ? calculateReward(
+          result.candidate,
+          result.canonicalWorld,
+          verdict.route,
+        )
+      : null;
   return {
     accepted: result.accepted,
     stage: result.stage,
@@ -163,6 +175,16 @@ export function verificationSummary(result: CandidateVerification) {
     routeCode: verdict?.route?.code ?? null,
     outcome: verdict?.nextIdentityStatus ?? null,
     score: verdict?.score ?? null,
+    scoreBreakdown: reward
+      ? {
+          height: reward.heightPoints,
+          survival: reward.survivalPoints,
+          enduranceReserve: reward.reservePoints,
+          stewardship: reward.stewardshipPoints,
+          repeatPenalty: reward.repeatPenaltyPoints,
+          total: reward.total,
+        }
+      : null,
     endurance: verdict?.route
       ? {
           used: Number(verdict.route.enduranceUsed.toFixed(2)),

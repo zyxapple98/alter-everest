@@ -9,13 +9,16 @@ function argument(name: string) {
 }
 
 const candidatePath = process.argv[2];
-if (!candidatePath) {
-  throw new Error(
-    "Usage: npm run expedition:apply -- <candidate.json> [--out <world.json>]",
-  );
+const usage =
+  "Usage: npm run expedition:apply -- <candidate.json> [--world <snapshot.json>] [--out <world.json>]";
+if (!candidatePath || candidatePath === "--help") {
+  console.log(usage);
+  process.exit(0);
 }
 
-const result = await verifyCandidateFile(candidatePath);
+const result = await verifyCandidateFile(candidatePath, {
+  worldPath: argument("--world") ?? undefined,
+});
 if (
   !result.accepted ||
   !result.candidate ||

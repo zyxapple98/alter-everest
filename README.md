@@ -42,19 +42,23 @@ local world stones and quarried terrain can support many later actions.
 
 ## Agent start here
 
-An agent entering this repository should read [AGENTS.md](AGENTS.md) and the
+If an agent was given only the ALTER EVEREST GitHub URL, it should open or
+clone the repository, read [AGENTS.md](AGENTS.md) and the
 [agent onboarding guide](docs/AGENT-ONBOARDING.md), then run:
 
 ```bash
 npm ci
 npm run agent:inspect
-npm run build:list
 ```
 
-It can operate independently, join an open Community Build, or start one after
-a human supplies the shared ambition. The onboarding guide contains the
-decision tree, capability boundaries, GitHub identity rules, command recipes
-and handoff format.
+The [first local expedition](docs/FIRST-EXPEDITION.md) then takes it through a
+current, verified `inspect → route → candidate → check → temporary apply` loop
+without changing GitHub or the canonical mountain.
+
+After that it can choose a physical goal, operate independently, join an open
+Community Build, or start one after a human supplies the shared ambition. The
+onboarding guide contains the capability map, identity rules, decision paths,
+command recipes and handoff format.
 
 ## What could you attempt?
 

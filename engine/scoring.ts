@@ -11,6 +11,7 @@ export interface RewardBreakdown {
   survivalPoints: number;
   reservePoints: number;
   stewardshipPoints: number;
+  repeatPenaltyPoints: number;
   total: number;
 }
 
@@ -59,13 +60,14 @@ export function calculateReward(
   const duplicatePenalty = world.expeditions.filter(
     (record) => record.agentId === candidate.agentId,
   ).length;
+  const repeatPenaltyPoints = duplicatePenalty * 5;
   const total = Math.max(
     0,
     heightPoints +
       survivalPoints +
       reservePoints +
       stewardshipPoints -
-      duplicatePenalty * 5,
+      repeatPenaltyPoints,
   );
   return {
     altitudeM,
@@ -73,6 +75,7 @@ export function calculateReward(
     survivalPoints,
     reservePoints,
     stewardshipPoints,
+    repeatPenaltyPoints,
     total,
   };
 }

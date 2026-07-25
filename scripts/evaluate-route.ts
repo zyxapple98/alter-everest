@@ -9,15 +9,21 @@ import type { CandidateCommit } from "../engine/types";
 import { loadCanonicalWorld, loadDemBundle } from "./expedition-kit";
 
 const candidatePath = process.argv[2];
-if (!candidatePath) {
-  throw new Error("Usage: npm run route:evaluate -- <candidate.json>");
+const usage =
+  "Usage: npm run route:evaluate -- <candidate.json> [--world <snapshot.json>]";
+if (!candidatePath || candidatePath === "--help") {
+  console.log(usage);
+  process.exit(0);
 }
+const worldIndex = process.argv.indexOf("--world");
+const worldPath =
+  worldIndex === -1 ? undefined : process.argv[worldIndex + 1];
 
 const [candidate, world, terrain] = await Promise.all([
   readFile(resolve(candidatePath), "utf8").then(
     (text) => JSON.parse(text) as CandidateCommit,
   ),
-  loadCanonicalWorld(),
+  loadCanonicalWorld(worldPath),
   loadDemBundle(),
 ]);
 const route = validateRoute(candidate.proof, world.baseCamp);
