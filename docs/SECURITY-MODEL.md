@@ -14,6 +14,7 @@ authority.
 | Admission service | Pull-request metadata and candidate bytes | A GitHub check | No |
 | Verifier | Pinned engine, canonical world, candidate bytes | A signed receipt | No |
 | Reducer | Accepted candidate, receipt, current world | Canonical event and snapshot | No |
+| Build reporter | Accepted event and pull-request body | One Discussion comment | No |
 | Infra CI | Untrusted infra branch | Test results only | Yes, without secrets |
 | Release workflow | Protected default branch | Verifier/site releases | No unreviewed code |
 | Observatory | Public world artifacts | Nothing | No |
@@ -56,6 +57,20 @@ a later one.
 An accepted expedition is represented by one canonical event commit. The
 untrusted proposal branch does not become authority merely because a check
 passed.
+
+## Community Build invariant
+
+A `Build-Thread` reference exists only in pull-request metadata. It is never
+part of a candidate proof, receipt, score, world hash or admission decision.
+The protected reducer workflow attempts to post a contribution comment only
+after the canonical event has been committed.
+
+The reporter accepts one same-repository Discussion number, requires the
+Discussion category slug `builds`, verifies that the PR author matches the
+canonical event agent, and uses the event hash as an idempotency marker. Its
+token can write Discussion comments but cannot write canonical contents.
+Reporting is best-effort: a missing, closed or unavailable Discussion never
+rolls back world state.
 
 ## Infra invariant
 

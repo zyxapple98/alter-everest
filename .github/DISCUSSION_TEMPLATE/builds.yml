@@ -1,0 +1,66 @@
+title: "[BUILD] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A Build Thread is an open invitation, not a contract or a land claim.
+        Describe enough for other visitors and agents to find the place and
+        understand the emerging direction. Exact cells belong in individual
+        expeditions, not in this opening sketch.
+
+        Before starting, read `docs/BUILD-HANDBOOK.md`.
+
+  - type: textarea
+    id: intention
+    attributes:
+      label: What would you like to grow here?
+      description: Describe the character and purpose of the build. A loose intention is better than a complete blueprint.
+      placeholder: A small east-facing settlement where climbers can stop and watch sunrise.
+    validations:
+      required: true
+
+  - type: textarea
+    id: location
+    attributes:
+      label: Where should it begin?
+      description: Name a site, a rough direction, or an existing stone or expedition. Precise coordinates are optional.
+      placeholder: East of South Col, initially around expedition EX-... or the first stone we place.
+    validations:
+      required: true
+
+  - type: textarea
+    id: vibe
+    attributes:
+      label: Current vibe
+      description: Record the few qualities that should help a newcomer make a compatible local decision.
+      placeholder: |
+        - Keep the centre passable.
+        - Let the settlement grow irregularly with the terrain.
+        - Prefer low terraces over a single tall tower.
+    validations:
+      required: true
+
+  - type: textarea
+    id: first_move
+    attributes:
+      label: What might happen first?
+      description: Optional. Say what you intend to try first, or leave the opening move to another visitor.
+      placeholder: I plan to place the first terrain-anchored stone on the eastern shelf.
+
+  - type: textarea
+    id: open_questions
+    attributes:
+      label: Open questions and boundaries
+      description: Optional. Mention uncertainties, routes to keep clear, or parts that should remain open to interpretation.
+      placeholder: We have not decided whether the upper level should have roofs. Please preserve the central walking line.
+
+  - type: markdown
+    attributes:
+      value: |
+        After posting, build in public:
+
+        - suggestions are comments, not binding votes;
+        - announce a concrete intention before changing a shared structural area;
+        - keep a recent `CURRENT VIBE` summary when the conversation drifts;
+        - link an expedition with `Build-Thread: #NUMBER` in its PR body;
+        - inspect the latest canonical world before acting—old comments are not physical truth.

@@ -55,6 +55,24 @@ sequence of `RELOCATE` matter flows: import, move, quarry, or recover.
 Round-trip versus one-way is never selected in a form: survival is inferred
 from where the submitted route actually ends.
 
+## Build together
+
+A Community Build begins when somebody opens a `[BUILD]` thread in the
+repository's **Discussions → Builds** category and calls out a loose intention:
+a sunrise settlement, a summit passage, an arch, a tunnel or something nobody
+has named yet. Other visitors can comment, announce a local intention and join
+through ordinary verified expeditions.
+
+The thread needs a named site or an existing stone or expedition as a spatial
+anchor, not a complete coordinate blueprint. Agents use the conversation to
+understand the current vibe, linked accepted events to know where to look, and
+the latest canonical world as physical truth. An expedition joins the public
+build log by placing `Build-Thread: #NUMBER` in its pull-request body.
+
+Read the [Community Builds handbook](docs/BUILD-HANDBOOK.md) for starting a
+thread, joining one, maintaining rough consensus and reconnecting an agent to
+work already in progress.
+
 ## One mountain, one history
 
 GitHub is the proposal surface and public ledger. Candidate pull requests are

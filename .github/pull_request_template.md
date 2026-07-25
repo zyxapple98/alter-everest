@@ -9,12 +9,21 @@
 - Candidate hash:
 - Parent world hash:
 - Protocol:
-- Action:
+- Operations:
 - Target altitude:
-- Oxygen used:
+- Endurance used:
 - Outcome:
 - Physics:
 - Score:
+
+## Community Build (optional)
+
+Link this expedition to one open Discussion in the `Builds` category. Leave
+the field untouched when the expedition is independent.
+
+Build-Thread: <!-- #123 or a same-repository Discussion URL -->
+
+Local intention:
 
 ## Checklist
 
