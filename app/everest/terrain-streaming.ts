@@ -70,7 +70,7 @@ interface PendingBuild {
 // cache entry is evicted. Forward expedition playback rarely revisits an old
 // terrain state, so a compact cache avoids retaining obsolete clipmaps after
 // every quarry or placement phase.
-const MAX_MESH_CACHE_BYTES = 24 * 1024 * 1024;
+const MAX_MESH_CACHE_BYTES = 12 * 1024 * 1024;
 
 function meshByteLength(result: TerrainMeshResult) {
   return (
@@ -644,6 +644,11 @@ export class TerrainStreamingEngine {
       tileCacheMisses: tileStats.cacheMisses,
       fetchedTileBytes: tileStats.fetchedBytes,
     };
+  }
+
+  clearMeshCache() {
+    this.meshCache.clear();
+    this.meshCacheBytes = 0;
   }
 
   dispose() {
