@@ -14,7 +14,6 @@ import {
 import {
   loadCanonicalWorld,
   loadDemBundle,
-  worldForCandidate,
 } from "./expedition-kit";
 
 export interface VerificationOptions {
@@ -125,11 +124,7 @@ export async function verifyCandidateFile(
     loadCanonicalWorld(options.worldPath),
     loadDemBundle(options.terrainConfigPath),
   ]);
-  const validationWorld = worldForCandidate(
-    canonicalWorld,
-    terrain,
-    candidate,
-  );
+  const validationWorld = canonicalWorld;
   const verdict = await validateCandidateCommit(candidate, validationWorld, {
     baseCamp: validationWorld.baseCamp,
     extractionZones: validationWorld.extractionZones,

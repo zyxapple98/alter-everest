@@ -93,7 +93,10 @@ function pandolfWatts(
   return Math.max(95, base + terrain);
 }
 
-function isCarryingStone(proof: ExpeditionProof, segmentIndex: number) {
+export function isCarryingStone(
+  proof: ExpeditionProof,
+  segmentIndex: number,
+) {
   const { mutation } = proof;
   if (mutation.source.kind === "BASE") {
     return (

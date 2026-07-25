@@ -1,9 +1,13 @@
 import { validateActionBinding } from "./action";
 import { validateRouteClearance } from "./clearance";
-import { simulateMutation } from "./physics";
-import { validateRoute } from "./route";
+import {
+  simulateMutation,
+  validateStaticServiceLoadCases,
+} from "./physics";
+import { isCarryingStone, validateRoute } from "./route";
 import { calculateReward } from "./scoring";
-import { isExposedTerrainVoxel } from "./surface";
+import { voxelKey } from "./mutation";
+import { CLIMBER, PHYSICS, TERRAIN } from "./constants";
 import {
   validateRouteTerrain,
   type TerrainOracle,
@@ -12,6 +16,7 @@ import type {
   CandidateCommit,
   CanonicalWorld,
   CommitVerdict,
+  PhysicsSnapshot,
   RouteFailureCode,
   RouteVerdict,
   Vec3,
@@ -66,6 +71,75 @@ function invalidateRoute(
   return { ...route, valid: false, code };
 }
 
+function withoutSource(
+  world: PhysicsSnapshot,
+  candidate: CandidateCommit,
+): PhysicsSnapshot {
+  const { source } = candidate.proof.mutation;
+  return {
+    worldHash: world.worldHash,
+    stones:
+      source.kind === "STONE"
+        ? world.stones.filter((stone) => stone.id !== source.stoneId)
+        : world.stones,
+    removedTerrainVoxels:
+      source.kind === "TERRAIN"
+        ? [...world.removedTerrainVoxels, source.voxel]
+        : world.removedTerrainVoxels,
+  };
+}
+
+function phaseSlices(
+  candidate: CandidateCommit,
+  current: PhysicsSnapshot,
+  carried: PhysicsSnapshot,
+  final: PhysicsSnapshot,
+) {
+  const { proof } = candidate;
+  const pickup = proof.pickupIndex ?? -1;
+  const release = proof.releaseIndex ?? -1;
+  const terrain: Array<{
+    route: typeof proof.route;
+    world: PhysicsSnapshot;
+  }> = [];
+  const clearance: Array<{
+    route: typeof proof.route;
+    world: PhysicsSnapshot;
+  }> = [];
+  const addTerrain = (
+    route: typeof proof.route,
+    world: PhysicsSnapshot,
+  ) => {
+    if (route.length > 0) terrain.push({ route, world });
+  };
+  const addClearance = (
+    route: typeof proof.route,
+    world: PhysicsSnapshot,
+  ) => {
+    if (route.length > 1) clearance.push({ route, world });
+  };
+
+  if (proof.mutation.source.kind === "BASE") {
+    addTerrain(proof.route.slice(0, release + 1), current);
+    addTerrain(proof.route.slice(release + 1), final);
+    addClearance(proof.route.slice(0, release + 1), current);
+    addClearance(proof.route.slice(release), final);
+  } else if (proof.mutation.destination.kind === "BASE") {
+    addTerrain(proof.route.slice(0, pickup + 1), current);
+    addTerrain(proof.route.slice(pickup + 1), carried);
+    addClearance(proof.route.slice(0, pickup + 1), current);
+    addClearance(proof.route.slice(pickup), carried);
+  } else {
+    addTerrain(proof.route.slice(0, pickup + 1), current);
+    addTerrain(proof.route.slice(pickup + 1, release + 1), carried);
+    addTerrain(proof.route.slice(release + 1), final);
+    addClearance(proof.route.slice(0, pickup + 1), current);
+    addClearance(proof.route.slice(pickup, release + 1), carried);
+    addClearance(proof.route.slice(release), final);
+  }
+  return { terrain, clearance };
+}
+
 export async function validateCandidateCommit(
   candidate: CandidateCommit,
   currentWorld: CanonicalWorld,
@@ -115,26 +189,6 @@ export async function validateCandidateCommit(
     );
   }
 
-  if (context.terrain) {
-    const terrain = validateRouteTerrain(
-      candidate.proof.route,
-      context.terrain,
-    );
-    if (!terrain.valid) {
-      const terrainFailure: RouteFailureCode =
-        terrain.code === "OUTSIDE_TERRAIN"
-          ? "OUTSIDE_TERRAIN"
-          : "TERRAIN_MISMATCH";
-      route = invalidateRoute(route, terrainFailure);
-      return rejected(
-        stale ? "STALE_CONFLICT" : "ROUTE_INVALID",
-        canonicalParent,
-        stale,
-        route,
-      );
-    }
-  }
-
   const action = validateActionBinding(candidate.proof, currentWorld);
   if (!action.valid) {
     route = invalidateRoute(
@@ -149,55 +203,36 @@ export async function validateCandidateCommit(
     );
   }
 
+  const physicsContext = context.terrain
+    ? { terrain: context.terrain }
+    : undefined;
   if (
-    candidate.proof.mutation.source.kind === "TERRAIN" &&
-    (!context.terrain ||
-      !isExposedTerrainVoxel(
-        context.terrain,
-        currentWorld.removedTerrainVoxels,
-        candidate.proof.mutation.source.voxel,
-      ))
+    candidate.proof.mutation.source.kind !== "BASE" &&
+    candidate.proof.mutation.destination.kind === "WORLD"
   ) {
-    return rejected(
-      stale ? "STALE_CONFLICT" : "PHYSICS_INVALID",
-      canonicalParent,
-      stale,
-      route,
+    const pickupPhysics = await simulateMutation(
+      currentWorld,
       {
-        valid: false,
-        code: "TERRAIN_VOXEL_NOT_EXPOSED",
-        finalStones: currentWorld.stones,
-        affectedStoneIds: [],
-        simulatedSeconds: 0,
-        maxLinearSpeed: 0,
-        maxAngularSpeed: 0,
-        contactModel: "RAPIER_COULOMB_FRICTION",
+        ...candidate.proof.mutation,
+        destination: { kind: "BASE" },
       },
+      physicsContext,
     );
-  }
-
-  const carriedStoneIds =
-    candidate.proof.mutation.source.kind === "STONE"
-      ? new Set([candidate.proof.mutation.source.stoneId])
-      : new Set<string>();
-  const clearance = await validateRouteClearance(
-    currentWorld,
-    candidate.proof.route,
-    carriedStoneIds,
-  );
-  if (!clearance.clear) {
-    route = invalidateRoute(route, "ROUTE_OBSTRUCTED");
-    return rejected(
-      stale ? "STALE_CONFLICT" : "ROUTE_INVALID",
-      canonicalParent,
-      stale,
-      route,
-    );
+    if (!pickupPhysics.valid) {
+      return rejected(
+        stale ? "STALE_CONFLICT" : "PHYSICS_INVALID",
+        canonicalParent,
+        stale,
+        route,
+        pickupPhysics,
+      );
+    }
   }
 
   const physics = await simulateMutation(
     currentWorld,
     candidate.proof.mutation,
+    physicsContext,
   );
   if (!physics.valid) {
     return rejected(
@@ -207,6 +242,159 @@ export async function validateCandidateCommit(
       route,
       physics,
     );
+  }
+
+  const carriedWorld = withoutSource(currentWorld, candidate);
+  const finalWorld: PhysicsSnapshot = {
+    worldHash: currentWorld.worldHash,
+    stones: physics.finalStones,
+    removedTerrainVoxels: carriedWorld.removedTerrainVoxels,
+  };
+  const phases = phaseSlices(
+    candidate,
+    currentWorld,
+    carriedWorld,
+    finalWorld,
+  );
+
+  if (context.terrain) {
+    for (const phase of phases.terrain) {
+      const terrain = validateRouteTerrain(
+        phase.route,
+        context.terrain,
+        phase.world,
+      );
+      if (!terrain.valid) {
+        const terrainFailure: RouteFailureCode =
+          terrain.code === "OUTSIDE_TERRAIN"
+            ? "OUTSIDE_TERRAIN"
+            : "TERRAIN_MISMATCH";
+        route = invalidateRoute(route, terrainFailure);
+        return rejected(
+          stale ? "STALE_CONFLICT" : "ROUTE_INVALID",
+          canonicalParent,
+          stale,
+          route,
+        );
+      }
+    }
+  }
+
+  for (const phase of phases.clearance) {
+    const clearance = await validateRouteClearance(
+      phase.world,
+      phase.route,
+    );
+    if (!clearance.clear) {
+      route = invalidateRoute(route, "ROUTE_OBSTRUCTED");
+      return rejected(
+        stale ? "STALE_CONFLICT" : "ROUTE_INVALID",
+        canonicalParent,
+        stale,
+        route,
+      );
+    }
+  }
+
+  if (context.terrain) {
+    const pickup = candidate.proof.pickupIndex ?? -1;
+    const release = candidate.proof.releaseIndex ?? -1;
+    const worldAtSample = (index: number) => {
+      if (
+        candidate.proof.mutation.destination.kind === "WORLD" &&
+        index > release
+      ) {
+        return finalWorld;
+      }
+      if (
+        candidate.proof.mutation.source.kind !== "BASE" &&
+        index > pickup
+      ) {
+        return carriedWorld;
+      }
+      return currentWorld;
+    };
+    const stoneCellsByWorld = new Map<
+      PhysicsSnapshot,
+      Map<string, { x: number; y: number; z: number }>
+    >();
+    for (const world of [currentWorld, carriedWorld, finalWorld]) {
+      stoneCellsByWorld.set(
+        world,
+        new Map(
+          world.stones.map((stone) => [
+            voxelKey(stone.cell),
+            stone.cell,
+          ]),
+        ),
+      );
+    }
+    const uniqueLoads = new Map<
+      string,
+      {
+        world: PhysicsSnapshot;
+        supportCell: { x: number; y: number; z: number };
+        stoneWeightEquivalent: number;
+      }
+    >();
+    candidate.proof.route.forEach((sample, index) => {
+      const sampleWorld = worldAtSample(index);
+      const stoneCells = stoneCellsByWorld.get(sampleWorld)!;
+      const supportCell = {
+        x: Math.floor(sample.x / TERRAIN.voxelEdgeM),
+        y:
+          Math.floor(
+            (sample.y + TERRAIN.voxelEdgeM * 0.25) /
+              TERRAIN.voxelEdgeM,
+          ) - 1,
+        z: Math.floor(sample.z / TERRAIN.voxelEdgeM),
+      };
+      const stoneCell = stoneCells.get(voxelKey(supportCell));
+      if (!stoneCell) return;
+      const carrying = isCarryingStone(
+        candidate.proof,
+        Math.max(0, index - 1),
+      );
+      const stoneWeightEquivalent =
+        CLIMBER.bodyMassKg / PHYSICS.stoneMassKg + (carrying ? 1 : 0);
+      const key = `${sampleWorld === currentWorld ? "C" : sampleWorld === carriedWorld ? "M" : "F"}:${voxelKey(stoneCell)}:${carrying ? 1 : 0}`;
+      uniqueLoads.set(key, {
+        world: sampleWorld,
+        supportCell: stoneCell,
+        stoneWeightEquivalent,
+      });
+    });
+    const loadsByWorld = new Map<
+      PhysicsSnapshot,
+      Array<{
+        supportCell: { x: number; y: number; z: number };
+        stoneWeightEquivalent: number;
+      }>
+    >();
+    for (const load of uniqueLoads.values()) {
+      const loads = loadsByWorld.get(load.world) ?? [];
+      loads.push({
+        supportCell: load.supportCell,
+        stoneWeightEquivalent: load.stoneWeightEquivalent,
+      });
+      loadsByWorld.set(load.world, loads);
+    }
+    for (const [loadWorld, loads] of loadsByWorld) {
+      const loaded = validateStaticServiceLoadCases(
+        loadWorld,
+        loads,
+        context.terrain,
+      );
+      if (!loaded.valid) {
+        return rejected(
+          stale ? "STALE_CONFLICT" : "PHYSICS_INVALID",
+          canonicalParent,
+          stale,
+          route,
+          loaded,
+        );
+      }
+    }
   }
 
   const reward = calculateReward(candidate, currentWorld, route);

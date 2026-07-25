@@ -26,7 +26,7 @@ always produce the same 20 cm top column.
 Only actual edits are stored:
 
 - exposed voxels removed from native terrain;
-- imported or quarried dynamic stone poses;
+- imported or quarried stone integer cells;
 - modified 32 m chunk hashes;
 - modified 256 m tile hashes.
 

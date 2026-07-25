@@ -1,18 +1,12 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { PHYSICS, TERRAIN } from "../engine/constants";
-import { mutationReleasePose, voxelCenter } from "../engine/mutation";
 import {
   createDemTerrainOracle,
   type DemMetadataLike,
 } from "../engine/terrain";
-import { currentTopVoxel } from "../engine/surface";
 import type {
-  CandidateCommit,
   CanonicalWorld,
-  TerrainCollider,
-  VoxelCoordinate,
 } from "../engine/types";
 
 interface DemMetadata extends DemMetadataLike {
@@ -71,10 +65,45 @@ export async function loadTerrainConfig(
 export async function loadCanonicalWorld(
   path = resolve("world", "snapshot.json"),
 ): Promise<CanonicalWorld> {
-  const world = JSON.parse(
+  const parsed = JSON.parse(
     await readFile(resolve(path), "utf8"),
-  ) as CanonicalWorld;
-  world.removedTerrainVoxels ??= [];
+  ) as unknown;
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Canonical world must be a JSON object.");
+  }
+  const record = parsed as Record<string, unknown>;
+  if (Object.hasOwn(record, "terrain")) {
+    throw new Error(
+      "Legacy terrain collider state is not valid in protocol 0.5.0.",
+    );
+  }
+  const validCell = (value: unknown) =>
+    Boolean(
+      value &&
+        typeof value === "object" &&
+        ["x", "y", "z"].every((axis) =>
+          Number.isSafeInteger(
+            (value as Record<string, unknown>)[axis],
+          ),
+        ),
+    );
+  if (
+    !Array.isArray(record.stones) ||
+    record.stones.some(
+      (stone) =>
+        !stone ||
+        typeof stone !== "object" ||
+        typeof (stone as Record<string, unknown>).id !== "string" ||
+        !validCell((stone as Record<string, unknown>).cell),
+    ) ||
+    !Array.isArray(record.removedTerrainVoxels) ||
+    record.removedTerrainVoxels.some((voxel) => !validCell(voxel))
+  ) {
+    throw new Error(
+      "Canonical matter must use integer stone cells and terrain voxels.",
+    );
+  }
+  const world = parsed as CanonicalWorld;
   return world;
 }
 
@@ -115,114 +144,5 @@ export async function loadDemBundle(
     elevations,
     config,
     oracle: createDemTerrainOracle(metadata, elevations, config.registration),
-  };
-}
-
-function terrainColumnsAt(
-  bundle: DemBundle,
-  removed: readonly VoxelCoordinate[],
-  point: { x: number; z: number },
-) {
-  const radiusColumns = Math.ceil(
-    TERRAIN.localPhysicsRadiusM / TERRAIN.voxelEdgeM,
-  );
-  const centerColumnX = Math.floor(point.x / TERRAIN.voxelEdgeM);
-  const centerColumnZ = Math.floor(point.z / TERRAIN.voxelEdgeM);
-  const colliders: TerrainCollider[] = [];
-  const floorY = -PHYSICS.worldBoundsM;
-
-  for (
-    let columnX = centerColumnX - radiusColumns;
-    columnX <= centerColumnX + radiusColumns;
-    columnX += 1
-  ) {
-    for (
-      let columnZ = centerColumnZ - radiusColumns;
-      columnZ <= centerColumnZ + radiusColumns;
-      columnZ += 1
-    ) {
-      const topVoxel = currentTopVoxel(
-        bundle.oracle,
-        removed,
-        columnX,
-        columnZ,
-      );
-      if (topVoxel === null) continue;
-      const topY = (topVoxel + 1) * TERRAIN.voxelEdgeM;
-      const center = voxelCenter({ x: columnX, y: topVoxel, z: columnZ });
-      const truth = bundle.oracle.sample(center.x, center.z);
-      const halfHeight = (topY - floorY) / 2;
-      colliders.push({
-        kind: "cuboid",
-        center: {
-          x: center.x,
-          y: floorY + halfHeight,
-          z: center.z,
-        },
-        halfExtents: {
-          x: TERRAIN.voxelEdgeM / 2,
-          y: halfHeight,
-          z: TERRAIN.voxelEdgeM / 2,
-        },
-        friction:
-          truth?.surface === "ICE"
-            ? PHYSICS.iceFriction
-            : PHYSICS.dryRockFriction,
-      });
-    }
-  }
-  return colliders;
-}
-
-export function terrainPatchesForCandidate(
-  bundle: DemBundle,
-  world: CanonicalWorld,
-  candidate: CandidateCommit,
-) {
-  const mutation = candidate.proof.mutation;
-  const points: Array<{ x: number; z: number }> = [];
-  const removed = [...world.removedTerrainVoxels];
-
-  if (mutation.source.kind === "STONE") {
-    const sourceStoneId = mutation.source.stoneId;
-    const existing = world.stones.find(
-      (stone) => stone.id === sourceStoneId,
-    );
-    if (existing) points.push(existing.pose.translation);
-  } else if (mutation.source.kind === "TERRAIN") {
-    points.push(voxelCenter(mutation.source.voxel));
-    removed.push(mutation.source.voxel);
-  }
-  const releasePose = mutationReleasePose(mutation);
-  if (releasePose) points.push(releasePose.translation);
-
-  const unique = points.filter(
-    (point, index) =>
-      points.findIndex(
-        (candidatePoint) =>
-          Math.hypot(
-            candidatePoint.x - point.x,
-            candidatePoint.z - point.z,
-          ) < TERRAIN.localPhysicsRadiusM,
-      ) === index,
-  );
-  const columns = new Map<string, TerrainCollider>();
-  for (const point of unique) {
-    for (const collider of terrainColumnsAt(bundle, removed, point)) {
-      if (collider.kind !== "cuboid") continue;
-      columns.set(`${collider.center.x}:${collider.center.z}`, collider);
-    }
-  }
-  return [...columns.values()];
-}
-
-export function worldForCandidate(
-  world: CanonicalWorld,
-  bundle: DemBundle,
-  candidate: CandidateCommit,
-): CanonicalWorld {
-  return {
-    ...world,
-    terrain: terrainPatchesForCandidate(bundle, world, candidate),
   };
 }

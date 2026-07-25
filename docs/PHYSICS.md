@@ -1,51 +1,100 @@
 # Physics contract
 
-ALTER EVEREST uses `@dimforge/rapier3d-deterministic-compat`, not a custom
-support-area shortcut.
+ALTER EVEREST uses the deterministic `VOXEL_STATIC_V2_1` ruleset. It is a
+reality-informed game abstraction for ordinary interlocked stone masonry, not
+a rigid-body simulation and not engineering certification.
 
-## Movable matter
+## Matter and coordinates
 
-- cube edge: 0.20 m
-- density: 2700 kg/m³
-- mass: 21.6 kg
-- release lattice: 0.01 m
-- release rotation: axis-aligned
-- initial linear and angular velocity: zero
-- gravity: 9.80665 m/s²
-- fixed step: 1/120 s
-- dry friction: 0.78
-- ice friction: 0.08
-- restitution: 0.015
+- canonical cell edge: 0.20 m
+- stone material: ordinary `STONE`
+- nominal stone mass: 21.6 kg
+- position: one exact integer `{x,y,z}` cell
+- contact: shared faces only
+- mutation: atomic accept or reject
 
-Rapier resolves collision impulses, frictional shear, torque, rotation,
-sliding, tipping, CCD, damping, sleeping, waking, and secondary collapse. The
-world terrain is static and therefore acts as an effectively infinite-mass
-body. Granite fracture, avalanches, ropes, anchors, weather, and arbitrary
-throws are outside V1.
+There are no release poses, rotations, velocities, friction impulses, falling
+bodies, or special scaffold material. A temporary prop is simply another
+ordinary stone and must remain legal when placed. A mutation that would create
+a floating piece or destabilize an affected component is rejected; the
+verifier does not animate a collapse into canonical state.
 
-## Placement acceptance
+## Static structural checks
 
-Physics can simulate a falling stone, but a V1 `WORLD` destination is a
-placement claim. After settling, the matter must remain within 0.025 m of the
-declared snapped release position. A floating or sliding release normally
-returns `PLACEMENT_DID_NOT_HOLD`.
+After applying the proposed mutation in memory, the verifier finds every
+face-connected stone component touched by the source or destination and checks:
 
-This is not the rule “upper support area must be smaller than lower support
-area.” Partial overhangs may hold; excessive cantilevers tip according to
-centre of mass, contacts, and friction.
+1. **Anchorage.** Every component needs at least one stone directly above solid
+   terrain.
+2. **Reach.** Horizontal support distance is at most
+   `min(8, 4 + floor(log2(vertical thickness)))` cells. Vertical transfer has
+   zero horizontal cost. This permits short lintels, corbels, arches and
+   masonry bridge decks, but rejects indefinite slabs and cables.
+3. **Balance.** The combined centre of mass of stones and active service load
+   must lie inside the convex terrain-anchor footprint with a 0.05-cell
+   (1 cm) inward margin.
+4. **Slenderness.** Component height may not exceed ten times the smaller
+   terrain-anchor footprint dimension.
+5. **Compression.** Average stone-equivalent weight per anchor cell may not
+   exceed 4,096. Route validation applies the climber, and a carried stone when
+   applicable, as a transient service load.
 
-## Local world
+For a move or quarry-and-relocate expedition, the pickup-only state is checked
+before the final destination state. A support cannot be removed during the
+journey merely because the eventual placement would make the final snapshot
+stable again. Route support and obstacles likewise switch between the
+pre-pickup, carried and post-release worlds at the declared action indices.
 
-The canonical mountain is too large to wake in one process. The verifier:
+The model represents compression plus limited local tension, shear and bending
+inside interlocked masonry. It deliberately has no long-range tensile member,
+rope, cable, arbitrary diagonal beam, hinge, mortar cure state, fracture,
+avalanche, soil plasticity or weather.
 
-1. spatially indexes canonical stones;
-2. starts at source and destination broad-phase regions;
-3. recursively adds possible contacting stones;
-4. rejects islands over 512 stones;
-5. instantiates the local naturalized terrain columns;
-6. wakes the selected bodies and runs Rapier;
-7. preserves remote bodies byte-for-byte.
+## Excavation and tunnels
 
-The recursive broad phase is conservative: Rapier still decides actual
-contacts. The cap and four-second process limit are protocol security
-boundaries, not claims that a real collapse stops after 512 stones.
+A terrain voxel may be quarried only when one of its six faces touches exterior
+air or an already removed terrain voxel. This supports step-by-step tunnel
+advance from a real opening while preventing remote excavation of sealed
+matter.
+
+For the local changed cavity:
+
+- a horizontal roof must retain at least two solid cells (0.40 m);
+- every checked cavity cell must be within three horizontal Manhattan cells
+  (0.60 m) of solid side material;
+- route validation separately requires a human-height, human-width clear
+  passage before a tunnel is traversable.
+
+Wide rooms therefore need stone pillars or partitions. Vertical open shafts do
+not pretend to be roofed tunnels.
+
+## Bounded verification
+
+The public hard limits are:
+
+- 10,000 affected stone cells;
+- 250 distinct stone levels;
+- 8 touched 32 m physics chunks;
+- a 64³-cell local cavity window;
+- 4 seconds and 256 MiB for the verifier process.
+
+Only components adjacent to the mutation and cavity cells near the excavation
+are rechecked. Unrelated canonical matter is preserved byte-for-byte. These
+limits are protocol security boundaries: a design exceeding one must be
+partitioned into independently stable construction stages.
+
+`npm run physics:benchmark -- --stones 10000` exercises the public worst-size
+stone component. The production migration measured about 70 ms on the
+development host against a 4,000 ms process budget; hardware-dependent timing
+is reported by the command rather than treated as a consensus constant.
+
+## Capability summary
+
+Supported examples include grounded walls, rooms with short lintels, stepped
+arches, corbelled arches, short masonry bridges, buttressed halls, towers with
+adequate bases, tunnels with adequate cover, and caverns divided by pillars.
+
+Rejected examples include floating stones, edge-only contact, long unsupported
+decks, eccentric cantilevers, needle towers, thin tunnel roofs, oversized
+unpillared caverns, sealed remote excavation, suspended cables and any
+operation that would require a collapse simulation.

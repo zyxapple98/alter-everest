@@ -97,7 +97,7 @@ if (
   const verdict = verification.verdict;
   const nextWorld = await applyAcceptedCandidate(
     candidate,
-    { ...verification.canonicalWorld, terrain: [] },
+    verification.canonicalWorld,
     verdict,
   );
   const body = receiptBody(

@@ -201,7 +201,7 @@ export class SurfaceTileStore {
           new TextDecoder().decode(bytes),
         ) as ObservatorySurfaceTile;
         if (
-          payload.schemaVersion !== "1.0.0" ||
+          payload.schemaVersion !== "1.1.0" ||
           payload.hash !== manifest.hash ||
           !Array.isArray(payload.chunks)
         ) {

@@ -3,6 +3,26 @@ import { voxelKey } from "./mutation";
 import type { TerrainOracle } from "./terrain";
 import type { VoxelCoordinate } from "./types";
 
+export const FACE_NEIGHBOURS: readonly VoxelCoordinate[] = [
+  { x: 1, y: 0, z: 0 },
+  { x: -1, y: 0, z: 0 },
+  { x: 0, y: 1, z: 0 },
+  { x: 0, y: -1, z: 0 },
+  { x: 0, y: 0, z: 1 },
+  { x: 0, y: 0, z: -1 },
+];
+
+export function addVoxel(
+  voxel: VoxelCoordinate,
+  offset: VoxelCoordinate,
+): VoxelCoordinate {
+  return {
+    x: voxel.x + offset.x,
+    y: voxel.y + offset.y,
+    z: voxel.z + offset.z,
+  };
+}
+
 function hash2(x: number, z: number, seed: number) {
   let value =
     Math.imul(x, 0x1f123bb5) ^
@@ -80,7 +100,39 @@ export function isExposedTerrainVoxel(
   removed: readonly VoxelCoordinate[],
   voxel: VoxelCoordinate,
 ) {
-  return currentTopVoxel(oracle, removed, voxel.x, voxel.z) === voxel.y;
+  const removedKeys = new Set(removed.map(voxelKey));
+  if (!isSolidTerrainVoxel(oracle, removedKeys, voxel)) return false;
+  return FACE_NEIGHBOURS.some((offset) => {
+    const neighbour = addVoxel(voxel, offset);
+    const nativeTop = baseTopVoxel(oracle, neighbour.x, neighbour.z);
+    return (
+      nativeTop === null ||
+      neighbour.y > nativeTop ||
+      removedKeys.has(voxelKey(neighbour))
+    );
+  });
+}
+
+export function isNativeTerrainVoxel(
+  oracle: TerrainOracle,
+  voxel: VoxelCoordinate,
+) {
+  const top = baseTopVoxel(oracle, voxel.x, voxel.z);
+  return top !== null && voxel.y <= top;
+}
+
+export function isSolidTerrainVoxel(
+  oracle: TerrainOracle,
+  removed: ReadonlySet<string> | readonly VoxelCoordinate[],
+  voxel: VoxelCoordinate,
+) {
+  const removedKeys: ReadonlySet<string> = Array.isArray(removed)
+    ? new Set(removed.map(voxelKey))
+    : (removed as ReadonlySet<string>);
+  return (
+    isNativeTerrainVoxel(oracle, voxel) &&
+    !removedKeys.has(voxelKey(voxel))
+  );
 }
 
 export function chunkForVoxel(voxel: VoxelCoordinate) {

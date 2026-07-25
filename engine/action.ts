@@ -1,5 +1,9 @@
 import { CLIMBER } from "./constants";
-import { isInsideSpawnCore, voxelCenter } from "./mutation";
+import {
+  isInsideSpawnCore,
+  mutationDestinationCell,
+  voxelCenter,
+} from "./mutation";
 import type {
   CanonicalWorld,
   ExpeditionProof,
@@ -34,28 +38,24 @@ export function validateActionBinding(
   world: CanonicalWorld,
 ): ActionBindingVerdict {
   const releaseSample = sampleAt(proof.route, proof.releaseIndex);
-  const releasePose =
-    proof.mutation.destination.kind === "WORLD"
-      ? proof.mutation.destination.releasePose
-      : null;
+  const destinationCell = mutationDestinationCell(proof.mutation);
+  const releasePoint = destinationCell ? voxelCenter(destinationCell) : null;
   if (
-    releasePose &&
+    releasePoint &&
     (!releaseSample ||
-      distance(releaseSample, releasePose.translation) >
-        CLIMBER.interactionReachM)
+      distance(releaseSample, releasePoint) > CLIMBER.interactionReachM)
   ) {
     return { valid: false, code: "ACTION_POSITION_MISMATCH" };
   }
 
   if (
-    releasePose &&
+    releasePoint &&
     proof.mutation.source.kind === "BASE" &&
-    distance(releasePose.translation, world.baseCamp) <=
-      CLIMBER.baseCampRadiusM
+    distance(releasePoint, world.baseCamp) <= CLIMBER.baseCampRadiusM
   ) {
     return { valid: false, code: "BASE_IMPORT_INSIDE_CAMP" };
   }
-  if (releasePose && isInsideSpawnCore(releasePose.translation, world)) {
+  if (releasePoint && isInsideSpawnCore(releasePoint, world)) {
     return { valid: false, code: "SPAWN_CORE_PROTECTED" };
   }
 
@@ -63,7 +63,10 @@ export function validateActionBinding(
     const pickupSample = sampleAt(proof.route, proof.pickupIndex);
     const target =
       proof.mutation.source.kind === "STONE"
-        ? stoneById(world, proof.mutation.source.stoneId)?.pose.translation
+        ? (() => {
+            const stone = stoneById(world, proof.mutation.source.stoneId);
+            return stone ? voxelCenter(stone.cell) : undefined;
+          })()
         : voxelCenter(proof.mutation.source.voxel);
     if (
       !pickupSample ||
@@ -80,8 +83,10 @@ export function validateActionBinding(
     isInsideSpawnCore(
       proof.mutation.source.kind === "TERRAIN"
         ? voxelCenter(proof.mutation.source.voxel)
-        : stoneById(world, proof.mutation.source.stoneId)?.pose.translation ??
-            world.baseCamp,
+        : (() => {
+            const stone = stoneById(world, proof.mutation.source.stoneId);
+            return stone ? voxelCenter(stone.cell) : world.baseCamp;
+          })(),
       world,
     )
   ) {

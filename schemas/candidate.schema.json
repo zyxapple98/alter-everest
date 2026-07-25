@@ -14,7 +14,7 @@
   ],
   "properties": {
     "protocol": {
-      "const": "0.4.0"
+      "const": "0.5.0"
     },
     "id": {
       "type": "string",
@@ -42,36 +42,6 @@
     }
   },
   "$defs": {
-    "vec3": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["x", "y", "z"],
-      "properties": {
-        "x": { "type": "number" },
-        "y": { "type": "number" },
-        "z": { "type": "number" }
-      }
-    },
-    "quaternion": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["x", "y", "z", "w"],
-      "properties": {
-        "x": { "type": "number" },
-        "y": { "type": "number" },
-        "z": { "type": "number" },
-        "w": { "type": "number" }
-      }
-    },
-    "pose": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["translation", "rotation"],
-      "properties": {
-        "translation": { "$ref": "#/$defs/vec3" },
-        "rotation": { "$ref": "#/$defs/quaternion" }
-      }
-    },
     "voxel": {
       "type": "object",
       "additionalProperties": false,
@@ -170,10 +140,10 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["kind", "releasePose"],
+              "required": ["kind", "cell"],
               "properties": {
                 "kind": { "const": "WORLD" },
-                "releasePose": { "$ref": "#/$defs/pose" }
+                "cell": { "$ref": "#/$defs/voxel" }
               }
             }
           ]

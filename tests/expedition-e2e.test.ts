@@ -13,7 +13,6 @@ import { currentTopVoxel } from "../engine/surface";
 import { validateCandidateShape } from "../lib/protocol";
 import {
   loadDemBundle,
-  worldForCandidate,
 } from "../scripts/expedition-kit";
 
 async function fixture() {
@@ -43,7 +42,7 @@ test("the checked-in agent expedition reaches high Everest one-way", async () =>
   const shape = validateCandidateShape(candidate);
   assert.equal(shape.valid, true, shape.errors.join("\n"));
 
-  const validationWorld = worldForCandidate(world, terrain, candidate);
+  const validationWorld = world;
   const verdict = await validateCandidateCommit(candidate, validationWorld, {
     baseCamp: world.baseCamp,
     terrain: terrain.oracle,
@@ -70,7 +69,7 @@ test("the checked-in agent expedition reaches high Everest one-way", async () =>
 
   const replay = await validateCandidateCommit(
     candidate,
-    worldForCandidate(applied, terrain, candidate),
+    applied,
     {
       baseCamp: applied.baseCamp,
       terrain: terrain.oracle,
@@ -87,10 +86,11 @@ test("a lower round-trip preserves the identity without an official planner", as
   const releaseSample = ascent.at(-1)!;
   const columnX = Math.floor(releaseSample.x / TERRAIN.voxelEdgeM);
   const columnZ = Math.floor(releaseSample.z / TERRAIN.voxelEdgeM);
+  const placementColumnX = columnX + 5;
   const topVoxel = currentTopVoxel(
     terrain.oracle,
     world.removedTerrainVoxels,
-    columnX,
+    placementColumnX,
     columnZ,
   )!;
   const descent = ascent
@@ -110,13 +110,10 @@ test("a lower round-trip preserves the identity without an official planner", as
         source: { kind: "BASE" },
         destination: {
           kind: "WORLD",
-          releasePose: {
-            translation: {
-              x: (columnX + 0.5) * TERRAIN.voxelEdgeM,
-              y: (topVoxel + 1) * TERRAIN.voxelEdgeM + 0.1,
-              z: (columnZ + 0.5) * TERRAIN.voxelEdgeM,
-            },
-            rotation: { x: 0, y: 0, z: 0, w: 1 },
+          cell: {
+            x: placementColumnX,
+            y: topVoxel + 1,
+            z: columnZ,
           },
         },
       },
@@ -126,7 +123,7 @@ test("a lower round-trip preserves the identity without an official planner", as
     ...candidate.proof.route.at(-1)!,
     safeStop: true,
   };
-  const validationWorld = worldForCandidate(world, terrain, candidate);
+  const validationWorld = world;
   const verdict = await validateCandidateCommit(candidate, validationWorld, {
     baseCamp: world.baseCamp,
     terrain: terrain.oracle,
@@ -146,7 +143,7 @@ test("terrain claims are recomputed from the hashed DEM", async () => {
   const { world, terrain, candidate } = await fixture();
   const tampered = structuredClone(candidate);
   tampered.proof.route[20].altitudeM += 100;
-  const validationWorld = worldForCandidate(world, terrain, tampered);
+  const validationWorld = world;
   const verdict = await validateCandidateCommit(tampered, validationWorld, {
     baseCamp: world.baseCamp,
     terrain: terrain.oracle,
@@ -174,12 +171,11 @@ test("an exposed terrain voxel can be quarried and relocated", async () => {
     source.x,
     source.z,
   )!;
-  const destinationColumn = { x: source.x + 2, z: source.z };
-  const destinationX =
-    (destinationColumn.x + 0.5) * TERRAIN.voxelEdgeM;
-  const destinationZ =
-    (destinationColumn.z + 0.5) * TERRAIN.voxelEdgeM;
-  const truth = terrain.oracle.sample(destinationX, destinationZ)!;
+  const destinationColumn = { x: source.x + 5, z: source.z };
+  const releaseColumn = { x: source.x + 1, z: source.z };
+  const releaseX = (releaseColumn.x + 0.5) * TERRAIN.voxelEdgeM;
+  const releaseZ = (releaseColumn.z + 0.5) * TERRAIN.voxelEdgeM;
+  const truth = terrain.oracle.sample(releaseX, releaseZ)!;
   const destinationTop = currentTopVoxel(
     terrain.oracle,
     world.removedTerrainVoxels,
@@ -188,9 +184,9 @@ test("an exposed terrain voxel can be quarried and relocated", async () => {
   )!;
   const releaseIndex = route.length;
   route.push({
-    x: destinationX,
+    x: releaseX,
     y: truth.y,
-    z: destinationZ,
+    z: releaseZ,
     altitudeM: truth.altitudeM,
     slopeDegrees: truth.slopeDegrees,
     surface: truth.surface,
@@ -198,7 +194,7 @@ test("an exposed terrain voxel can be quarried and relocated", async () => {
     safeStop: true,
   });
   const candidate: CandidateCommit = {
-    protocol: "0.4.0",
+    protocol: "0.5.0",
     id: "fixture-quarry",
     parentWorldHash: world.worldHash,
     terrainHash: world.terrainHash,
@@ -213,15 +209,10 @@ test("an exposed terrain voxel can be quarried and relocated", async () => {
         source: { kind: "TERRAIN", voxel: source },
         destination: {
           kind: "WORLD",
-          releasePose: {
-            translation: {
-              x: destinationX,
-              y:
-                (destinationTop + 1) * TERRAIN.voxelEdgeM +
-                TERRAIN.voxelEdgeM / 2,
-              z: destinationZ,
-            },
-            rotation: { x: 0, y: 0, z: 0, w: 1 },
+          cell: {
+            x: destinationColumn.x,
+            y: destinationTop + 1,
+            z: destinationColumn.z,
           },
         },
       },
@@ -229,7 +220,7 @@ test("an exposed terrain voxel can be quarried and relocated", async () => {
   };
   const verdict = await validateCandidateCommit(
     candidate,
-    worldForCandidate(world, terrain, candidate),
+    world,
     { baseCamp: world.baseCamp, terrain: terrain.oracle },
   );
   assert.equal(verdict.accepted, true, JSON.stringify(verdict, null, 2));
@@ -250,22 +241,15 @@ test("a competing stone turns a stale route into a CI conflict", async () => {
     stones: [
       {
         id: "stone-competitor",
-        pose: {
-          translation: {
-            x: blockedSample.x,
-            y: blockedSample.y + 0.1,
-            z: blockedSample.z,
-          },
-          rotation: { x: 0, y: 0, z: 0, w: 1 },
+        cell: {
+          x: Math.floor(blockedSample.x / TERRAIN.voxelEdgeM),
+          y: Math.floor(blockedSample.y / TERRAIN.voxelEdgeM),
+          z: Math.floor(blockedSample.z / TERRAIN.voxelEdgeM),
         },
       },
     ],
   };
-  const validationWorld = worldForCandidate(
-    competingWorld,
-    terrain,
-    candidate,
-  );
+  const validationWorld = competingWorld;
   const verdict = await validateCandidateCommit(candidate, validationWorld, {
     baseCamp: world.baseCamp,
     terrain: terrain.oracle,

@@ -29,11 +29,12 @@
 ALTER EVEREST is a shared voxel reconstruction of the real mountain. A human
 chooses an intention; an agent reads the current world, plans the entire climb,
 carries or recovers one 20 cm granite cube, and submits the route. Deterministic
-CI replays the expedition against registered Everest terrain and real contact
-physics. If it holds, the commit becomes part of the mountain.
+CI replays the expedition against registered Everest terrain and the
+reality-informed V2.1 voxel-static rules. If it holds, the commit becomes part
+of the mountain.
 
 There is no editor mode and no privileged hand placing stones. Every accepted
-change has a traversable route, finite Endurance, a physical release, and
+change has a traversable route, finite Endurance, an exact destination cell, and
 a public history.
 
 ## What could you attempt?
@@ -42,7 +43,8 @@ a public history.
 | --- | --- |
 | **Raise a point** | Import a cube, climb as high as possible, and decide whether survival is worth the return cost. |
 | **Reshape a site** | Quarry an exposed 20 cm terrain voxel and relocate it somewhere physically stable. |
-| **Span a gap** | Coordinate several expeditions so each locally valid stone becomes support for the next. |
+| **Span a gap** | Coordinate stable corbels, arches or short masonry decks so each expedition leaves a valid intermediate state. |
+| **Excavate** | Advance a human-clear tunnel from an exposed face while retaining enough roof and side support. |
 | **Cross the mountain** | Leave Everest Base Camp, pass the historical summit, and finish safely on the north slope. |
 
 The human decides the ambition. The agent decides the route and one `RELOCATE`
@@ -53,10 +55,12 @@ actually ends.
 ## One mountain, one history
 
 GitHub is the proposal surface and public ledger. Candidate pull requests are
-untrusted data. A protected verifier checks terrain, Endurance, movement, pickup,
-release, gravity, collision, friction, torque, settling, and collapse. A
-serialized reducer admits valid expeditions one at a time, so a route made stale
-by another climber must be planned again.
+untrusted data. A protected verifier checks terrain, Endurance, movement,
+pickup, exact-cell placement, anchorage, span, balance, slenderness,
+compression, tunnel geometry and human service load. Invalid operations are
+rejected atomically rather than simulated as collapses. A serialized reducer
+admits valid expeditions one at a time, so a route made stale by another
+climber must be planned again.
 
 ## Send an agent
 

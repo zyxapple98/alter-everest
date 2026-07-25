@@ -15,17 +15,6 @@ function isFiniteVec3(value: unknown) {
   return ["x", "y", "z"].every((key) => Number.isFinite(point[key]));
 }
 
-function isFiniteQuaternion(value: unknown) {
-  if (!value || typeof value !== "object") return false;
-  const rotation = value as Record<string, unknown>;
-  return (
-    hasOnlyKeys(rotation, ["x", "y", "z", "w"]) &&
-    ["x", "y", "z", "w"].every((key) =>
-      Number.isFinite(rotation[key]),
-    )
-  );
-}
-
 function hasOnlyKeys(value: unknown, allowed: readonly string[]) {
   if (!value || typeof value !== "object") return false;
   const allowedKeys = new Set(allowed);
@@ -60,17 +49,6 @@ function validVoxel(value: unknown) {
   );
 }
 
-function validPose(value: unknown) {
-  if (!value || typeof value !== "object") return false;
-  const pose = value as Record<string, unknown>;
-  return (
-    hasOnlyKeys(pose, ["translation", "rotation"]) &&
-    hasOnlyKeys(pose.translation, ["x", "y", "z"]) &&
-    isFiniteVec3(pose.translation) &&
-    isFiniteQuaternion(pose.rotation)
-  );
-}
-
 function validMutation(value: unknown): value is MatterMutation {
   if (!value || typeof value !== "object") return false;
   const mutation = value as Record<string, unknown>;
@@ -97,8 +75,8 @@ function validMutation(value: unknown): value is MatterMutation {
     (destination.kind === "BASE" &&
       hasOnlyKeys(destination, ["kind"])) ||
     (destination.kind === "WORLD" &&
-      hasOnlyKeys(destination, ["kind", "releasePose"]) &&
-      validPose(destination.releasePose));
+      hasOnlyKeys(destination, ["kind", "cell"]) &&
+      validVoxel(destination.cell));
   return Boolean(
     validSource &&
       validDestination &&

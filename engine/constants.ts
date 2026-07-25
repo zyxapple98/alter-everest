@@ -1,21 +1,20 @@
 export const PHYSICS = {
-  gravityMps2: 9.80665,
-  fixedTimestepSeconds: 1 / 120,
-  maxSettlingSeconds: 12,
-  minimumSettlingSeconds: 0.5,
-  stoneEdgeM: 0.2,
-  stoneDensityKgM3: 2700,
+  rulesetVersion: "V2.1",
+  voxelEdgeM: 0.2,
   stoneMassKg: 21.6,
-  dryRockFriction: 0.78,
-  iceFriction: 0.08,
-  restitution: 0.015,
-  releaseSnapM: 0.01,
-  placementToleranceM: 0.025,
-  linearSleepThresholdMps: 0.018,
-  angularSleepThresholdRps: 0.04,
+  balanceMarginCells: 0.05,
+  baseHorizontalReachCells: 4,
+  thicknessReachBonusPerDoublingCells: 1,
+  maximumHorizontalReachCells: 8,
+  maximumSlendernessRatio: 10,
+  maximumLoadPerAnchorCell: 4_096,
+  minimumTunnelRoofCells: 2,
+  maximumTunnelRadiusCells: 3,
+  maximumAffectedStoneCells: 10_000,
+  maximumDistinctStoneLevels: 250,
+  maximumCavityWindowCells: 64 ** 3,
+  maximumTouchedPhysicsChunks: 8,
   worldBoundsM: 50_000,
-  contactIslandLinkM: 0.36,
-  maxContactIslandStones: 512,
 } as const;
 
 export const CLIMBER = {
@@ -41,10 +40,9 @@ export const CLIMBER = {
 } as const;
 
 export const TERRAIN = {
-  voxelEdgeM: 0.2,
+  voxelEdgeM: PHYSICS.voxelEdgeM,
   physicsChunkEdgeM: 32,
   streamTileEdgeM: 256,
-  localPhysicsRadiusM: 1.6,
   naturalizationVersion: "ae-surface-v1",
   naturalizationSeed: 0x41_45_56_31,
   maximumSyntheticReliefM: 0.42,

@@ -1239,21 +1239,20 @@ async function createDetailPatch(
           ? [
               {
                 id: fallbackPoint.id,
-                pose: {
-                  translation: {
-                    x: fallbackPoint.x,
-                    y:
-                      fallbackPoint.y -
-                      deltaVoxelEdgeM / 2,
-                    z: fallbackPoint.z,
-                  },
-                  rotation: { x: 0, y: 0, z: 0, w: 1 },
+                cell: {
+                  x: Math.floor(fallbackPoint.x / deltaVoxelEdgeM),
+                  y: Math.floor(
+                    (fallbackPoint.y - deltaVoxelEdgeM / 2) /
+                      deltaVoxelEdgeM,
+                  ),
+                  z: Math.floor(fallbackPoint.z / deltaVoxelEdgeM),
                 },
               },
             ]
           : [];
-    const visibleStones = stones.filter(({ pose }) => {
-      const { x, z } = pose.translation;
+    const visibleStones = stones.filter(({ cell }) => {
+      const x = (cell.x + 0.5) * deltaVoxelEdgeM;
+      const z = (cell.z + 0.5) * deltaVoxelEdgeM;
       return (
         Math.abs(x - centerCanonicalX) <
           halfWindowM - deltaVoxelEdgeM &&
@@ -1281,24 +1280,20 @@ async function createDetailPatch(
         visibleStones.length,
       );
       const stoneTransform = new THREE.Object3D();
-      visibleStones.forEach(({ pose }, index) => {
+      visibleStones.forEach(({ cell }, index) => {
+        const x = (cell.x + 0.5) * deltaVoxelEdgeM;
+        const y = (cell.y + 0.5) * deltaVoxelEdgeM;
+        const z = (cell.z + 0.5) * deltaVoxelEdgeM;
         stoneTransform.position.set(
           centerWorldX +
-            (pose.translation.x - centerCanonicalX) *
-              WORLD_UNITS_PER_METER,
-          (pose.translation.y +
+            (x - centerCanonicalX) * WORLD_UNITS_PER_METER,
+          (y +
             (feed.surfaceDelta?.verticalDatumM ?? 5_259)) *
             WORLD_UNITS_PER_METER,
           centerWorldZ +
-            (pose.translation.z - centerCanonicalZ) *
-              WORLD_UNITS_PER_METER,
+            (z - centerCanonicalZ) * WORLD_UNITS_PER_METER,
         );
-        stoneTransform.quaternion.set(
-          pose.rotation.x,
-          pose.rotation.y,
-          pose.rotation.z,
-          pose.rotation.w,
-        );
+        stoneTransform.quaternion.identity();
         stoneTransform.updateMatrix();
         stoneMesh.setMatrixAt(index, stoneTransform.matrix);
       });

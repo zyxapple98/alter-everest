@@ -1,512 +1,732 @@
-import { PHYSICS } from "./constants";
+import { PHYSICS, TERRAIN } from "./constants";
 import {
-  mutationReleasePose,
-  mutationStoneId,
+  mutationDestinationCell,
+  parseVoxelKey,
   voxelCenter,
+  voxelKey,
 } from "./mutation";
 import {
-  IDENTITY_QUATERNION,
-  type PhysicsSnapshot,
-  type PhysicsVerdict,
-  type Pose,
-  type MatterMutation,
-  type StoneState,
+  FACE_NEIGHBOURS,
+  addVoxel,
+  isExposedTerrainVoxel,
+  isSolidTerrainVoxel,
+} from "./surface";
+import type { TerrainOracle } from "./terrain";
+import type {
+  MatterMutation,
+  PhysicsFailureCode,
+  PhysicsSnapshot,
+  PhysicsVerdict,
+  StoneState,
+  VoxelCoordinate,
 } from "./types";
 
-type Rapier = (typeof import("@dimforge/rapier3d-deterministic-compat"))["default"];
-
-let rapierReady: Promise<Rapier> | null = null;
-
-export async function loadPhysicsRuntime() {
-  if (!rapierReady) {
-    rapierReady = (async () => {
-      const rapierPackage = await import(
-        "@dimforge/rapier3d-deterministic-compat"
-      );
-      const rapier = rapierPackage.default;
-      await rapier.init();
-      return rapier;
-    })();
-  }
-  return rapierReady;
+export interface StaticServiceLoad {
+  supportCell: VoxelCoordinate;
+  stoneWeightEquivalent: number;
 }
 
-function snap(value: number) {
-  return Math.round(value / PHYSICS.releaseSnapM) * PHYSICS.releaseSnapM;
+export interface StaticPhysicsContext {
+  terrain: TerrainOracle;
+  serviceLoads?: readonly StaticServiceLoad[];
 }
 
-export function snapReleasePose(pose: Pose): Pose {
-  return {
-    translation: {
-      x: snap(pose.translation.x),
-      y: snap(pose.translation.y),
-      z: snap(pose.translation.z),
-    },
-    // A cube has 24 equivalent axis-aligned orientations. Canonicalizing the
-    // release orientation avoids platform-dependent trigonometric initialization.
-    rotation: IDENTITY_QUATERNION,
-  };
+interface Point2 {
+  x: number;
+  z: number;
 }
 
-function distance(a: Pose["translation"], b: Pose["translation"]) {
-  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-}
+const stableVerdict = (
+  stones: StoneState[],
+  affectedStoneIds: string[],
+  evaluatedStoneCells: number,
+  cavityCellsChecked: number,
+): PhysicsVerdict => ({
+  valid: true,
+  code: "STABLE",
+  finalStones: stones,
+  affectedStoneIds,
+  evaluatedStoneCells,
+  cavityCellsChecked,
+  contactModel: "VOXEL_STATIC_V2_1",
+});
 
-function canonicalCell(point: Pose["translation"]) {
-  return {
-    x: Math.floor(point.x / PHYSICS.stoneEdgeM),
-    y: Math.floor(point.y / PHYSICS.stoneEdgeM),
-    z: Math.floor(point.z / PHYSICS.stoneEdgeM),
-  };
-}
-
-function vectorMagnitude(vector: { x: number; y: number; z: number }) {
-  return Math.hypot(vector.x, vector.y, vector.z);
-}
-
-function contactIslandIds(
+const rejectedVerdict = (
   snapshot: PhysicsSnapshot,
-  mutation: MatterMutation,
+  code: PhysicsFailureCode,
+): PhysicsVerdict => ({
+  valid: false,
+  code,
+  finalStones: snapshot.stones,
+  affectedStoneIds: [],
+  evaluatedStoneCells: 0,
+  cavityCellsChecked: 0,
+  contactModel: "VOXEL_STATIC_V2_1",
+});
+
+function cellIndex(stones: readonly StoneState[]) {
+  const index = new Map<string, StoneState>();
+  for (const stone of stones) {
+    const key = voxelKey(stone.cell);
+    if (index.has(key)) throw new Error(`Duplicate stone cell ${key}.`);
+    index.set(key, stone);
+  }
+  return index;
+}
+
+function compareCells(left: VoxelCoordinate, right: VoxelCoordinate) {
+  return (
+    left.x - right.x ||
+    left.y - right.y ||
+    left.z - right.z
+  );
+}
+
+function componentFrom(
+  first: string,
+  stones: ReadonlyMap<string, StoneState>,
+  visited: Set<string>,
 ) {
-  const anchors: Pose["translation"][] = [];
-  const sourceStoneId =
-    mutation.source.kind === "STONE" ? mutation.source.stoneId : null;
-  const existing = sourceStoneId
-    ? snapshot.stones.find((stone) => stone.id === sourceStoneId)
-    : null;
-  if (existing) anchors.push(existing.pose.translation);
-  if (mutation.source.kind === "TERRAIN") {
-    anchors.push(voxelCenter(mutation.source.voxel));
-  }
-  const releasePose = mutationReleasePose(mutation);
-  if (releasePose) anchors.push(releasePose.translation);
-
-  const selected = new Set<string>();
-  const frontier = [...anchors];
-  const maximumDistance = PHYSICS.contactIslandLinkM;
-  const cellSize = maximumDistance;
-  const buckets = new Map<string, StoneState[]>();
-  const bucketCoordinate = (value: number) => Math.floor(value / cellSize);
-  const bucketKey = (x: number, y: number, z: number) => `${x}:${y}:${z}`;
-  for (const stone of snapshot.stones) {
-    const point = stone.pose.translation;
-    const key = bucketKey(
-      bucketCoordinate(point.x),
-      bucketCoordinate(point.y),
-      bucketCoordinate(point.z),
-    );
-    const bucket = buckets.get(key);
-    if (bucket) bucket.push(stone);
-    else buckets.set(key, [stone]);
-  }
-
+  const component: string[] = [];
+  const frontier = [first];
+  visited.add(first);
   for (let index = 0; index < frontier.length; index += 1) {
-    const point = frontier[index];
-    const bx = bucketCoordinate(point.x);
-    const by = bucketCoordinate(point.y);
-    const bz = bucketCoordinate(point.z);
-    for (let dx = -1; dx <= 1; dx += 1) {
-      for (let dy = -1; dy <= 1; dy += 1) {
-        for (let dz = -1; dz <= 1; dz += 1) {
-          for (const stone of buckets.get(bucketKey(bx + dx, by + dy, bz + dz)) ?? []) {
-            if (selected.has(stone.id)) continue;
-            if (distance(point, stone.pose.translation) <= maximumDistance) {
-              selected.add(stone.id);
-              frontier.push(stone.pose.translation);
-              if (selected.size > PHYSICS.maxContactIslandStones) {
-                return { ids: selected, exceeded: true };
-              }
-            }
-          }
-        }
+    const key = frontier[index];
+    component.push(key);
+    const cell = stones.get(key)!.cell;
+    for (const offset of FACE_NEIGHBOURS) {
+      const neighbourKey = voxelKey(addVoxel(cell, offset));
+      if (!stones.has(neighbourKey) || visited.has(neighbourKey)) continue;
+      visited.add(neighbourKey);
+      frontier.push(neighbourKey);
+    }
+  }
+  return component;
+}
+
+function supportDistances(
+  component: readonly string[],
+  anchors: readonly string[],
+) {
+  const componentSet = new Set(component);
+  const distance = new Map<string, number>();
+  const capacity = Math.max(64, component.length * 12);
+  const deque = new Array<string>(capacity);
+  let head = Math.floor(capacity / 2);
+  let tail = head;
+  for (const anchor of anchors) {
+    if (distance.has(anchor)) continue;
+    distance.set(anchor, 0);
+    deque[tail++] = anchor;
+  }
+  while (head < tail) {
+    const key = deque[head++];
+    const cell = parseVoxelKey(key);
+    const current = distance.get(key)!;
+    for (const offset of FACE_NEIGHBOURS) {
+      const neighbour = addVoxel(cell, offset);
+      const neighbourKey = voxelKey(neighbour);
+      if (!componentSet.has(neighbourKey)) continue;
+      const horizontal = neighbour.y === cell.y ? 1 : 0;
+      const candidate = current + horizontal;
+      if (candidate >= (distance.get(neighbourKey) ?? Number.POSITIVE_INFINITY)) {
+        continue;
       }
+      distance.set(neighbourKey, candidate);
+      if (horizontal === 0) deque[--head] = neighbourKey;
+      else deque[tail++] = neighbourKey;
     }
   }
-  return { ids: selected, exceeded: false };
+  return distance;
 }
 
-function changedStoneIds(before: StoneState[], after: StoneState[]) {
-  const initial = new Map(before.map((stone) => [stone.id, stone]));
-  const changed: string[] = [];
-
-  for (const stone of after) {
-    const previous = initial.get(stone.id);
-    if (
-      !previous ||
-      distance(previous.pose.translation, stone.pose.translation) > 0.001
+function contiguousVerticalThickness(component: readonly string[]) {
+  const componentSet = new Set(component);
+  const thickness = new Map<string, number>();
+  for (const key of component) {
+    if (thickness.has(key)) continue;
+    const cell = parseVoxelKey(key);
+    let bottom = cell.y;
+    while (
+      componentSet.has(voxelKey({ x: cell.x, y: bottom - 1, z: cell.z }))
     ) {
-      changed.push(stone.id);
+      bottom -= 1;
     }
-  }
-  for (const stone of before) {
-    if (!after.some((candidate) => candidate.id === stone.id)) {
-      changed.push(stone.id);
+    const run: string[] = [];
+    for (let y = bottom; ; y += 1) {
+      const runKey = voxelKey({ x: cell.x, y, z: cell.z });
+      if (!componentSet.has(runKey)) break;
+      run.push(runKey);
     }
+    for (const runKey of run) thickness.set(runKey, run.length);
   }
-
-  return [...new Set(changed)].sort();
+  return thickness;
 }
 
-function prepareMutation(
-  snapshot: PhysicsSnapshot,
-  mutation: MatterMutation,
-):
-  | { ok: true; stones: StoneState[]; intendedRelease: Pose | null }
-  | {
-      ok: false;
-      verdict: PhysicsVerdict;
-    } {
-  const sourceStoneId =
-    mutation.source.kind === "STONE" ? mutation.source.stoneId : null;
-  const resultingStoneId = mutationStoneId(mutation);
-  const sourceExists =
-    sourceStoneId !== null &&
-    snapshot.stones.some((stone) => stone.id === sourceStoneId);
-  const resultExists = snapshot.stones.some(
-    (stone) => stone.id === resultingStoneId,
+function cross(origin: Point2, a: Point2, b: Point2) {
+  return (
+    (a.x - origin.x) * (b.z - origin.z) -
+    (a.z - origin.z) * (b.x - origin.x)
   );
+}
 
-  if (mutation.source.kind !== "STONE" && resultExists) {
-    return {
-      ok: false,
-      verdict: {
-        valid: false,
-        code: "STONE_ALREADY_EXISTS",
-        finalStones: snapshot.stones,
-        affectedStoneIds: [],
-        simulatedSeconds: 0,
-        maxLinearSpeed: 0,
-        maxAngularSpeed: 0,
-        contactModel: "RAPIER_COULOMB_FRICTION",
-      },
-    };
-  }
-
-  if (mutation.source.kind === "STONE" && !sourceExists) {
-    return {
-      ok: false,
-      verdict: {
-        valid: false,
-        code: "STONE_NOT_FOUND",
-        finalStones: snapshot.stones,
-        affectedStoneIds: [],
-        simulatedSeconds: 0,
-        maxLinearSpeed: 0,
-        maxAngularSpeed: 0,
-        contactModel: "RAPIER_COULOMB_FRICTION",
-      },
-    };
-  }
-
-  const remaining = snapshot.stones.filter(
-    (stone) => stone.id !== sourceStoneId,
+function convexHull(points: readonly Point2[]) {
+  const unique = new Map(points.map((point) => [`${point.x}:${point.z}`, point]));
+  const sorted = [...unique.values()].sort(
+    (a, b) => a.x - b.x || a.z - b.z,
   );
-
-  if (mutation.destination.kind === "BASE") {
-    return { ok: true, stones: remaining, intendedRelease: null };
+  if (sorted.length <= 1) return sorted;
+  const lower: Point2[] = [];
+  for (const point of sorted) {
+    while (
+      lower.length >= 2 &&
+      cross(lower.at(-2)!, lower.at(-1)!, point) <= 0
+    ) {
+      lower.pop();
+    }
+    lower.push(point);
   }
-
-  const intendedRelease = snapReleasePose(mutation.destination.releasePose);
-  if (
-    mutation.source.kind === "STONE" &&
-    (() => {
-      const before = canonicalCell(
-        snapshot.stones.find((stone) => stone.id === sourceStoneId)!.pose
-          .translation,
-      );
-      const after = canonicalCell(intendedRelease.translation);
-      return before.x === after.x && before.y === after.y && before.z === after.z;
-    })()
-  ) {
-    return {
-      ok: false,
-      verdict: {
-        valid: false,
-        code: "NO_STATE_CHANGE",
-        finalStones: snapshot.stones,
-        affectedStoneIds: [],
-        simulatedSeconds: 0,
-        maxLinearSpeed: 0,
-        maxAngularSpeed: 0,
-        contactModel: "RAPIER_COULOMB_FRICTION",
-      },
-    };
+  const upper: Point2[] = [];
+  for (const point of [...sorted].reverse()) {
+    while (
+      upper.length >= 2 &&
+      cross(upper.at(-2)!, upper.at(-1)!, point) <= 0
+    ) {
+      upper.pop();
+    }
+    upper.push(point);
   }
-  if (mutation.source.kind === "TERRAIN") {
-    const destinationCell = canonicalCell(intendedRelease.translation);
-    const sourceCell = mutation.source.voxel;
+  lower.pop();
+  upper.pop();
+  return [...lower, ...upper];
+}
+
+function anchorFootprintHull(anchors: readonly VoxelCoordinate[]) {
+  const corners = anchors.flatMap((cell) => [
+    { x: cell.x, z: cell.z },
+    { x: cell.x + 1, z: cell.z },
+    { x: cell.x + 1, z: cell.z + 1 },
+    { x: cell.x, z: cell.z + 1 },
+  ]);
+  return convexHull(corners);
+}
+
+function pointInsideAnchorHull(
+  point: Point2,
+  hull: readonly Point2[],
+) {
+  if (hull.length < 3) return false;
+  for (let index = 0; index < hull.length; index += 1) {
+    const from = hull[index];
+    const to = hull[(index + 1) % hull.length];
+    const length = Math.hypot(to.x - from.x, to.z - from.z);
+    if (length === 0) continue;
+    const signed =
+      ((to.x - from.x) * (point.z - from.z) -
+        (to.z - from.z) * (point.x - from.x)) /
+      length;
+    if (signed < PHYSICS.balanceMarginCells - 1e-9) return false;
+  }
+  return true;
+}
+
+function chunksTouched(cells: readonly VoxelCoordinate[]) {
+  const cellsPerChunk = TERRAIN.physicsChunkEdgeM / TERRAIN.voxelEdgeM;
+  return new Set(
+    cells.map(
+      (cell) =>
+        `${Math.floor(cell.x / cellsPerChunk)}:${Math.floor(cell.z / cellsPerChunk)}`,
+    ),
+  ).size;
+}
+
+function validateComponents(
+  stones: ReadonlyMap<string, StoneState>,
+  seeds: readonly VoxelCoordinate[],
+  removed: ReadonlySet<string>,
+  context: StaticPhysicsContext,
+  alternativeLoadCases?: readonly (readonly StaticServiceLoad[])[],
+) {
+  const visited = new Set<string>();
+  const componentKeys: string[][] = [];
+  for (const seed of seeds) {
+    const key = voxelKey(seed);
+    if (!stones.has(key) || visited.has(key)) continue;
+    componentKeys.push(componentFrom(key, stones, visited));
+  }
+  const affectedKeys = componentKeys.flat();
+  const boundedGroups = alternativeLoadCases
+    ? componentKeys
+    : [affectedKeys];
+  for (const group of boundedGroups) {
+    if (group.length > PHYSICS.maximumAffectedStoneCells) {
+      return {
+        code: "AFFECTED_STONES_TOO_LARGE" as const,
+        affectedKeys,
+      };
+    }
+    const groupCells = group.map(parseVoxelKey);
     if (
-      destinationCell.x === sourceCell.x &&
-      destinationCell.y === sourceCell.y &&
-      destinationCell.z === sourceCell.z
+      new Set(groupCells.map((cell) => cell.y)).size >
+      PHYSICS.maximumDistinctStoneLevels
     ) {
       return {
-        ok: false,
-        verdict: {
-          valid: false,
-          code: "NO_STATE_CHANGE",
-          finalStones: snapshot.stones,
-          affectedStoneIds: [],
-          simulatedSeconds: 0,
-          maxLinearSpeed: 0,
-          maxAngularSpeed: 0,
-          contactModel: "RAPIER_COULOMB_FRICTION",
-        },
+        code: "STRUCTURE_TOO_TALL_FOR_FULL_RECHECK" as const,
+        affectedKeys,
+      };
+    }
+    if (chunksTouched(groupCells) > PHYSICS.maximumTouchedPhysicsChunks) {
+      return {
+        code: "TOO_MANY_CHUNKS_TOUCHED" as const,
+        affectedKeys,
       };
     }
   }
-  const releasedStone: StoneState = {
-    id: resultingStoneId,
-    pose: intendedRelease,
-  };
 
-  return {
-    ok: true,
-    stones: [...remaining, releasedStone].sort((a, b) =>
-      a.id.localeCompare(b.id),
-    ),
-    intendedRelease,
-  };
+  for (const component of componentKeys) {
+    const componentSet = new Set(component);
+    const cells = component.map(parseVoxelKey);
+    const anchors = component.filter((key) => {
+      const cell = parseVoxelKey(key);
+      return isSolidTerrainVoxel(
+        context.terrain,
+        removed,
+        { x: cell.x, y: cell.y - 1, z: cell.z },
+      );
+    });
+    if (anchors.length === 0) {
+      return { code: "STONE_UNANCHORED" as const, affectedKeys };
+    }
+    const distance = supportDistances(component, anchors);
+    const thickness = contiguousVerticalThickness(component);
+    for (const key of component) {
+      const localThickness = thickness.get(key) ?? 1;
+      const limit = Math.min(
+        PHYSICS.maximumHorizontalReachCells,
+        PHYSICS.baseHorizontalReachCells +
+          Math.floor(Math.log2(localThickness)) *
+            PHYSICS.thicknessReachBonusPerDoublingCells,
+      );
+      if ((distance.get(key) ?? Number.POSITIVE_INFINITY) > limit) {
+        return { code: "STONE_SPAN_EXCEEDED" as const, affectedKeys };
+      }
+    }
+
+    const anchorCells = anchors.map(parseVoxelKey);
+    const anchorHull = anchorFootprintHull(anchorCells);
+    const minimumX = Math.min(...anchorCells.map((cell) => cell.x));
+    const maximumX = Math.max(...anchorCells.map((cell) => cell.x));
+    const minimumY = Math.min(...anchorCells.map((cell) => cell.y));
+    const minimumZ = Math.min(...anchorCells.map((cell) => cell.z));
+    const maximumZ = Math.max(...anchorCells.map((cell) => cell.z));
+    const maximumY = Math.max(...cells.map((cell) => cell.y));
+    const widthX = maximumX - minimumX + 1;
+    const widthZ = maximumZ - minimumZ + 1;
+    if (
+      maximumY - minimumY + 1 >
+      Math.min(widthX, widthZ) * PHYSICS.maximumSlendernessRatio
+    ) {
+      return {
+        code: "STONE_LATERAL_OVERTURNING" as const,
+        affectedKeys,
+      };
+    }
+
+    const rawCases =
+      alternativeLoadCases ??
+      (context.serviceLoads ? [context.serviceLoads] : []);
+    const relevantCases = rawCases
+      .map((loadCase) =>
+        loadCase.filter((load) =>
+          componentSet.has(voxelKey(load.supportCell)),
+        ),
+      )
+      .filter((loadCase) => loadCase.length > 0);
+    const loadCases = [[], ...relevantCases] as readonly (
+      readonly StaticServiceLoad[]
+    )[];
+    const stoneMomentX = cells.reduce(
+      (total, cell) => total + cell.x + 0.5,
+      0,
+    );
+    const stoneMomentZ = cells.reduce(
+      (total, cell) => total + cell.z + 0.5,
+      0,
+    );
+    for (const componentLoads of loadCases) {
+      const serviceWeight = componentLoads.reduce(
+        (total, load) => total + load.stoneWeightEquivalent,
+        0,
+      );
+      const totalWeight = component.length + serviceWeight;
+      const centre = {
+        x:
+          (stoneMomentX +
+            componentLoads.reduce(
+              (total, load) =>
+                total +
+                (load.supportCell.x + 0.5) *
+                  load.stoneWeightEquivalent,
+              0,
+            )) /
+          totalWeight,
+        z:
+          (stoneMomentZ +
+            componentLoads.reduce(
+              (total, load) =>
+                total +
+                (load.supportCell.z + 0.5) *
+                  load.stoneWeightEquivalent,
+              0,
+            )) /
+          totalWeight,
+      };
+      if (!pointInsideAnchorHull(centre, anchorHull)) {
+        return { code: "STONE_IMBALANCED" as const, affectedKeys };
+      }
+      if (
+        totalWeight / anchors.length >
+        PHYSICS.maximumLoadPerAnchorCell
+      ) {
+        return {
+          code: "STONE_COMPRESSION_EXCEEDED" as const,
+          affectedKeys,
+        };
+      }
+    }
+  }
+  return { code: null, affectedKeys };
+}
+
+function isSolid(
+  cell: VoxelCoordinate,
+  stones: ReadonlyMap<string, StoneState>,
+  removed: ReadonlySet<string>,
+  terrain: TerrainOracle,
+) {
+  return (
+    stones.has(voxelKey(cell)) ||
+    isSolidTerrainVoxel(terrain, removed, cell)
+  );
+}
+
+function relevantCavityCells(
+  removed: ReadonlySet<string>,
+  changed: readonly VoxelCoordinate[],
+) {
+  if (changed.length === 0) return [];
+  const result: VoxelCoordinate[] = [];
+  for (const key of removed) {
+    const cell = parseVoxelKey(key);
+    if (
+      changed.some(
+        (origin) =>
+          Math.abs(cell.x - origin.x) <=
+            PHYSICS.maximumTunnelRadiusCells + 1 &&
+          Math.abs(cell.z - origin.z) <=
+            PHYSICS.maximumTunnelRadiusCells + 1 &&
+          Math.abs(cell.y - origin.y) <=
+            PHYSICS.minimumTunnelRoofCells + 1,
+      )
+    ) {
+      result.push(cell);
+    }
+  }
+  return result.sort(compareCells);
+}
+
+function validateCavities(
+  stones: ReadonlyMap<string, StoneState>,
+  removed: ReadonlySet<string>,
+  changed: readonly VoxelCoordinate[],
+  terrain: TerrainOracle,
+) {
+  const cells = relevantCavityCells(removed, changed);
+  if (cells.length > PHYSICS.maximumCavityWindowCells) {
+    return {
+      code: "CAVITY_WINDOW_TOO_LARGE" as const,
+      checked: cells.length,
+    };
+  }
+  for (const cell of cells) {
+    const above = { x: cell.x, y: cell.y + 1, z: cell.z };
+    if (!isSolid(above, stones, removed, terrain)) continue;
+    let roofThickness = 0;
+    let cursor = above;
+    while (
+      roofThickness <= PHYSICS.minimumTunnelRoofCells &&
+      isSolid(cursor, stones, removed, terrain)
+    ) {
+      roofThickness += 1;
+      cursor = { x: cursor.x, y: cursor.y + 1, z: cursor.z };
+    }
+    if (roofThickness < PHYSICS.minimumTunnelRoofCells) {
+      return {
+        code: "TUNNEL_ROOF_TOO_THIN" as const,
+        checked: cells.length,
+      };
+    }
+    let nearest = Number.POSITIVE_INFINITY;
+    for (
+      let distance = 1;
+      distance <= PHYSICS.maximumTunnelRadiusCells + 1;
+      distance += 1
+    ) {
+      for (let dx = -distance; dx <= distance; dx += 1) {
+        const dzMagnitude = distance - Math.abs(dx);
+        for (const dz of new Set([dzMagnitude, -dzMagnitude])) {
+          if (
+            isSolid(
+              { x: cell.x + dx, y: cell.y, z: cell.z + dz },
+              stones,
+              removed,
+              terrain,
+            )
+          ) {
+            nearest = distance;
+            break;
+          }
+        }
+        if (nearest !== Number.POSITIVE_INFINITY) break;
+      }
+      if (nearest !== Number.POSITIVE_INFINITY) break;
+    }
+    if (nearest > PHYSICS.maximumTunnelRadiusCells) {
+      return {
+        code: "TUNNEL_RADIUS_EXCEEDED" as const,
+        checked: cells.length,
+      };
+    }
+  }
+  return { code: null, checked: cells.length };
+}
+
+function withinWorld(cell: VoxelCoordinate) {
+  const center = voxelCenter(cell);
+  return (
+    Math.abs(center.x) <= PHYSICS.worldBoundsM &&
+    Math.abs(center.y) <= PHYSICS.worldBoundsM &&
+    Math.abs(center.z) <= PHYSICS.worldBoundsM
+  );
+}
+
+export function validateStaticServiceLoads(
+  snapshot: PhysicsSnapshot,
+  loads: readonly StaticServiceLoad[],
+  terrain: TerrainOracle,
+): PhysicsVerdict {
+  const stones = cellIndex(snapshot.stones);
+  const removed = new Set(snapshot.removedTerrainVoxels.map(voxelKey));
+  const normalizedLoads = loads
+    .filter(
+      (load) =>
+        Number.isFinite(load.stoneWeightEquivalent) &&
+        load.stoneWeightEquivalent > 0 &&
+        stones.has(voxelKey(load.supportCell)),
+    )
+    .map((load) => ({
+      supportCell: { ...load.supportCell },
+      stoneWeightEquivalent: load.stoneWeightEquivalent,
+    }));
+  if (normalizedLoads.length === 0) {
+    return stableVerdict([...snapshot.stones], [], 0, 0);
+  }
+  const components = validateComponents(
+    stones,
+    normalizedLoads.map((load) => load.supportCell),
+    removed,
+    { terrain, serviceLoads: normalizedLoads },
+  );
+  if (components.code) return rejectedVerdict(snapshot, components.code);
+  const affectedStoneIds = components.affectedKeys
+    .map((key) => stones.get(key)?.id)
+    .filter((id): id is string => Boolean(id))
+    .sort();
+  return stableVerdict(
+    [...snapshot.stones],
+    affectedStoneIds,
+    components.affectedKeys.length,
+    0,
+  );
+}
+
+export function validateStaticServiceLoadCases(
+  snapshot: PhysicsSnapshot,
+  loads: readonly StaticServiceLoad[],
+  terrain: TerrainOracle,
+): PhysicsVerdict {
+  const stones = cellIndex(snapshot.stones);
+  const normalizedLoads = loads
+    .filter(
+      (load) =>
+        Number.isFinite(load.stoneWeightEquivalent) &&
+        load.stoneWeightEquivalent > 0 &&
+        stones.has(voxelKey(load.supportCell)),
+    )
+    .map((load) => ({
+      supportCell: { ...load.supportCell },
+      stoneWeightEquivalent: load.stoneWeightEquivalent,
+    }));
+  if (normalizedLoads.length === 0) {
+    return stableVerdict([...snapshot.stones], [], 0, 0);
+  }
+  const removed = new Set(snapshot.removedTerrainVoxels.map(voxelKey));
+  const components = validateComponents(
+    stones,
+    normalizedLoads.map((load) => load.supportCell),
+    removed,
+    { terrain },
+    normalizedLoads.map((load) => [load]),
+  );
+  if (components.code) return rejectedVerdict(snapshot, components.code);
+  return stableVerdict(
+    [...snapshot.stones],
+    [],
+    components.affectedKeys.length,
+    0,
+  );
 }
 
 export async function simulateMutation(
   snapshot: PhysicsSnapshot,
   mutation: MatterMutation,
+  context?: StaticPhysicsContext,
 ): Promise<PhysicsVerdict> {
-  const rejected = prepareMutation(snapshot, mutation);
-  if (!rejected.ok) return rejected.verdict;
-
-  const island = contactIslandIds(snapshot, mutation);
-  if (island.exceeded) {
-    return {
-      valid: false,
-      code: "CONTACT_ISLAND_TOO_LARGE",
-      finalStones: snapshot.stones,
-      affectedStoneIds: [],
-      simulatedSeconds: 0,
-      maxLinearSpeed: 0,
-      maxAngularSpeed: 0,
-      contactModel: "RAPIER_COULOMB_FRICTION",
-    };
+  if (!context) {
+    return rejectedVerdict(snapshot, "TERRAIN_CONTEXT_MISSING");
   }
-  const remoteStones = snapshot.stones.filter(
-    (stone) => !island.ids.has(stone.id),
+  const sourceStoneId =
+    mutation.source.kind === "STONE" ? mutation.source.stoneId : null;
+  const sourceStone = sourceStoneId
+    ? snapshot.stones.find((stone) => stone.id === sourceStoneId)
+    : null;
+  if (mutation.source.kind === "STONE" && !sourceStone) {
+    return rejectedVerdict(snapshot, "STONE_NOT_FOUND");
+  }
+  if (
+    mutation.source.kind === "TERRAIN" &&
+    !isExposedTerrainVoxel(
+      context.terrain,
+      snapshot.removedTerrainVoxels,
+      mutation.source.voxel,
+    )
+  ) {
+    return rejectedVerdict(snapshot, "TERRAIN_VOXEL_NOT_EXPOSED");
+  }
+  if (
+    mutation.source.kind === "BASE" &&
+    snapshot.stones.some((stone) => stone.id === mutation.matterId)
+  ) {
+    return rejectedVerdict(snapshot, "STONE_ALREADY_EXISTS");
+  }
+
+  const sourceCell =
+    mutation.source.kind === "STONE"
+      ? sourceStone!.cell
+      : mutation.source.kind === "TERRAIN"
+        ? mutation.source.voxel
+        : null;
+  const destination = mutationDestinationCell(mutation);
+  if (
+    sourceCell &&
+    destination &&
+    voxelKey(sourceCell) === voxelKey(destination)
+  ) {
+    return rejectedVerdict(snapshot, "NO_STATE_CHANGE");
+  }
+  if (destination && !withinWorld(destination)) {
+    return rejectedVerdict(snapshot, "WORLD_BOUNDS_EXCEEDED");
+  }
+
+  const candidateStones = snapshot.stones
+    .filter(
+      (stone) =>
+        mutation.source.kind !== "STONE" ||
+        stone.id !== mutation.source.stoneId,
+    )
+    .map((stone) => ({ id: stone.id, cell: { ...stone.cell } }));
+  const candidateRemoved = new Set(
+    snapshot.removedTerrainVoxels.map(voxelKey),
   );
-  const localSnapshot = {
-    ...snapshot,
-    stones: snapshot.stones.filter((stone) => island.ids.has(stone.id)),
-  };
-  const prepared = prepareMutation(localSnapshot, mutation);
-  if (!prepared.ok) return prepared.verdict;
-  if (prepared.stones.length > PHYSICS.maxContactIslandStones) {
-    return {
-      valid: false,
-      code: "CONTACT_ISLAND_TOO_LARGE",
-      finalStones: snapshot.stones,
-      affectedStoneIds: [],
-      simulatedSeconds: 0,
-      maxLinearSpeed: 0,
-      maxAngularSpeed: 0,
-      contactModel: "RAPIER_COULOMB_FRICTION",
-    };
+  if (mutation.source.kind === "TERRAIN") {
+    candidateRemoved.add(voxelKey(mutation.source.voxel));
   }
+  const candidateIndex = cellIndex(candidateStones);
 
-  const RAPIER = await loadPhysicsRuntime();
-  const world = new RAPIER.World({
-    x: 0,
-    y: -PHYSICS.gravityMps2,
-    z: 0,
-  });
-  world.timestep = PHYSICS.fixedTimestepSeconds;
-
-  for (const terrain of snapshot.terrain) {
-    const descriptor =
-      terrain.kind === "cuboid"
-        ? RAPIER.ColliderDesc.cuboid(
-            terrain.halfExtents.x,
-            terrain.halfExtents.y,
-            terrain.halfExtents.z,
-          )
-            .setTranslation(
-              terrain.center.x,
-              terrain.center.y,
-              terrain.center.z,
-            )
-            .setRotation(terrain.rotation ?? IDENTITY_QUATERNION)
-        : RAPIER.ColliderDesc.trimesh(terrain.vertices, terrain.indices);
-    descriptor
-      .setFriction(terrain.friction ?? PHYSICS.dryRockFriction)
-      .setRestitution(PHYSICS.restitution)
-      .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min);
-    world.createCollider(descriptor);
-  }
-
-  const bodies = new Map<string, import("@dimforge/rapier3d-deterministic-compat").RigidBody>();
-  const halfEdge = PHYSICS.stoneEdgeM / 2;
-
-  for (const stone of prepared.stones) {
-    const body = world.createRigidBody(
-      RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation(
-          stone.pose.translation.x,
-          stone.pose.translation.y,
-          stone.pose.translation.z,
-        )
-        .setRotation(stone.pose.rotation)
-        .setCanSleep(true)
-        .setCcdEnabled(true)
-        .setLinearDamping(0.08)
-        .setAngularDamping(0.08),
-    );
-    world.createCollider(
-      RAPIER.ColliderDesc.cuboid(halfEdge, halfEdge, halfEdge)
-        .setDensity(PHYSICS.stoneDensityKgM3)
-        .setFriction(PHYSICS.dryRockFriction)
-        .setRestitution(PHYSICS.restitution)
-        .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min),
-      body,
-    );
-    bodies.set(stone.id, body);
-  }
-
-  // The mutation may remove a support or introduce a new impact. Waking the
-  // local island lets Rapier discover secondary movement and collapse.
-  for (const body of bodies.values()) body.wakeUp();
-
-  const maxSteps = Math.ceil(
-    PHYSICS.maxSettlingSeconds / PHYSICS.fixedTimestepSeconds,
-  );
-  const minimumSteps = Math.ceil(
-    PHYSICS.minimumSettlingSeconds / PHYSICS.fixedTimestepSeconds,
-  );
-  let quietFrames = 0;
-  let settled = false;
-  let completedSteps = 0;
-  let maxLinearSpeed = 0;
-  let maxAngularSpeed = 0;
-
-  for (let step = 0; step < maxSteps; step += 1) {
-    world.step();
-    completedSteps = step + 1;
-    let frameQuiet = true;
-
-    for (const body of bodies.values()) {
-      const linearSpeed = vectorMagnitude(body.linvel());
-      const angularSpeed = vectorMagnitude(body.angvel());
-      maxLinearSpeed = Math.max(maxLinearSpeed, linearSpeed);
-      maxAngularSpeed = Math.max(maxAngularSpeed, angularSpeed);
-      if (
-        linearSpeed > PHYSICS.linearSleepThresholdMps ||
-        angularSpeed > PHYSICS.angularSleepThresholdRps
-      ) {
-        frameQuiet = false;
-      }
+  if (destination) {
+    const destinationKey = voxelKey(destination);
+    if (
+      candidateIndex.has(destinationKey) ||
+      isSolidTerrainVoxel(context.terrain, candidateRemoved, destination)
+    ) {
+      return rejectedVerdict(snapshot, "DESTINATION_OCCUPIED");
     }
-
-    quietFrames = frameQuiet ? quietFrames + 1 : 0;
-    if (step >= minimumSteps && quietFrames >= 30) {
-      settled = true;
-      break;
+    if (candidateStones.some((stone) => stone.id === mutation.matterId)) {
+      return rejectedVerdict(snapshot, "STONE_ALREADY_EXISTS");
+    }
+    const placed: StoneState = {
+      id: mutation.matterId,
+      cell: { ...destination },
+    };
+    candidateStones.push(placed);
+    candidateIndex.set(destinationKey, placed);
+    if (
+      !FACE_NEIGHBOURS.some((offset) => {
+        const neighbour = addVoxel(destination, offset);
+        return (
+          candidateIndex.has(voxelKey(neighbour)) ||
+          isSolidTerrainVoxel(context.terrain, candidateRemoved, neighbour)
+        );
+      })
+    ) {
+      return rejectedVerdict(snapshot, "DESTINATION_HAS_NO_FACE_CONTACT");
     }
   }
 
-  const localFinalStones = [...bodies.entries()]
-    .map(([id, body]) => {
-      const translation = body.translation();
-      const rotation = body.rotation();
-      return {
-        id,
-        pose: {
-          translation: {
-            x: translation.x,
-            y: translation.y,
-            z: translation.z,
-          },
-          rotation: {
-            x: rotation.x,
-            y: rotation.y,
-            z: rotation.z,
-            w: rotation.w,
-          },
-        },
-      } satisfies StoneState;
-    })
-    .sort((a, b) => a.id.localeCompare(b.id));
+  const seeds: VoxelCoordinate[] = [];
+  if (sourceCell) {
+    for (const offset of FACE_NEIGHBOURS) {
+      const neighbour = addVoxel(sourceCell, offset);
+      if (candidateIndex.has(voxelKey(neighbour))) seeds.push(neighbour);
+    }
+  }
+  if (destination) seeds.push(destination);
+  const components = validateComponents(
+    candidateIndex,
+    seeds,
+    candidateRemoved,
+    context,
+  );
+  if (components.code) {
+    return rejectedVerdict(snapshot, components.code);
+  }
 
-  const finalStones = [...remoteStones, ...localFinalStones].sort((a, b) =>
+  const changed = [
+    ...(sourceCell ? [sourceCell] : []),
+    ...(destination ? [destination] : []),
+  ];
+  const cavity = validateCavities(
+    candidateIndex,
+    candidateRemoved,
+    changed,
+    context.terrain,
+  );
+  if (cavity.code) return rejectedVerdict(snapshot, cavity.code);
+
+  const affectedIds = new Set(
+    components.affectedKeys
+      .map((key) => candidateIndex.get(key)?.id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  if (sourceStone) affectedIds.add(sourceStone.id);
+  if (destination) affectedIds.add(mutation.matterId);
+  const finalStones = [...candidateStones].sort((a, b) =>
     a.id.localeCompare(b.id),
   );
-  const exceededBounds = localFinalStones.some((stone) => {
-    const { x, y, z } = stone.pose.translation;
-    return (
-      Math.abs(x) > PHYSICS.worldBoundsM ||
-      Math.abs(y) > PHYSICS.worldBoundsM ||
-      Math.abs(z) > PHYSICS.worldBoundsM
-    );
-  });
-
-  const placedStone =
-    mutation.destination.kind === "BASE"
-      ? null
-      : finalStones.find((stone) => stone.id === mutationStoneId(mutation)) ?? null;
-  const placementHeld =
-    !prepared.intendedRelease ||
-    (placedStone !== null &&
-      distance(
-        prepared.intendedRelease.translation,
-        placedStone.pose.translation,
-      ) <= PHYSICS.placementToleranceM);
-  const affectedStoneIds = changedStoneIds(snapshot.stones, finalStones);
-  const simulatedSeconds =
-    completedSteps * PHYSICS.fixedTimestepSeconds;
-
-  world.free();
-
-  if (exceededBounds) {
-    return {
-      valid: false,
-      code: "WORLD_BOUNDS_EXCEEDED",
-      finalStones,
-      affectedStoneIds,
-      simulatedSeconds,
-      maxLinearSpeed,
-      maxAngularSpeed,
-      contactModel: "RAPIER_COULOMB_FRICTION",
-    };
-  }
-  if (!settled) {
-    return {
-      valid: false,
-      code: "SETTLING_TIMEOUT",
-      finalStones,
-      affectedStoneIds,
-      simulatedSeconds,
-      maxLinearSpeed,
-      maxAngularSpeed,
-      contactModel: "RAPIER_COULOMB_FRICTION",
-    };
-  }
-  if (!placementHeld) {
-    return {
-      valid: false,
-      code: "PLACEMENT_DID_NOT_HOLD",
-      finalStones,
-      affectedStoneIds,
-      simulatedSeconds,
-      maxLinearSpeed,
-      maxAngularSpeed,
-      contactModel: "RAPIER_COULOMB_FRICTION",
-    };
-  }
-
-  return {
-    valid: true,
-    code: "STABLE",
+  return stableVerdict(
     finalStones,
-    affectedStoneIds,
-    simulatedSeconds,
-    maxLinearSpeed,
-    maxAngularSpeed,
-    contactModel: "RAPIER_COULOMB_FRICTION",
-  };
+    [...affectedIds].sort(),
+    components.affectedKeys.length,
+    cavity.checked,
+  );
 }

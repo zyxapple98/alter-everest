@@ -59,10 +59,6 @@ export async function buildSpatialManifest(
       stones: StoneState[];
     }
   >();
-  const chunkAt = (x: number, z: number) => ({
-    x: Math.floor(x / TERRAIN.physicsChunkEdgeM),
-    z: Math.floor(z / TERRAIN.physicsChunkEdgeM),
-  });
   const ensureChunk = (x: number, z: number) => {
     const id = `${x}:${z}`;
     let chunk = chunkData.get(id);
@@ -77,7 +73,7 @@ export async function buildSpatialManifest(
     ensureChunk(chunk.x, chunk.z).removedTerrainVoxels.push(voxel);
   }
   for (const stone of stones) {
-    const chunk = chunkAt(stone.pose.translation.x, stone.pose.translation.z);
+    const chunk = chunkForVoxel(stone.cell);
     ensureChunk(chunk.x, chunk.z).stones.push(stone);
   }
 

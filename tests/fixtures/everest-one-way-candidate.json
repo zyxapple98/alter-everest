@@ -1,5 +1,5 @@
 {
-  "protocol": "0.4.0",
+  "protocol": "0.5.0",
   "id": "expedition-example-agent-mrxrjy04",
   "parentWorldHash": "world-000006318",
   "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
@@ -1703,18 +1703,10 @@
       },
       "destination": {
         "kind": "WORLD",
-        "releasePose": {
-          "translation": {
-            "x": 3032.2194005898095,
-            "y": 3479.109999999931,
-            "z": -5194.933333333333
-          },
-          "rotation": {
-            "x": 0,
-            "y": 0,
-            "z": 0,
-            "w": 1
-          }
+        "cell": {
+          "x": 15166,
+          "y": 17394,
+          "z": -25975
         }
       }
     },

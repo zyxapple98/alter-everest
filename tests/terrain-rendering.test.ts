@@ -94,7 +94,7 @@ test("surface tile eviction releases its collision index", async () => {
   const tiles = Array.from({ length: 50 }, (_, x) => {
     const hash = `tile-${x}`;
     const payload: ObservatorySurfaceTile = {
-      schemaVersion: "1.0.0",
+      schemaVersion: "1.1.0",
       id: `${x}:0`,
       x,
       z: 0,
@@ -124,7 +124,7 @@ test("surface tile eviction releases its collision index", async () => {
     };
   });
   const feed = {
-    schemaVersion: "1.3.0",
+    schemaVersion: "1.4.0",
     sequence: 1,
     worldHash: "tile-eviction-test",
     summitHeightM: 8_848.86,

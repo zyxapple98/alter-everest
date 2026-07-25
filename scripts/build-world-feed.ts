@@ -319,7 +319,7 @@ const surfaceTileArtifacts = [...chunksByTile.entries()]
       left.id.localeCompare(right.id),
     );
     const payloadWithoutHash = {
-      schemaVersion: "1.0.0",
+      schemaVersion: "1.1.0",
       id,
       x: tile.x,
       z: tile.z,
@@ -352,8 +352,10 @@ const surfaceTileArtifacts = [...chunksByTile.entries()]
       stones.forEach((stone) => {
         touched.add(
           `${Math.floor(
-            stone.pose.translation.x / cellM,
-          )}:${Math.floor(stone.pose.translation.z / cellM)}`,
+            (stone.cell.x * surfaceVoxelEdgeM) / cellM,
+          )}:${Math.floor(
+            (stone.cell.z * surfaceVoxelEdgeM) / cellM,
+          )}`,
         );
       });
       return {
@@ -380,7 +382,7 @@ const surfaceTileArtifacts = [...chunksByTile.entries()]
   });
 
 const feed = {
-  schemaVersion: "1.3.0",
+  schemaVersion: "1.4.0",
   sequence: world.sequence,
   worldHash: world.worldHash,
   summitHeightM: 8848.86,

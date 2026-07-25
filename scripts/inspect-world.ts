@@ -12,7 +12,7 @@ const [world, terrain, sites] = await Promise.all([
 console.log(
   JSON.stringify(
     {
-      protocol: "0.4.0",
+      protocol: "0.5.0",
       world: {
         sequence: world.sequence,
         worldHash: world.worldHash,
@@ -36,7 +36,8 @@ console.log(
       },
       matter: {
         mutation: "RELOCATE",
-        stoneEdgeM: PHYSICS.stoneEdgeM,
+        ruleset: PHYSICS.rulesetVersion,
+        cellEdgeM: PHYSICS.voxelEdgeM,
         legalSources: ["BASE", "STONE", "TERRAIN"],
         legalDestinations: ["WORLD", "BASE"],
         forbidden: ["BASE_TO_BASE", "NO_STATE_CHANGE"],

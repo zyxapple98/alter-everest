@@ -1,43 +1,20 @@
 export type Vec3 = Readonly<{ x: number; y: number; z: number }>;
-export type Quaternion = Readonly<{ x: number; y: number; z: number; w: number }>;
-
-export interface Pose {
-  translation: Vec3;
-  rotation: Quaternion;
-}
-
-export interface StoneState {
-  id: string;
-  pose: Pose;
-}
-
-export interface TerrainCuboid {
-  kind: "cuboid";
-  center: Vec3;
-  halfExtents: Vec3;
-  rotation?: Quaternion;
-  friction?: number;
-}
-
-export interface TerrainMesh {
-  kind: "trimesh";
-  vertices: Float32Array;
-  indices: Uint32Array;
-  friction?: number;
-}
-
-export type TerrainCollider = TerrainCuboid | TerrainMesh;
-
-export interface PhysicsSnapshot {
-  worldHash: string;
-  stones: StoneState[];
-  terrain: TerrainCollider[];
-}
 
 export interface VoxelCoordinate {
   x: number;
   y: number;
   z: number;
+}
+
+export interface StoneState {
+  id: string;
+  cell: VoxelCoordinate;
+}
+
+export interface PhysicsSnapshot {
+  worldHash: string;
+  stones: StoneState[];
+  removedTerrainVoxels: VoxelCoordinate[];
 }
 
 export type MatterSource =
@@ -47,7 +24,7 @@ export type MatterSource =
 
 export type MatterDestination =
   | { kind: "BASE" }
-  | { kind: "WORLD"; releasePose: Pose };
+  | { kind: "WORLD"; cell: VoxelCoordinate };
 
 export interface MatterMutation {
   kind: "RELOCATE";
@@ -65,9 +42,20 @@ export type PhysicsFailureCode =
   | "TERRAIN_VOXEL_NOT_EXPOSED"
   | "NO_STATE_CHANGE"
   | "SPAWN_CORE_PROTECTED"
-  | "PLACEMENT_DID_NOT_HOLD"
-  | "SETTLING_TIMEOUT"
-  | "CONTACT_ISLAND_TOO_LARGE"
+  | "DESTINATION_OCCUPIED"
+  | "DESTINATION_HAS_NO_FACE_CONTACT"
+  | "STONE_UNANCHORED"
+  | "STONE_IMBALANCED"
+  | "STONE_SPAN_EXCEEDED"
+  | "STONE_COMPRESSION_EXCEEDED"
+  | "STONE_LATERAL_OVERTURNING"
+  | "TUNNEL_ROOF_TOO_THIN"
+  | "TUNNEL_RADIUS_EXCEEDED"
+  | "AFFECTED_STONES_TOO_LARGE"
+  | "STRUCTURE_TOO_TALL_FOR_FULL_RECHECK"
+  | "CAVITY_WINDOW_TOO_LARGE"
+  | "TOO_MANY_CHUNKS_TOUCHED"
+  | "TERRAIN_CONTEXT_MISSING"
   | "WORLD_BOUNDS_EXCEEDED";
 
 export interface PhysicsVerdict {
@@ -75,10 +63,9 @@ export interface PhysicsVerdict {
   code: "STABLE" | PhysicsFailureCode;
   finalStones: StoneState[];
   affectedStoneIds: string[];
-  simulatedSeconds: number;
-  maxLinearSpeed: number;
-  maxAngularSpeed: number;
-  contactModel: "RAPIER_COULOMB_FRICTION";
+  evaluatedStoneCells: number;
+  cavityCellsChecked: number;
+  contactModel: "VOXEL_STATIC_V2_1";
 }
 
 export type LocomotionMode = "WALK" | "SCRAMBLE" | "CLIMB";
@@ -190,7 +177,6 @@ export interface CanonicalWorld extends PhysicsSnapshot {
   terrainHash: string;
   baseCamp: Vec3;
   extractionZones: Vec3[];
-  removedTerrainVoxels: VoxelCoordinate[];
   modifiedChunks: ModifiedChunkState[];
   modifiedTiles: ModifiedTileState[];
   identities: IdentityState[];
@@ -238,5 +224,3 @@ export interface CommitVerdict {
   nextIdentityStatus: IdentityOutcome | null;
   score: number | null;
 }
-
-export const IDENTITY_QUATERNION: Quaternion = { x: 0, y: 0, z: 0, w: 1 };

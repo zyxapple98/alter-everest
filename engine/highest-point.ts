@@ -1,4 +1,5 @@
-import { PHYSICS, TERRAIN } from "./constants";
+import { TERRAIN } from "./constants";
+import { voxelCenter } from "./mutation";
 import { currentTopVoxel } from "./surface";
 import type { TerrainOracle } from "./terrain";
 import type { StoneState, VoxelCoordinate } from "./types";
@@ -22,17 +23,7 @@ interface HighestPointRegistration {
 }
 
 function stoneTopY(stone: StoneState) {
-  const { x, y, z, w } = stone.pose.rotation;
-  const half = PHYSICS.stoneEdgeM / 2;
-  const matrixY = [
-    2 * (x * y + z * w),
-    1 - 2 * (x * x + z * z),
-    2 * (y * z - x * w),
-  ];
-  return (
-    stone.pose.translation.y +
-    half * (Math.abs(matrixY[0]) + Math.abs(matrixY[1]) + Math.abs(matrixY[2]))
-  );
+  return (stone.cell.y + 1) * TERRAIN.voxelEdgeM;
 }
 
 export function currentHighestPoint(
@@ -130,7 +121,7 @@ export function currentHighestPoint(
   for (const stone of stones) {
     const y = stoneTopY(stone);
     if (y <= highest.y) continue;
-    const { x, z } = stone.pose.translation;
+    const { x, z } = voxelCenter(stone.cell);
     highest = {
       kind: "STONE",
       id: stone.id,
