@@ -167,6 +167,24 @@ export class SurfaceNavigationController {
     this.lastInputAt = now;
   }
 
+  restoreView(
+    position: THREE.Vector3,
+    target: THREE.Vector3,
+    durationMs = 880,
+  ) {
+    const now = performance.now();
+    this.focusFlight = {
+      startedAt: now,
+      durationMs,
+      fromPosition: this.camera.position.clone(),
+      fromTarget: this.controls.target.clone(),
+      toPosition: position.clone(),
+      toTarget: target.clone(),
+    };
+    this.controls.enabled = false;
+    this.lastInputAt = now;
+  }
+
   nudge(forwardAmount: number, rightAmount: number) {
     const distanceM =
       this.camera.position.distanceTo(this.controls.target) /

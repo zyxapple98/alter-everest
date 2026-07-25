@@ -321,18 +321,20 @@ export function replayActionState(
 }
 
 /**
- * A physical climber is used at work scale. It cross-fades into a
- * camera-facing, constant-pixel signal for regional and mountain views.
+ * A true-scale climber is used at work scale. Between encounter and regional
+ * scale it cross-fades into a camera-facing identity badge, which stays a
+ * readable size in the mountain overview.
  */
 export function agentVisualLod(distanceM: number): AgentVisualLod {
   const distance = Math.max(0, distanceM);
-  const signalMix = smoothstep(95, 310, distance);
+  const physicalMix = 1 - smoothstep(38, 120, distance);
+  const identityMix = smoothstep(32, 110, distance);
   return {
-    physicalOpacity: 1 - signalMix,
-    physicalScale: 1 + smoothstep(70, 260, distance) * 0.55,
-    signalOpacity: signalMix,
-    signalPixels: 18 + smoothstep(250, 4_000, distance) * 8,
+    physicalOpacity: physicalMix,
+    physicalScale: 1 + smoothstep(46, 112, distance) * 0.2,
+    signalOpacity: identityMix,
+    signalPixels: 32 + smoothstep(100, 1_600, distance) * 8,
     actionMarkerM: clamp(distance * 0.006, 0.24, 3.2),
-    breadcrumbOpacity: smoothstep(300, 1_200, distance),
+    breadcrumbOpacity: smoothstep(220, 1_000, distance),
   };
 }

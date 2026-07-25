@@ -660,6 +660,22 @@ button {
   outline: none;
 }
 
+.expedition-controls button[data-mode="exit"] {
+  color: rgba(255, 224, 184, 0.94);
+  border-color: rgba(255, 191, 102, 0.58);
+  background: rgba(53, 31, 13, 0.78);
+}
+
+.expedition-controls button[data-mode="exit"]:hover,
+.expedition-controls button[data-mode="exit"]:focus-visible {
+  color: #fff8ee;
+  border-color: rgba(255, 191, 102, 0.92);
+}
+
+.observatory[data-watching="true"] .expedition-card {
+  border-top-color: rgba(255, 191, 102, 0.72);
+}
+
 .replay-dock {
   --replay-progress: 0%;
   position: absolute;

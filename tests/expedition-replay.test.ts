@@ -72,15 +72,19 @@ test("action state distinguishes approach, carry, placement, and completion", ()
 
 test("agent LOD is physical at work scale and signal-based at mountain scale", () => {
   const work = agentVisualLod(18);
+  const encounter = agentVisualLod(70);
   const regional = agentVisualLod(180);
   const overview = agentVisualLod(8_000);
 
   assert.equal(work.physicalOpacity, 1);
   assert.equal(work.signalOpacity, 0);
-  assert.ok(regional.physicalOpacity > 0);
-  assert.ok(regional.signalOpacity > 0);
+  assert.ok(encounter.physicalOpacity > 0);
+  assert.ok(encounter.signalOpacity > 0);
+  assert.equal(regional.physicalOpacity, 0);
+  assert.equal(regional.signalOpacity, 1);
   assert.equal(overview.physicalOpacity, 0);
   assert.equal(overview.signalOpacity, 1);
+  assert.equal(overview.signalPixels, 40);
   assert.equal(work.actionMarkerM, 0.24);
   assert.equal(overview.actionMarkerM, 3.2);
 });
