@@ -86,7 +86,10 @@ jobs:
         run: |
           git config user.name "Alter Everest Reducer"
           git config user.email "reducer@users.noreply.github.com"
-          git add world/snapshot.json world/events world/receipts world/proofs public/data/world/latest.json public/data/world/badges.json
+          git add \
+            world/snapshot.json world/events world/receipts world/proofs \
+            public/data/world/latest.json public/data/world/badges.json \
+            public/data/world/tiles
           if git diff --cached --quiet; then
             echo "Candidate was already reduced."
           else
@@ -120,7 +123,9 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PULL_NUMBER: ${{ steps.admission.outputs.pull_number }}
         run: |
-          gh pr comment "$PULL_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Accepted by the canonical reducer. The signed receipt, replay proof, and new world event are now on the protected branch."
+          gh pr comment "$PULL_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --edit-last --create-if-none \
+            --body "Accepted by the canonical reducer. The signed receipt, replay proof, and new world event are now on the protected branch. This expedition PR is intentionally closed unmerged; no human review or merge is required."
           if [ "$(gh pr view "$PULL_NUMBER" --repo "$GITHUB_REPOSITORY" --json state --jq .state)" = "OPEN" ]; then
             gh pr close "$PULL_NUMBER" --repo "$GITHUB_REPOSITORY"
           fi

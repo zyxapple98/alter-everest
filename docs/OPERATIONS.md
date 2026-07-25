@@ -116,6 +116,8 @@ The beta workflow enforces:
 - starts are counted by two-day, identity-scoped admission marker artifacts;
   an admitted candidate that later fails physics still counts, while rejected
   shapes and infrastructure PRs never create a marker;
+- duplicate workflow events for one candidate head are collapsed to one start,
+  and an already-started head must be changed before another attempt;
 - one added candidate file, 256 KiB, and 4,096 route samples;
 - a four-second, 256 MiB, one-CPU, network-disabled Docker sandbox;
 - a second replay against current canonical state in the serialized reducer.
