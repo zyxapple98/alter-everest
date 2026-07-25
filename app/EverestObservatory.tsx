@@ -35,6 +35,7 @@ import {
   dampDirectorValueAsymmetric,
   requiredCameraLift,
 } from "./everest/camera-director";
+import { renderIntervalMs } from "./everest/render-budget";
 
 interface DemMetadata {
   id: string;
@@ -166,12 +167,7 @@ const CANONICAL_ORIGIN_LONGITUDE = 86.89486111111111;
 const METERS_PER_DEGREE_LATITUDE = 111_320;
 const WORLD_UNITS_PER_METER = CORE_BLOCK_SIZE / 30;
 const ENDURANCE_SEGMENTS = 28;
-// A high-refresh display otherwise makes the full 20 cm voxel field render at
-// 120–240 FPS. The replay is already time-based, so 60 FPS preserves motion
-// speed and Steadicam smoothing while avoiding redundant GPU work.
-const MAX_RENDER_FPS = 60;
 const MAX_RENDER_PIXEL_RATIO = 1.2;
-const MIN_RENDER_INTERVAL_MS = 1000 / MAX_RENDER_FPS;
 const DETAIL_LODS = [
   {
     cellM: 15,
@@ -581,7 +577,7 @@ function createVoxelTerrain(
   }
 
   const positions = new Float32Array(faceCount * 12);
-  const colors = new Float32Array(faceCount * 12);
+  const colors = new Uint8Array(faceCount * 12);
   const indices =
     faceCount * 4 > 65_535
       ? new Uint32Array(faceCount * 6)
@@ -591,11 +587,16 @@ function createVoxelTerrain(
   const writeFace = (vertices: ArrayLike<number>, color: THREE.Color) => {
     const positionOffset = face * 12;
     positions.set(vertices, positionOffset);
+    const red = Math.round(THREE.MathUtils.clamp(color.r, 0, 1) * 255);
+    const green = Math.round(
+      THREE.MathUtils.clamp(color.g, 0, 1) * 255,
+    );
+    const blue = Math.round(THREE.MathUtils.clamp(color.b, 0, 1) * 255);
     for (let vertex = 0; vertex < 4; vertex += 1) {
       const colorOffset = positionOffset + vertex * 3;
-      colors[colorOffset] = color.r;
-      colors[colorOffset + 1] = color.g;
-      colors[colorOffset + 2] = color.b;
+      colors[colorOffset] = red;
+      colors[colorOffset + 1] = green;
+      colors[colorOffset + 2] = blue;
     }
     const vertexOffset = face * 4;
     const indexOffset = face * 6;
@@ -731,7 +732,10 @@ function createVoxelTerrain(
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute(
+    "color",
+    new THREE.BufferAttribute(colors, 3, true),
+  );
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeBoundingSphere();
 
@@ -3110,6 +3114,7 @@ export default function EverestObservatory() {
       let clipmapBuildRunning = false;
       let clipmapBuildDisposed = false;
       let pendingClipmapKey: string | null = null;
+      let runningClipmapBuild: ClipmapBuildJob | null = null;
       let queuedClipmapBuild: ClipmapBuildJob | null = null;
       const processClipmapBuilds = async () => {
         if (clipmapBuildRunning) return;
@@ -3117,6 +3122,7 @@ export default function EverestObservatory() {
         while (queuedClipmapBuild && !clipmapBuildDisposed) {
           const job = queuedClipmapBuild;
           queuedClipmapBuild = null;
+          runningClipmapBuild = job;
           pendingClipmapKey = job.key;
           const reusablePatches = new Map(
             detailClipmap.patches.map((patch) => [
@@ -3139,6 +3145,7 @@ export default function EverestObservatory() {
             (queuedAfterBuild &&
               queuedAfterBuild.key !== job.key)
           ) {
+            runningClipmapBuild = null;
             disposeDetailClipmap(
               nextClipmap,
               new Set(detailClipmap.patches),
@@ -3156,13 +3163,42 @@ export default function EverestObservatory() {
             previousClipmap,
             new Set(nextClipmap.patches),
           );
+          if (nextClipmap.activeIndex < 0) {
+            terrainStreaming.clearMeshCache();
+          }
+          runningClipmapBuild = null;
         }
+        runningClipmapBuild = null;
         clipmapBuildRunning = false;
       };
       let desiredReplayWorldState = FINAL_WORLD_REPLAY_STATE;
       const requestDetailPatches = (activeIndex: number) => {
         const nextCenter = snappedDetailCenter(activeIndex);
         const feedSnapshot = sceneDataRef.current.feed;
+        const inFlightBuild =
+          queuedClipmapBuild ?? runningClipmapBuild;
+        const activeLod =
+          activeIndex >= 0 ? DETAIL_LODS[activeIndex] : null;
+        const inFlightDriftM = inFlightBuild
+          ? inFlightBuild.center.distanceTo(nextCenter) /
+            WORLD_UNITS_PER_METER
+          : Number.POSITIVE_INFINITY;
+        const inFlightCoverageM = activeLod
+          ? Math.max(
+              activeLod.cellM * 12,
+              activeLod.cellM * activeLod.gridCells * 0.18,
+            )
+          : 0;
+        if (
+          inFlightBuild &&
+          inFlightBuild.activeIndex === activeIndex &&
+          inFlightBuild.feed.worldHash === feedSnapshot.worldHash &&
+          inFlightBuild.replayWorldState.terrainKey ===
+            desiredReplayWorldState.terrainKey &&
+          inFlightDriftM < inFlightCoverageM
+        ) {
+          return;
+        }
         const key = `${feedSnapshot.worldHash}:${desiredReplayWorldState.terrainKey}:${activeIndex}:${nextCenter.x.toFixed(
           5,
         )}:${nextCenter.y.toFixed(5)}`;
@@ -3535,6 +3571,7 @@ export default function EverestObservatory() {
       setSceneStatus("ready");
 
       let frame = 0;
+      let ambientFrameTimer: number | null = null;
       const started = performance.now();
       let suppressOverviewUntilDetailReady = false;
       let overviewSuppressedAt = 0;
@@ -3550,17 +3587,43 @@ export default function EverestObservatory() {
       let directorSmoothedTargetY = Number.NaN;
       let directorLastUpdateAt = started;
       let lastRenderedFrameAt = started;
+      let highMotionRenderActive = false;
       const reduceMotion = window.matchMedia(
         "(prefers-reduced-motion: reduce)",
       ).matches;
       const render = (time: number) => {
-        frame = requestAnimationFrame(render);
+        const pageVisible = document.visibilityState === "visible";
+        const immediateFrameLoop =
+          pageVisible &&
+          !reduceMotion &&
+          (highMotionRenderActive ||
+            navigationCommandRef.current !== null);
+        const minimumRenderInterval = renderIntervalMs({
+          visible: pageVisible,
+          highMotion:
+            highMotionRenderActive ||
+            navigationCommandRef.current !== null,
+          reducedMotion: reduceMotion,
+        });
+        if (immediateFrameLoop) {
+          frame = requestAnimationFrame(render);
+        } else {
+          // Leave roughly one refresh interval for requestAnimationFrame to
+          // align the draw after the low-frequency ambient wake-up.
+          ambientFrameTimer = window.setTimeout(
+            () => {
+              ambientFrameTimer = null;
+              frame = requestAnimationFrame(render);
+            },
+            Math.max(0, minimumRenderInterval - 8),
+          );
+        }
         const elapsedSinceRender = time - lastRenderedFrameAt;
-        if (elapsedSinceRender + 0.5 < MIN_RENDER_INTERVAL_MS) {
+        if (elapsedSinceRender + 0.5 < minimumRenderInterval) {
           return;
         }
         lastRenderedFrameAt =
-          time - (elapsedSinceRender % MIN_RENDER_INTERVAL_MS);
+          time - (elapsedSinceRender % minimumRenderInterval);
         const seconds = Math.max(0, (time - started) / 1000);
         const navigationCommand = navigationCommandRef.current;
         if (navigationCommand) {
@@ -3733,6 +3796,11 @@ export default function EverestObservatory() {
         const manualPlayback =
           manualReplayStarted.current > 0 &&
           selectedManualTimeline !== undefined;
+        highMotionRenderActive =
+          navigationSnapshot.inputActive ||
+          (manualPlayback &&
+            selectedManualTimeline !== undefined &&
+            manualElapsedSeconds < selectedManualTimeline.totalSeconds);
         let nextActive =
           traceObjects[0]?.expeditionIndex ??
           activeExpeditionRef.current;
@@ -4826,6 +4894,9 @@ export default function EverestObservatory() {
 
       cleanupScene = () => {
         cancelAnimationFrame(frame);
+        if (ambientFrameTimer !== null) {
+          window.clearTimeout(ambientFrameTimer);
+        }
         observer.disconnect();
         cameraViewRef.current = {
           position: camera.position.clone(),
