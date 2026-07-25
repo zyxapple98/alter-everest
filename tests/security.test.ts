@@ -464,6 +464,21 @@ test("README badge stats match the canonical world", async () => {
       ),
     ),
   );
+  assert.equal(
+    badges.highestExpeditionAltitudeM,
+    badges.highestAltitudeM,
+  );
+  assert.equal(
+    badges.currentHighestAltitudeM,
+    Math.round(
+      JSON.parse(
+        await readFile(
+          join(projectRoot, "public/data/world/latest.json"),
+          "utf8",
+        ),
+      ).currentHighestPoint.altitudeM,
+    ),
+  );
   assert.equal(badges.liveStones, world.stones.length);
   assert.equal(
     badges.livingIdentities,

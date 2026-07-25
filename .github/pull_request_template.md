@@ -25,6 +25,12 @@ Build-Thread: <!-- #123 or a same-repository Discussion URL -->
 
 Local intention:
 
+## Existing matter affected (when moving or recovering)
+
+- Stone IDs or face-connected component:
+- Maintenance/removal reason:
+- Related Build or notice:
+
 ## Checklist
 
 - [ ] This pull request adds exactly one candidate JSON.

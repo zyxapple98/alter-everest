@@ -137,6 +137,30 @@ The current site fetches `/runtime-config.json`, then polls
 once the bucket exists. Configure R2 CORS to allow `GET` and `HEAD` from the
 production site origin.
 
+For an isolated local multiplayer rehearsal, build a disposable feed from any
+applied snapshot and select it with the observatory query string:
+
+```bash
+npm run world:feed -- \
+  --world work/playtest/shared/world-latest.json \
+  --output-dir public/data/playtest-world
+npm run dev
+```
+
+Open `http://localhost:3000/?world=/data/playtest-world`. The generated
+directory is ignored by Git. The override accepts only same-origin `/data/...`
+paths and does not change production runtime configuration.
+
+Append canonical metre coordinates to open a particular local project:
+
+```text
+http://localhost:3000/?world=/data/playtest-world&x=-3985&z=-6655
+```
+
+If the selected feed cannot be loaded, the UI explicitly shows `FEED OFFLINE`
+and treats its bundled records as fallback examples. A recent expedition with
+no published route trace is shown as an event, never as a synthetic replay.
+
 Add Actions secrets:
 
 ```text

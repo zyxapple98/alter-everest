@@ -8,7 +8,7 @@ import { loadCanonicalWorld, loadDemBundle } from "./expedition-kit";
 const METERS_PER_DEGREE_LATITUDE = 111_320;
 
 function usage() {
-  return "Usage: npm run site:query -- --site <site-id-or-name>";
+  return "Usage: npm run site:query -- --site <site-id-or-name> [--world <snapshot.json>]";
 }
 
 function siteArgument() {
@@ -35,8 +35,9 @@ function sameCell(
 }
 
 const requestedSite = siteArgument();
+const worldPath = argument("--world");
 const [world, terrain, siteDocument] = await Promise.all([
-  loadCanonicalWorld(argument("--world")),
+  loadCanonicalWorld(worldPath),
   loadDemBundle(),
   readFile(resolve("world", "sites.json"), "utf8").then(JSON.parse),
 ]);
@@ -67,6 +68,44 @@ const z =
 const truth = terrain.oracle.sample(x, z);
 if (!truth) throw new Error(`Site ${site.id} is outside authoritative terrain.`);
 
+const safeStopCandidates = [];
+const radialSteps = 6;
+const angularSteps = 16;
+for (let radialStep = 0; radialStep <= radialSteps; radialStep += 1) {
+  const radiusM = (site.radiusM * radialStep) / radialSteps;
+  const samples = radialStep === 0 ? 1 : angularSteps;
+  for (let angularStep = 0; angularStep < samples; angularStep += 1) {
+    const angle = (Math.PI * 2 * angularStep) / samples;
+    const candidateX = x + Math.cos(angle) * radiusM;
+    const candidateZ = z + Math.sin(angle) * radiusM;
+    const candidateTruth = terrain.oracle.sample(candidateX, candidateZ);
+    if (
+      !candidateTruth ||
+      candidateTruth.slopeDegrees > CLIMBER.maxWalkSlopeDegrees
+    ) {
+      continue;
+    }
+    safeStopCandidates.push({
+      x: candidateX,
+      y: candidateTruth.y,
+      z: candidateZ,
+      altitudeM:
+        terrain.config.registration.verticalDatumM + candidateTruth.y,
+      slopeDegrees: candidateTruth.slopeDegrees,
+      surface: candidateTruth.surface,
+      safeStop: true,
+      distanceFromAnchorM: radiusM,
+    });
+  }
+}
+const nearbySafeStops = safeStopCandidates
+  .sort(
+    (left, right) =>
+      left.distanceFromAnchorM - right.distanceFromAnchorM ||
+      left.slopeDegrees - right.slopeDegrees,
+  )
+  .slice(0, 5);
+
 const columnX = Math.floor(x / TERRAIN.voxelEdgeM);
 const columnZ = Math.floor(z / TERRAIN.voxelEdgeM);
 const topY = currentTopVoxel(
@@ -84,6 +123,7 @@ const distanceFromBaseM = Math.hypot(
   x - world.baseCamp.x,
   z - world.baseCamp.z,
 );
+const worldSuffix = worldPath ? ` --world "${worldPath}"` : "";
 
 console.log(
   JSON.stringify(
@@ -106,9 +146,15 @@ console.log(
         note:
           "A planning hint only. Recheck interaction reach, route clearance, occupancy and full static physics.",
       },
+      nearbySafeStops: {
+        maximumWalkSlopeDegrees: CLIMBER.maxWalkSlopeDegrees,
+        samples: nearbySafeStops,
+        note:
+          "Route-terminal planning hints within the site radius. Recheck route clearance and the full verifier.",
+      },
       next: [
-        `npm run world:query -- --x ${x} --z ${z} --radius ${site.radius}`,
-        `npm run terrain:query -- --x ${x} --z ${z}`,
+        `npm run world:query -- --x ${x} --z ${z} --radius ${site.radiusM}${worldSuffix}`,
+        `npm run terrain:query -- --x ${x} --z ${z}${worldSuffix}`,
       ],
     },
     null,

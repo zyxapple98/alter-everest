@@ -35,7 +35,10 @@ test("renders the read-only Everest observatory", async () => {
   const html = await response.text();
   assert.match(html, /<title>ALTER EVEREST<\/title>/);
   assert.match(html, /WORLD 6,318/);
-  assert.match(html, /LAST TRACE/);
+  assert.match(html, /LAST EVENT/);
+  assert.match(html, /TRACE NOT PUBLISHED/);
+  assert.doesNotMatch(html, /LIVE REPLAY/);
+  assert.match(html, /CANONICAL METRES/);
   assert.match(html, /DRAG · ZOOM/);
   assert.match(html, /COPERNICUS GLO-30/);
   assert.match(html, /observatory-canvas/);

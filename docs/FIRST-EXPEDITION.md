@@ -33,9 +33,13 @@ verdict. A route can pass the first command and still fail the second because
 a pickup destabilizes a structure or a newly placed stone obstructs a later
 route segment.
 
+For long routes, append `--summary`; the output is explicitly labelled
+`ROUTE_PREFLIGHT_ONLY` and points to `expedition:check` for the full verdict.
+
 `expedition:apply` writes the accepted result to the requested file. It is a
 local preview of sequence, world hash, identity status, stones and tombstones;
-it never edits `world/snapshot.json`.
+it never edits `world/snapshot.json`. Rejected apply attempts print a compact
+verifier summary instead of echoing the complete candidate.
 
 ## What the example teaches
 
@@ -71,10 +75,16 @@ Then:
    `npm run agent:inspect`.
 2. Convert a named location into route coordinates with
    `npm run site:query -- --site south-col`.
+   The result also includes sampled `nearbySafeStops`; these terminal hints are
+   distinct from the grounded placement-cell hint.
 3. Inspect stones, excavations and tombstones around that anchor with
    `npm run world:query -- --x <metres> --z <metres> --radius 200`.
 4. Inspect exact points with
    `npm run terrain:query -- --x <metres> --z <metres>`.
+   For a structure survey, put 1–512 `{ "x", "z", "label"? }` entries in a
+   JSON array and use `npm run terrain:query -- --points <points.json>`.
+   Append `--summary` for compact fields or `--out <result.json>` to write the
+   full batch without flooding terminal output.
 5. Choose a surface polyline as JSON waypoints containing `x`, `z` and `mode`,
    then annotate its terrain fields:
 

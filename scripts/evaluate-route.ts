@@ -10,7 +10,7 @@ import { loadCanonicalWorld, loadDemBundle } from "./expedition-kit";
 
 const candidatePath = process.argv[2];
 const usage =
-  "Usage: npm run route:evaluate -- <candidate.json> [--world <snapshot.json>]";
+  "Usage: npm run route:evaluate -- <candidate.json> [--world <snapshot.json>] [--summary]";
 if (!candidatePath || candidatePath === "--help") {
   console.log(usage);
   process.exit(0);
@@ -30,15 +30,36 @@ const route = validateRoute(candidate.proof, world.baseCamp);
 const terrainVerdict = validateRouteTerrain(
   candidate.proof.route,
   terrain.oracle,
+  world,
 );
+const endurance = evaluateRouteEndurance(candidate.proof);
+const preflightAccepted = route.valid && terrainVerdict.valid;
+const summary = process.argv.includes("--summary");
 
 console.log(
   JSON.stringify(
     {
+      scope: "ROUTE_PREFLIGHT_ONLY",
       route,
-      endurance: evaluateRouteEndurance(candidate.proof),
+      endurance: summary
+        ? {
+            capacity: endurance.capacity,
+            kilojoulesPerEndurance:
+              endurance.kilojoulesPerEndurance,
+            energyKj: endurance.energyKj,
+            enduranceUsed: endurance.enduranceUsed,
+            enduranceRemaining: endurance.enduranceRemaining,
+            segmentCount: endurance.segments.length,
+          }
+        : endurance,
       terrain: terrainVerdict,
-      accepted: route.valid && terrainVerdict.valid,
+      enduranceLedger:
+        "Independent full-route energy calculation; it may remain nonzero when route validation stops at an earlier lifecycle error.",
+      preflightAccepted,
+      accepted: preflightAccepted,
+      fullCandidateAccepted: null,
+      next:
+        "Run expedition:check for matter actions, post-action clearance, physics, identity and score.",
     },
     null,
     2,
