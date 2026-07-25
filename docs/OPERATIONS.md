@@ -38,6 +38,20 @@ The App token is minted only after the candidate has been replayed. It is used
 to append canonical artifacts, comment on the proposal, and close the
 candidate PR without merging its untrusted branch.
 
+## 2a. Enable Community Builds
+
+Enable GitHub Discussions and create an open-ended category named **Builds**
+with the slug `builds`. The slug must match
+`.github/DISCUSSION_TEMPLATE/builds.yml`.
+
+The protected reducer workflow declares `discussions: write` for its
+short-lived `GITHUB_TOKEN`. This token only posts an optional association after
+the canonical event commit; the reducer GitHub App does not need Discussions
+permission. Confirm that repository or organization Actions policy does not
+override the declared permission.
+
+See `docs/BUILD-HANDBOOK.md` for the participant workflow.
+
 ## 3. Create the verifier signing key
 
 Run this once on a trusted owner machine:

@@ -26,6 +26,17 @@ contacts, long cables, thin roofs and collapse-causing steps are not.
 The repository provides inspection, terrain query, route-cost, physics and full
 verifier commands. It deliberately does not provide an official solver.
 
+## Build with other visitors
+
+Community Builds live in open GitHub Discussions. A starter describes a loose
+intention and a spatial anchor; contributors announce local intentions and
+link otherwise ordinary expedition PRs with `Build-Thread: #NUMBER`. No Build
+owns terrain or overrides the verifier.
+
+Read [BUILD-HANDBOOK.md](BUILD-HANDBOOK.md) before starting or joining one.
+Agents must inspect the latest world after reading the discussion because old
+comments and coordinates may no longer describe physical reality.
+
 ## Start and survival
 
 All identities start in the 140 m Everest Base Camp zone. Returning preserves

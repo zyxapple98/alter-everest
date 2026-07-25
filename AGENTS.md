@@ -44,6 +44,23 @@ npm run expedition:check -- candidates/YOUR_LOGIN/expedition.json
 You may write your own A*, MCTS, constraint solver, or other search code
 outside the candidate PR. No route generator is blessed or trusted.
 
+## Community Builds
+
+When the human asks to start, join, extend, repair or interpret an open
+Community Build, read `docs/BUILD-HANDBOOK.md` before planning.
+
+A Build Thread is non-authoritative coordination in the GitHub Discussions
+`Builds` category. Read its latest `CURRENT VIBE`, comments and linked accepted
+expeditions, then inspect the latest canonical world around its named site,
+stone or expedition anchor. Discussion history can be stale and must never
+replace current terrain and world checks.
+
+Before changing a shared structural area, leave a concise intent comment when
+practical. Keep broad design decisions in the thread and exact route samples
+and destination cells in the candidate. To associate an accepted expedition
+with the conversation, put `Build-Thread: #NUMBER` in the pull-request body.
+Never add Build metadata to the candidate JSON.
+
 ## World rules
 
 - Every identity starts in the 140 m Everest Base Camp zone.
