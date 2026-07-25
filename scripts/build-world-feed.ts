@@ -68,6 +68,15 @@ function actionLabel(
   return "RECOVERED";
 }
 
+function operationForAction(
+  action: CandidateCommit["proof"]["actions"][number],
+) {
+  if (action.destination.kind === "BASE") return "RECOVER";
+  if (action.source.kind === "BASE") return "ADD";
+  if (action.source.kind === "TERRAIN") return "QUARRY";
+  return "MOVE";
+}
+
 function hashBytes(bytes: Buffer) {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -179,6 +188,7 @@ async function traceForEvent(
     releaseIndex?: number;
   };
   const route = proof.route;
+  const actions = proof.actions ?? [];
   const actionIndices =
     proof.actions?.map((action) =>
       action.destination.kind === "BASE"
@@ -191,46 +201,112 @@ async function traceForEvent(
         ? proof.pickupIndex!
         : proof.releaseIndex!,
     ];
-  const actionIndex = actionIndices.reduce((highest, index) =>
-    route[index].altitudeM > route[highest].altitudeM ? index : highest,
+  const validActionIndices = actionIndices.filter(
+    (index) => Number.isSafeInteger(index) && route[index],
   );
-  const actionIndexSet = new Set(actionIndices);
+  const actionIndex =
+    validActionIndices.length > 0
+      ? validActionIndices.reduce((highest, index) =>
+          route[index].altitudeM > route[highest].altitudeM
+            ? index
+            : highest,
+        )
+      : Math.max(0, route.length - 1);
+  const actionIndexSet = new Set(
+    actions.flatMap((action) => [
+      action.pickupIndex,
+      action.releaseIndex,
+    ]),
+  );
+  validActionIndices.forEach((index) => actionIndexSet.add(index));
   const degrees = metadata.sampleSpacingArcSeconds / 3600;
   const stride = Math.max(1, Math.ceil(route.length / 220));
   const trace = route
-    .filter(
-      (_, index) =>
-        index === 0 ||
-        index === route.length - 1 ||
-        actionIndexSet.has(index) ||
-        index % stride === 0,
-    )
-    .map((sample) => ({
-      column:
-        (config.registration.originLongitude +
-          sample.x /
-            (METERS_PER_DEGREE_LATITUDE *
-              Math.cos(
-                (config.registration.originLatitude * Math.PI) / 180,
-              )) -
-          metadata.bounds.west) /
-          degrees -
-        0.5,
-      row:
-        (metadata.bounds.north -
-          (config.registration.originLatitude -
-            sample.z / METERS_PER_DEGREE_LATITUDE)) /
-          degrees -
-        0.5,
-    }));
+    .flatMap((sample, index) =>
+      index === 0 ||
+      index === route.length - 1 ||
+      actionIndexSet.has(index) ||
+      index % stride === 0
+        ? [
+            {
+              column:
+                (config.registration.originLongitude +
+                  sample.x /
+                    (METERS_PER_DEGREE_LATITUDE *
+                      Math.cos(
+                        (config.registration.originLatitude *
+                          Math.PI) /
+                          180,
+                      )) -
+                  metadata.bounds.west) /
+                  degrees -
+                0.5,
+              row:
+                (metadata.bounds.north -
+                  (config.registration.originLatitude -
+                    sample.z / METERS_PER_DEGREE_LATITUDE)) /
+                  degrees -
+                0.5,
+              x: sample.x,
+              y: sample.y,
+              z: sample.z,
+              altitudeM: sample.altitudeM,
+              progress:
+                route.length > 1 ? index / (route.length - 1) : 1,
+            },
+          ]
+        : [],
+    );
+  const actionTimeline = actions.map((action, index) => {
+    const pickup = route[action.pickupIndex];
+    const release = route[action.releaseIndex];
+    return {
+      order: index + 1,
+      matterId: action.matterId,
+      operation: operationForAction(action),
+      sourceKind: action.source.kind,
+      destinationKind: action.destination.kind,
+      pickupFraction:
+        route.length > 1
+          ? action.pickupIndex / (route.length - 1)
+          : 1,
+      releaseFraction:
+        route.length > 1
+          ? action.releaseIndex / (route.length - 1)
+          : 1,
+      pickup: {
+        x: pickup.x,
+        y: pickup.y,
+        z: pickup.z,
+        altitudeM: pickup.altitudeM,
+      },
+      release: {
+        x: release.x,
+        y: release.y,
+        z: release.z,
+        altitudeM: release.altitudeM,
+      },
+      sourceCell:
+        action.source.kind === "TERRAIN"
+          ? action.source.voxel
+          : undefined,
+      destinationCell:
+        action.destination.kind === "WORLD"
+          ? action.destination.cell
+          : undefined,
+    };
+  });
   return {
     trace,
     releaseFraction:
       route.length > 1 ? actionIndex / (route.length - 1) : 1,
     actionFractions:
       route.length > 1
-        ? actionIndices.map((index) => index / (route.length - 1))
-        : actionIndices.map(() => 1),
+        ? validActionIndices.map(
+            (index) => index / (route.length - 1),
+          )
+        : validActionIndices.map(() => 1),
+    actions: actionTimeline,
   };
 }
 
@@ -276,6 +352,7 @@ const recentExpeditions =
             score: event.score,
             releaseFraction: route?.releaseFraction ?? 0.5,
             actionFractions: route?.actionFractions ?? [],
+            actions: route?.actions ?? [],
             totalScore: totals.get(event.agentId) ?? event.score,
             trace: route?.trace ?? null,
           };

@@ -73,6 +73,10 @@ export class SurfaceTileStore {
     ObservatorySurfaceDeltaChunk
   >();
   private readonly removedByColumn = new Map<string, Set<number>>();
+  private readonly stonesByColumn = new Map<
+    string,
+    Map<number, Set<string>>
+  >();
   private cacheHits = 0;
   private cacheMisses = 0;
   private fetchedBytes = 0;
@@ -98,6 +102,7 @@ export class SurfaceTileStore {
     if (worldChanged) {
       this.loadedChunks.clear();
       this.removedByColumn.clear();
+      this.stonesByColumn.clear();
     }
     for (const chunk of feed.surfaceDelta?.chunks ?? []) {
       this.indexChunk(chunk);
@@ -117,6 +122,15 @@ export class SurfaceTileStore {
       levels.add(voxel.y);
       this.removedByColumn.set(key, levels);
     }
+    for (const stone of chunk.stones) {
+      const key = `${stone.cell.x}:${stone.cell.z}`;
+      const levels =
+        this.stonesByColumn.get(key) ?? new Map<number, Set<string>>();
+      const ids = levels.get(stone.cell.y) ?? new Set<string>();
+      ids.add(stone.id);
+      levels.set(stone.cell.y, ids);
+      this.stonesByColumn.set(key, levels);
+    }
   }
 
   private unindexChunk(chunk: ObservatorySurfaceDeltaChunk) {
@@ -129,10 +143,40 @@ export class SurfaceTileStore {
       levels.delete(voxel.y);
       if (levels.size === 0) this.removedByColumn.delete(key);
     }
+    for (const stone of chunk.stones) {
+      const key = `${stone.cell.x}:${stone.cell.z}`;
+      const levels = this.stonesByColumn.get(key);
+      const ids = levels?.get(stone.cell.y);
+      if (!levels || !ids) continue;
+      ids.delete(stone.id);
+      if (ids.size === 0) levels.delete(stone.cell.y);
+      if (levels.size === 0) this.stonesByColumn.delete(key);
+    }
   }
 
   removedLevels(columnX: number, columnZ: number) {
     return this.removedByColumn.get(`${columnX}:${columnZ}`);
+  }
+
+  highestStoneLevel(
+    columnX: number,
+    columnZ: number,
+    hiddenStoneIds: ReadonlySet<string>,
+  ) {
+    const levels = this.stonesByColumn.get(
+      `${columnX}:${columnZ}`,
+    );
+    if (!levels) return undefined;
+    let highest: number | undefined;
+    levels.forEach((ids, level) => {
+      const visible = [...ids].some(
+        (id) => !hiddenStoneIds.has(id),
+      );
+      if (visible && (highest === undefined || level > highest)) {
+        highest = level;
+      }
+    });
+    return highest;
   }
 
   private tileUrl(manifest: ObservatorySurfaceTileManifest) {

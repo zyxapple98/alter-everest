@@ -1,3 +1,52 @@
+export interface ObservatoryTracePoint {
+  column: number;
+  row: number;
+  /**
+   * Canonical route coordinates. Older feeds only have column/row, so the
+   * observatory keeps these optional and falls back to the DEM projection.
+   */
+  x?: number;
+  y?: number;
+  z?: number;
+  altitudeM?: number;
+  /** Normalized index in the submitted route, from 0 to 1. */
+  progress?: number;
+}
+
+export interface ObservatoryExpeditionAction {
+  order: number;
+  matterId: string;
+  operation: "ADD" | "MOVE" | "RECOVER" | "QUARRY";
+  sourceKind: "BASE" | "STONE" | "TERRAIN";
+  destinationKind: "WORLD" | "BASE";
+  pickupFraction: number;
+  releaseFraction: number;
+  pickup: {
+    x: number;
+    y: number;
+    z: number;
+    altitudeM: number;
+  };
+  release: {
+    x: number;
+    y: number;
+    z: number;
+    altitudeM: number;
+  };
+  /** Exact 20 cm source cell when the matter came from terrain. */
+  sourceCell?: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  /** Exact 20 cm destination cell when the matter was placed in the world. */
+  destinationCell?: {
+    x: number;
+    y: number;
+    z: number;
+  };
+}
+
 export interface ObservatoryExpedition {
   id: string;
   agent: string;
@@ -10,8 +59,9 @@ export interface ObservatoryExpedition {
   score: number;
   releaseFraction: number;
   actionFractions?: number[];
+  actions?: ObservatoryExpeditionAction[];
   totalScore: number;
-  trace?: Array<{ column: number; row: number }> | null;
+  trace?: ObservatoryTracePoint[] | null;
 }
 
 export interface ObservatoryMemorialCluster {

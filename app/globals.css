@@ -533,7 +533,7 @@ button {
   bottom: 132px;
   width: 258px;
   padding: 17px 18px 16px;
-  pointer-events: none;
+  pointer-events: auto;
   border-top: 1px solid rgba(114, 233, 255, 0.42);
   border-left: 1px solid rgba(221, 239, 243, 0.13);
   background:
@@ -594,6 +594,17 @@ button {
   font-weight: 650;
 }
 
+.expedition-action-status {
+  margin-top: 9px;
+  padding: 8px 9px;
+  color: rgba(225, 241, 243, 0.72);
+  border-left: 2px solid var(--cyan);
+  background: rgba(12, 31, 40, 0.54);
+  font-size: 8px;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+}
+
 .endurance-language {
   display: flex;
   align-items: center;
@@ -622,6 +633,31 @@ button {
 
 .endurance-orbit i {
   display: none;
+}
+
+.expedition-controls {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.expedition-controls button {
+  min-height: 28px;
+  padding: 0 9px;
+  color: rgba(220, 239, 242, 0.68);
+  cursor: pointer;
+  border: 1px solid rgba(114, 233, 255, 0.2);
+  border-radius: 0;
+  background: rgba(8, 24, 33, 0.72);
+  font: 570 7px/1 var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.expedition-controls button:hover,
+.expedition-controls button:focus-visible {
+  color: rgba(247, 251, 247, 0.96);
+  border-color: rgba(114, 233, 255, 0.6);
+  outline: none;
 }
 
 .replay-dock {
@@ -966,10 +1002,24 @@ button {
 
 .observatory[data-detail="true"] .world-id,
 .observatory[data-detail="true"] .world-summary,
-.observatory[data-detail="true"] .expedition-card,
 .observatory[data-detail="true"] .replay-dock,
 .observatory[data-detail="true"] .site-overlay {
   display: none;
+}
+
+.observatory[data-detail="true"] .expedition-card {
+  bottom: 34px;
+  width: 270px;
+  border-top-color: rgba(255, 191, 102, 0.64);
+}
+
+.observatory[data-detail="true"] .expedition-card-heading,
+.observatory[data-detail="true"] .expedition-result {
+  margin-bottom: 0;
+}
+
+.observatory[data-detail="true"] .endurance-language {
+  margin-top: 9px;
 }
 
 .observatory[data-detail="true"] .voxel-sky > i {
@@ -1180,6 +1230,12 @@ button {
 
   .observatory[data-detail="true"] .terrain-navigator {
     top: 245px;
+  }
+
+  .observatory[data-detail="true"] .expedition-card {
+    bottom: 17px;
+    left: 17px;
+    width: min(270px, calc(100vw - 34px));
   }
 
   .expedition-card {
