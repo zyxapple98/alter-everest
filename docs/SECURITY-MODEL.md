@@ -93,6 +93,8 @@ Admission occurs before expensive verification. Initial policy:
 - identity-scoped admission markers count only candidate shapes that reached
   the verifier boundary; later physics failures consume quota, while rejected
   shapes and infrastructure PRs do not;
+- verifier starts are unique by candidate head SHA, preventing duplicate
+  GitHub events from consuming quota or trusted compute twice;
 - candidate-hash deduplication;
 - a globally bounded verifier with one running and one coalesced pending run.
 

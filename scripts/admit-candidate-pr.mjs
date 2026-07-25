@@ -160,12 +160,24 @@ if (process.env.GITHUB_RUN_ID && !allowApplied) {
     artifacts.push(...(result.artifacts ?? []));
     if ((result.artifacts ?? []).length < 100) break;
   }
-  const createdTimes = artifacts
-    .filter((artifact) => !artifact.expired)
-    .map((artifact) => Date.parse(String(artifact.created_at ?? "")));
-  if (createdTimes.some((createdAt) => !Number.isFinite(createdAt))) {
-    throw new Error("A verifier admission marker has an invalid timestamp.");
+  const startsByHead = new Map();
+  for (const artifact of artifacts.filter((item) => !item.expired)) {
+    const markerHead = String(artifact.workflow_run?.head_sha ?? "");
+    const createdAt = Date.parse(String(artifact.created_at ?? ""));
+    if (!markerHead || !Number.isFinite(createdAt)) {
+      throw new Error("A verifier admission marker has invalid provenance.");
+    }
+    const existing = startsByHead.get(markerHead);
+    if (existing === undefined || createdAt < existing) {
+      startsByHead.set(markerHead, createdAt);
+    }
   }
+  if (startsByHead.has(headSha)) {
+    throw new Error(
+      "This exact candidate head already started the authoritative verifier. Push a new candidate head to request another attempt.",
+    );
+  }
+  const createdTimes = [...startsByHead.values()];
   const countVerifierStartsSince = (milliseconds) =>
     createdTimes.filter((createdAt) => createdAt >= now - milliseconds).length;
   const hourlyStarts = countVerifierStartsSince(60 * 60 * 1000);

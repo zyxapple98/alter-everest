@@ -269,11 +269,13 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
       id: 1,
       expired: false,
       created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+      workflow_run: { head_sha: "other-head-1" },
     },
     {
       id: 2,
       expired: false,
       created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      workflow_run: { head_sha: "other-head-2" },
     },
   ];
   let changedFiles = [
@@ -390,6 +392,38 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
     );
     assert.match(rateChecked.stdout, /"admitted": true/);
 
+    admissionArtifacts = [
+      {
+        id: 3,
+        expired: false,
+        created_at: new Date(Date.now() - 60 * 1000).toISOString(),
+        workflow_run: { head_sha: "head-sha" },
+      },
+    ];
+    await assert.rejects(
+      execute(
+        process.execPath,
+        [
+          "scripts/admit-candidate-pr.mjs",
+          "--event",
+          eventPath,
+          "--out",
+          join(directory, "duplicate-head.json"),
+        ],
+        {
+          cwd: projectRoot,
+          env: {
+            ...process.env,
+            GITHUB_RUN_ID: "998",
+            GITHUB_RUN_ATTEMPT: "1",
+            GITHUB_TOKEN: "test-token",
+            GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+        },
+      ),
+      /exact candidate head already started/,
+    );
+
     await assert.rejects(
       execute(
         process.execPath,
@@ -418,6 +452,7 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
       id: index + 1,
       expired: false,
       created_at: new Date(Date.now() - (index + 1) * 60 * 1000).toISOString(),
+      workflow_run: { head_sha: `hourly-head-${index + 1}` },
     }));
     await assert.rejects(
       execute(
@@ -449,6 +484,7 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
       created_at: new Date(
         Date.now() - (index + 1) * 70 * 60 * 1000,
       ).toISOString(),
+      workflow_run: { head_sha: `daily-head-${index + 1}` },
     }));
     await assert.rejects(
       execute(
