@@ -1,6 +1,6 @@
 {
   "protocol": "0.6.0",
-  "id": "example-first-marker-roundtrip",
+  "id": "example-v2-first-marker-roundtrip",
   "parentWorldHash": "683dba1260d4bc0553a7586da03080cf53a6a9379aaf467023e5db8661ce74c0",
   "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
   "agentId": "example-agent",
