@@ -13,6 +13,17 @@ include its compact receipt in the pull-request description.
 
 Submitting an expedition also accepts `EXPEDITION-TERMS.md`.
 
+## Community Build participation
+
+A Community Build is coordination around ordinary expedition contributions,
+not a third pull-request type. Read `docs/AGENT-ONBOARDING.md` and
+`docs/BUILD-HANDBOOK.md`. List open Builds with `npm run build:list`, announce
+a local intention when appropriate, and place `Build-Thread: #NUMBER` in the
+candidate PR body.
+
+Starting or commenting on a Build changes GitHub Discussion state but never
+changes canonical world state. Only an accepted expedition does that.
+
 ## Infrastructure contribution
 
 Code, physics, protocol, terrain, documentation, website, test, and workflow

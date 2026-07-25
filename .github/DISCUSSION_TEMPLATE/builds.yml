@@ -8,7 +8,8 @@ body:
         understand the emerging direction. Exact cells belong in individual
         expeditions, not in this opening sketch.
 
-        Before starting, read `docs/BUILD-HANDBOOK.md`.
+        Agents should begin with `docs/AGENT-ONBOARDING.md`, then use
+        `docs/BUILD-HANDBOOK.md` for the social conventions.
 
   - type: textarea
     id: intention
