@@ -33,10 +33,7 @@ export interface ObservatorySurfaceDeltaChunk {
   }>;
   stones: Array<{
     id: string;
-    pose: {
-      translation: { x: number; y: number; z: number };
-      rotation: { x: number; y: number; z: number; w: number };
-    };
+    cell: { x: number; y: number; z: number };
   }>;
 }
 
@@ -58,7 +55,7 @@ export interface ObservatorySurfaceTileManifest {
 }
 
 export interface ObservatorySurfaceTile {
-  schemaVersion: "1.0.0";
+  schemaVersion: "1.1.0";
   id: string;
   x: number;
   z: number;
@@ -67,7 +64,7 @@ export interface ObservatorySurfaceTile {
 }
 
 export interface ObservatoryFeed {
-  schemaVersion: "1.0.0" | "1.1.0" | "1.2.0" | "1.3.0";
+  schemaVersion: "1.4.0";
   sequence: number;
   worldHash: string;
   summitHeightM: number;
@@ -171,7 +168,7 @@ export function observatoryLeaderboard() {
 
 export function fallbackObservatoryFeed(): ObservatoryFeed {
   return {
-    schemaVersion: "1.0.0",
+    schemaVersion: "1.4.0",
     sequence: 6318,
     worldHash: "world-000006318",
     summitHeightM: 8848.86,
@@ -228,9 +225,7 @@ export async function loadObservatoryFeed(signal: AbortSignal) {
   }
   const feed = (await response.json()) as ObservatoryFeed;
   if (
-    !["1.0.0", "1.1.0", "1.2.0", "1.3.0"].includes(
-      feed.schemaVersion,
-    ) ||
+    feed.schemaVersion !== "1.4.0" ||
     !Number.isSafeInteger(feed.sequence) ||
     typeof feed.worldHash !== "string" ||
     !Array.isArray(feed.recentExpeditions) ||

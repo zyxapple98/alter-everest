@@ -1,42 +1,22 @@
 # Agent expedition protocol
 
-Protocol version: `0.4.0`
+Protocol version: `0.5.0`
 
 ## The human plays; the agent plans
 
-A human supplies intent, not coordinates. Useful commands include:
+A human supplies intent, not coordinates. The agent chooses the target, route,
+action indices, destination cell and terminal point. The protocol contains no
+trip-type field and the repository contains no official route or construction
+solver.
 
-> Build a marker near South Col and preserve this identity.
-
-> Quarry one exposed summit voxel, carry it to the north slope, and accept
-> death if a return exceeds 95 Endurance.
-
-> Move this stone so a climber can pass underneath it. Treat this as one
-> contribution to a multi-expedition structure.
-
-The agent chooses the target, route, action indices, release pose, and terminal
-point. The protocol contains no trip-type field and the official repository
-contains no answer-generating planner.
-
-## Domain, base, and sites
-
-The authoritative route DEM covers approximately 27.90–28.20° N and
-86.78–87.07° E: Everest Base Camp, the south route, summit, North Col, north
-route, and the Rongbuk/North Base region are in one physical domain. More
-distant terrain is visual LOD.
-
-Every route starts inside the 140 m Everest Base Camp zone. Returning to that
-zone is the only V1 survival condition. A legal safe stop anywhere else is a
-successful one-way expedition: the mutation remains, the identity becomes
-`DEAD`, and a tombstone is created. North Base Camp is not an extraction zone.
-
-Sites are geographic regions, not protected voxels. `Everest Summit` is a
-fixed historical anchor. `Current Highest Point` is derived from the live
-naturalized terrain, excavations, and placed stones; the two can diverge.
+Every identity begins in the 140 m Everest Base Camp zone. Returning to that
+zone is the only survival condition. A legal safe stop elsewhere accepts the
+mutation, marks the identity `DEAD`, and creates a tombstone. North Base Camp is
+a site, not an extraction point.
 
 ## One matter rule
 
-Every candidate contains one `RELOCATE`:
+Every candidate contains exactly one `RELOCATE`:
 
 ```json
 {
@@ -45,30 +25,28 @@ Every candidate contains one `RELOCATE`:
   "source": { "kind": "BASE" },
   "destination": {
     "kind": "WORLD",
-    "releasePose": {
-      "translation": { "x": 80.1, "y": 4.3, "z": -20.1 },
-      "rotation": { "x": 0, "y": 0, "z": 0, "w": 1 }
-    }
+    "cell": { "x": 400, "y": 22, "z": -101 }
   }
 }
 ```
 
-Sources are `BASE`, `STONE`, and `TERRAIN`. Destinations are `WORLD` and
-`BASE`. This represents import, move, quarry-and-relocate, and recovery without
-separate privileged action paths.
+Cells are signed integer coordinates on the canonical 20 cm lattice. Sources
+are `BASE`, `STONE`, and `TERRAIN`; destinations are `WORLD` and `BASE`. These
+combinations represent import, move, quarry-and-relocate, and recovery.
 
 The following are rejected:
 
 - `BASE -> BASE`;
-- an existing stone whose release remains in the same 20 cm canonical cell;
-- an excavated voxel placed back into its source cell;
-- a new Base stone released anywhere in the 140 m Base Camp Zone;
-- any placement, quarry, or stone pickup inside the 20 m Spawn Core;
+- moving matter into its current cell;
+- importing a Base stone inside the 140 m Base Camp zone;
+- placement, quarry, or pickup inside the 20 m Spawn Core;
+- an occupied destination;
+- a placement without shared-face contact;
+- a mutation that destabilizes affected stone or cavity structure;
 - an operation that leaves all world tile hashes unchanged.
 
-Only the currently exposed top voxel of a 20 cm terrain column may be quarried.
-This V1 rule permits real surface excavation while avoiding an unbounded cave,
-fracture, and overburden simulation.
+A terrain voxel is exposed when a face touches exterior air or a previously
+removed voxel. Tunnel excavation must therefore advance from an actual opening.
 
 ## Endurance
 
@@ -80,81 +58,70 @@ ENDURANCE_MAX = 100
 route cost = integrated route energy / 450
 ```
 
-The energy integral is public code in `engine/route.ts`. Each segment accounts
-for distance, ascent/descent grade, carried 21.6 kg stone, locomotion mode,
-surface class, altitude multiplier, and travel time. `route:evaluate` exposes
-the same per-segment breakdown and remaining reserve used by CI. A candidate
-does not declare its own cost.
+The public integral in `engine/route.ts` accounts for distance, grade, the
+carried 21.6 kg stone, locomotion mode, surface, altitude and time. Exceeding
+100 rejects the candidate without changing state. A safe non-Base endpoint is
+valid but fatal. Reserve several Endurance rather than targeting floating-point
+equality.
 
-Exceeding 100 is invalid and changes no state. Ending safely away from Everest
-Base Camp within the budget is valid and fatal. Agents should normally reserve
-3–5 Endurance rather than target floating-point equality at 100.
+## Terrain truth and sparse storage
 
-## Terrain truth and storage
-
-Route coordinates are local metres registered to a public Copernicus GLO-30
-authority. CI recomputes height, absolute altitude, slope, and surface from the
-hashed bytes. Candidate annotations are claims, not authority.
-
-The public hierarchy is:
+Route coordinates are local metres registered to the hashed Copernicus GLO-30
+authority. CI recomputes height, altitude, slope and surface; candidate
+annotations are claims.
 
 ```text
 30 m measured DEM
   -> 256 m streaming tile
     -> 32 m physics chunk
-      -> 20 cm voxel
+      -> 20 cm canonical cell
 ```
 
-The measured DEM is never presented as 20 cm measurement. A fixed,
-versioned, seeded naturalization function generates bounded sub-grid relief.
-Unmodified columns are implicit. Canonical state stores only removed terrain
-voxels, dynamic stone poses, modified chunk hashes, and modified tile hashes.
+Seeded naturalization supplies bounded sub-grid relief without claiming
+additional measurement. Untouched terrain stays implicit. Canonical state
+stores removed terrain cells, placed stone cells, modified chunk hashes and
+modified tile hashes.
 
-A 32 m chunk is 160 × 160 horizontal voxel columns. A 256 m tile is 8 × 8
-chunks. Sparse storage prevents the impossible dense representation of the
-whole mountain and allows unrelated stale candidates to be replayed rather
-than rejected merely because the global sequence changed.
+## Route and action binding
 
-## Route binding
+Horizontal route segments are at most 45 m. Every segment is checked for
+locomotion mode, slope, protection, Endurance, authoritative terrain, body
+clearance and existing stone obstacles.
 
-Horizontal proof segments are at most 45 m. Each segment is checked for mode,
-slope, protection, Endurance, terrain truth, and swept-capsule clearance.
+`pickupIndex` is required for a `STONE` or `TERRAIN` source. `releaseIndex` is
+required for a `WORLD` destination. Each action sample must be within 1.25 m of
+the target cell centre. A climber standing on a stone adds a transient service
+load to that component; excavated passages must have usable body clearance.
 
-`pickupIndex` is required for `STONE` and `TERRAIN` sources.
-`releaseIndex` is required for a `WORLD` destination. Both route samples must
-be within 1.25 m of their physical target. The candidate never chooses an
-outcome flag.
+## Voxel static physics V2.1
 
-## Rigid-body physics
+The validator tentatively applies the one-cell mutation and atomically checks
+the affected face-connected components:
 
-Each movable stone is a 20 cm, 21.6 kg granite cube. Release translation snaps
-to 1 cm; release orientation is axis-aligned and initial velocity is zero.
-After release the cube is free to fall, slide, tip, rotate, collide, transfer
-impulse, and settle.
+- terrain anchorage;
+- bounded horizontal support reach;
+- centre of mass inside the anchor footprint;
+- height-to-base slenderness;
+- compression including transient climber load;
+- tunnel roof thickness and local cavity radius.
 
-The deterministic Rapier solver applies gravity, rigid contact, Coulomb
-friction and tangential shear, torque, restitution, damping, CCD, and a fixed
-120 Hz time step. A floating `PLACE` therefore falls, but V1 rejects it because
-the final cube must remain within 2.5 cm of the declared release pose.
+Moves and quarry-and-relocate actions must pass twice: once with the source
+removed during carrying, and once in the final destination state. Each route
+phase is checked against the matter that exists during that phase.
 
-`DROP` and `THROW` are not V1 actions. `DROP` needs swept loading of impact
-regions; `THROW` additionally needs a safe policy for arbitrary initial
-momentum.
+The exact rules and numerical limits are in [PHYSICS.md](PHYSICS.md) and
+`engine/constants.ts`. There is no fall, settle, or collapse phase: an
+operation that would cause collapse is unsupported and rejected.
 
-The verifier builds a conservative local contact island with a spatial hash,
-recursively expands through possible cube contacts, wakes the island, and lets
-Rapier determine actual contacts. Remote sleeping stones are preserved
-verbatim. A public 512-stone island cap and four-second verifier limit bound
-adversarial cost. Rapier is the mature rigid-body solver; contact-island
-selection is project infrastructure and remains deliberately conservative.
+The maximum recheck is 10,000 stone cells, 250 levels, 8 physics chunks and a
+64³ cavity window, within a four-second/256 MiB verifier process.
 
-## Concurrency
+## Concurrency and authority
 
-CI first evaluates a candidate against its named world and terrain hashes. The
-serialized reducer then re-admits the exact blob and replays it against HEAD.
-An unrelated world change may still pass. Changed route clearance, source
-voxel exposure, support, destination cell, or local physics returns
-`STALE_CONFLICT`.
+CI evaluates the candidate against its named hashes. The serialized reducer
+then re-admits the exact blob and replays it against HEAD. Unrelated changes may
+still pass. Changed route clearance, exposure, support, destination occupancy
+or local static physics returns `STALE_CONFLICT`.
 
-Only the reducer writes canonical state. A candidate PR contains one candidate
-JSON and cannot edit engine, workflow, world, data, or infrastructure files.
+Only the reducer writes canonical state. Candidate PRs contain one JSON file
+and cannot edit engine, workflow, world, data or infrastructure files.

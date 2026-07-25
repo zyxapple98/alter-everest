@@ -10,7 +10,7 @@ Status: complete.
 
 - both-slope 30 m authority with nested 30/90/300 m visual LODs;
 - interactive voxel observatory and animated expedition traces;
-- deterministic route, Endurance, clearance, and Rapier validation;
+- deterministic route, Endurance, clearance, and V2.1 voxel-static validation;
 - unified import, move, quarry, and recovery through `RELOCATE`;
 - south-only survival, north-side one-way terminals, sites, tombstones, and
   scoring;
@@ -72,7 +72,7 @@ terrain tiles outgrow normal Git workflows.
 
 - Git stores compact events, hashes, scores, engine IDs, and small trace
   previews;
-- R2 stores compressed full proofs, physics artifacts, snapshots, and terrain
+- R2 stores compressed full proofs, verifier artifacts, snapshots, and terrain
   tiles under content-addressed keys;
 - periodic signed checkpoints permit deterministic replay without cloning all
   historical payloads;

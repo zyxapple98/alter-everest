@@ -1,73 +1,77 @@
 import { performance } from "node:perf_hooks";
 import { PHYSICS } from "../engine/constants";
 import { simulateMutation } from "../engine/physics";
-import {
-  IDENTITY_QUATERNION,
-  type PhysicsSnapshot,
-  type StoneState,
-} from "../engine/types";
+import { syntheticReliefM } from "../engine/surface";
+import type { TerrainOracle } from "../engine/terrain";
+import type { PhysicsSnapshot, StoneState } from "../engine/types";
 
 const count = Number(
   process.argv[process.argv.indexOf("--stones") + 1] ??
-    PHYSICS.maxContactIslandStones,
+    PHYSICS.maximumAffectedStoneCells,
 );
 if (
   !Number.isSafeInteger(count) ||
   count < 1 ||
-  count > PHYSICS.maxContactIslandStones
+  count > PHYSICS.maximumAffectedStoneCells
 ) {
-  throw new Error(`--stones must be 1..${PHYSICS.maxContactIslandStones}`);
+  throw new Error(
+    `--stones must be 1..${PHYSICS.maximumAffectedStoneCells}`,
+  );
 }
 
-const columns = 32;
+const terrain: TerrainOracle = {
+  sample(x, z) {
+    return {
+      y: -syntheticReliefM(x, z),
+      altitudeM: 5_350 - syntheticReliefM(x, z),
+      slopeDegrees: 0,
+      surface: "ROCK",
+    };
+  },
+};
+const columns = Math.ceil(Math.sqrt(count));
 const stones: StoneState[] = Array.from({ length: count }, (_, index) => ({
-  id: `benchmark-${String(index).padStart(4, "0")}`,
-  pose: {
-    translation: {
-      x: (index % columns) * PHYSICS.stoneEdgeM,
-      y: PHYSICS.stoneEdgeM / 2,
-      z: Math.floor(index / columns) * PHYSICS.stoneEdgeM,
-    },
-    rotation: IDENTITY_QUATERNION,
+  id: `benchmark-${String(index).padStart(5, "0")}`,
+  cell: {
+    x: index % columns,
+    y: 1,
+    z: Math.floor(index / columns),
   },
 }));
 const snapshot: PhysicsSnapshot = {
   worldHash: "benchmark",
   stones,
-  terrain: [
-    {
-      kind: "cuboid",
-      center: { x: 3.1, y: -0.5, z: 1.5 },
-      halfExtents: { x: 8, y: 0.5, z: 8 },
-    },
-  ],
+  removedTerrainVoxels: [],
 };
 const started = performance.now();
-const verdict = await simulateMutation(snapshot, {
-  kind: "RELOCATE",
-  matterId: "benchmark-0000",
-  source: { kind: "STONE", stoneId: "benchmark-0000" },
-  destination: {
-    kind: "WORLD",
-    releasePose: {
-      translation: { x: 0.1, y: 0.31, z: 0.1 },
-      rotation: IDENTITY_QUATERNION,
+const verdict = await simulateMutation(
+  snapshot,
+  {
+    kind: "RELOCATE",
+    matterId: "benchmark-00000",
+    source: { kind: "STONE", stoneId: "benchmark-00000" },
+    destination: {
+      kind: "WORLD",
+      cell: { x: -1, y: 1, z: 0 },
     },
   },
-});
+  { terrain },
+);
 const wallMs = performance.now() - started;
 
 console.log(
   JSON.stringify(
     {
+      ruleset: PHYSICS.rulesetVersion,
       stoneCount: count,
       wallMs: Number(wallMs.toFixed(2)),
-      verifierBudgetMs: 4000,
-      withinBudget: wallMs < 4000,
+      verifierBudgetMs: 4_000,
+      withinBudget: wallMs < 4_000,
       verdict: {
         valid: verdict.valid,
         code: verdict.code,
-        simulatedSeconds: verdict.simulatedSeconds,
+        evaluatedStoneCells: verdict.evaluatedStoneCells,
+        cavityCellsChecked: verdict.cavityCellsChecked,
         affected: verdict.affectedStoneIds.length,
       },
     },

@@ -2,14 +2,15 @@ import { CLIMBER, TERRAIN } from "./constants";
 import type {
   CanonicalWorld,
   MatterMutation,
-  Pose,
-  VoxelCoordinate,
   MutationOperation,
+  VoxelCoordinate,
 } from "./types";
 
-export function mutationReleasePose(mutation: MatterMutation): Pose | null {
+export function mutationDestinationCell(
+  mutation: MatterMutation,
+): VoxelCoordinate | null {
   return mutation.destination.kind === "WORLD"
-    ? mutation.destination.releasePose
+    ? mutation.destination.cell
     : null;
 }
 
@@ -23,12 +24,22 @@ export function voxelKey(voxel: VoxelCoordinate) {
   return `${voxel.x}:${voxel.y}:${voxel.z}`;
 }
 
+export function parseVoxelKey(key: string): VoxelCoordinate {
+  const [x, y, z] = key.split(":").map(Number);
+  return { x, y, z };
+}
+
 export function voxelCenter(voxel: VoxelCoordinate) {
   return {
     x: (voxel.x + 0.5) * TERRAIN.voxelEdgeM,
     y: (voxel.y + 0.5) * TERRAIN.voxelEdgeM,
     z: (voxel.z + 0.5) * TERRAIN.voxelEdgeM,
   };
+}
+
+export function voxelTopCenter(voxel: VoxelCoordinate) {
+  const center = voxelCenter(voxel);
+  return { ...center, y: (voxel.y + 1) * TERRAIN.voxelEdgeM };
 }
 
 export function isInsideSpawnCore(

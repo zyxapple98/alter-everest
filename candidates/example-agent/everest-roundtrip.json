@@ -1,5 +1,5 @@
 {
-  "protocol": "0.3.0",
+  "protocol": "0.5.0",
   "id": "expedition-example-agent-mrxrjy04",
   "parentWorldHash": "world-000006318",
   "terrainHash": "4441db20eee18e58ee9d80839865cdd7f0d708b6a4ea590c4e24ed43398054da",
@@ -3349,19 +3349,17 @@
       }
     ],
     "mutation": {
-      "kind": "ADD",
-      "stoneId": "stone-expedition-example-agent-mrxrjy04",
-      "releasePose": {
-        "translation": {
-          "x": 3032.2194005898095,
-          "y": 3479.109999999931,
-          "z": -5194.933333333333
-        },
-        "rotation": {
-          "x": 0,
-          "y": 0,
-          "z": 0,
-          "w": 1
+      "kind": "RELOCATE",
+      "matterId": "stone-expedition-example-agent-mrxrjy04",
+      "source": {
+        "kind": "BASE"
+      },
+      "destination": {
+        "kind": "WORLD",
+        "cell": {
+          "x": 15166,
+          "y": 17394,
+          "z": -25975
         }
       }
     },

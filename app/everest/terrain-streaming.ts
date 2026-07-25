@@ -365,15 +365,15 @@ export class TerrainStreamingEngine {
     if (request.cellM <= 1.6) {
       const stones = chunks
         .flatMap((chunk) => chunk.stones)
-        .filter(({ pose }) => {
+        .filter(({ cell }) => {
+          const x =
+            (cell.x + 0.5) * this.tiles.definition.voxelEdgeM;
+          const z =
+            (cell.z + 0.5) * this.tiles.definition.voxelEdgeM;
           const half = windowM / 2 - this.tiles.definition.voxelEdgeM;
           return (
-            Math.abs(
-              pose.translation.x - result!.centerCanonicalX,
-            ) < half &&
-            Math.abs(
-              pose.translation.z - result!.centerCanonicalZ,
-            ) < half
+            Math.abs(x - result!.centerCanonicalX) < half &&
+            Math.abs(z - result!.centerCanonicalZ) < half
           );
         });
       if (stones.length > 0) {
@@ -394,23 +394,24 @@ export class TerrainStreamingEngine {
           stones.length,
         );
         const transform = new THREE.Object3D();
-        stones.forEach(({ pose }, index) => {
+        stones.forEach(({ cell }, index) => {
+          const x =
+            (cell.x + 0.5) * this.tiles.definition.voxelEdgeM;
+          const y =
+            (cell.y + 0.5) * this.tiles.definition.voxelEdgeM;
+          const z =
+            (cell.z + 0.5) * this.tiles.definition.voxelEdgeM;
           transform.position.set(
             request.centerWorldX +
-              (pose.translation.x - result!.centerCanonicalX) *
+              (x - result!.centerCanonicalX) *
                 this.context.worldUnitsPerMeter,
-            (pose.translation.y + this.tiles.definition.verticalDatumM) *
+            (y + this.tiles.definition.verticalDatumM) *
               this.context.worldUnitsPerMeter,
             request.centerWorldZ +
-              (pose.translation.z - result!.centerCanonicalZ) *
+              (z - result!.centerCanonicalZ) *
                 this.context.worldUnitsPerMeter,
           );
-          transform.quaternion.set(
-            pose.rotation.x,
-            pose.rotation.y,
-            pose.rotation.z,
-            pose.rotation.w,
-          );
+          transform.quaternion.identity();
           transform.updateMatrix();
           stoneMesh.setMatrixAt(index, transform.matrix);
         });

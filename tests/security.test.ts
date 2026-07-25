@@ -30,7 +30,7 @@ const projectRoot = resolve(".");
 test("public resource manifest matches enforced physics bounds", () => {
   assert.equal(
     CANDIDATE_LIMITS.maximumTouchedStones,
-    PHYSICS.maxContactIslandStones,
+    PHYSICS.maximumAffectedStoneCells,
   );
 });
 
@@ -99,7 +99,7 @@ test("candidate shape limits reject oversized and extended proofs", () => {
     }),
   );
   const result = validateCandidateShape({
-    protocol: "0.4.0",
+    protocol: "0.5.0",
     id: "candidate-1",
     parentWorldHash: "world-1",
     terrainHash: "a".repeat(64),
@@ -112,10 +112,7 @@ test("candidate shape limits reject oversized and extended proofs", () => {
         source: { kind: "BASE" },
         destination: {
           kind: "WORLD",
-          releasePose: {
-            translation: { x: 80, y: 0, z: 0 },
-            rotation: { x: 0, y: 0, z: 0, w: 1 },
-          },
+          cell: { x: 400, y: 0, z: 0 },
         },
       },
       releaseIndex: 0,
@@ -130,7 +127,7 @@ test("candidate shape limits reject oversized and extended proofs", () => {
 
 test("BASE to BASE is rejected before route execution", () => {
   const result = validateCandidateShape({
-    protocol: "0.4.0",
+    protocol: "0.5.0",
     id: "base-noop",
     parentWorldHash: "world-1",
     terrainHash: "a".repeat(64),

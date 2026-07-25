@@ -24,7 +24,7 @@ survival from the final route point.
 3. `world/sites.json` — geographic site regions, including both Everest slopes.
 4. `schemas/candidate.schema.json` — the only accepted submission shape.
 5. `docs/AGENT-PROTOCOL.md` — authoritative route, Endurance, matter, and
-   physics rules.
+   voxel-static physics rules.
 
 Never edit canonical world data in an expedition pull request. The trusted
 reducer owns it.
@@ -67,6 +67,13 @@ STONE/TERRAIN -> BASE    recover
 `BASE -> BASE`, moving within the same 20 cm canonical cell, replacing a
 quarried voxel into itself, and importing inside Base Camp are no-ops and are
 rejected.
+
+World destinations are exact integer 20 cm cells. Stones do not have poses or
+rotations. A placement must share a face with solid terrain or another stone,
+and every affected intermediate structure must pass the V2.1 static rules.
+Operations that would cause collapse are rejected atomically. Terrain quarrying
+may advance from exterior air or an already excavated face, enabling supported
+tunnels without remote excavation.
 
 ## Submission
 

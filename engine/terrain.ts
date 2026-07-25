@@ -1,4 +1,16 @@
-import type { RouteSample, SurfaceKind } from "./types";
+import { TERRAIN } from "./constants";
+import { voxelKey } from "./mutation";
+import {
+  baseTopVoxel,
+  currentTopVoxel,
+  isSolidTerrainVoxel,
+} from "./surface";
+import type {
+  PhysicsSnapshot,
+  RouteSample,
+  SurfaceKind,
+  VoxelCoordinate,
+} from "./types";
 
 const METERS_PER_DEGREE_LATITUDE = 111_320;
 
@@ -166,7 +178,10 @@ export function createDemTerrainOracle(
 export function validateRouteTerrain(
   route: readonly RouteSample[],
   oracle: TerrainOracle,
+  world?: Pick<PhysicsSnapshot, "stones" | "removedTerrainVoxels">,
 ): TerrainRouteVerdict {
+  const removed = new Set((world?.removedTerrainVoxels ?? []).map(voxelKey));
+  const stones = new Set((world?.stones ?? []).map((stone) => voxelKey(stone.cell)));
   for (let index = 0; index < route.length; index += 1) {
     const sample = route[index];
     const expected = oracle.sample(sample.x, sample.z);
@@ -178,9 +193,70 @@ export function validateRouteTerrain(
         expected: null,
       };
     }
+    const columnX = Math.floor(sample.x / TERRAIN.voxelEdgeM);
+    const columnZ = Math.floor(sample.z / TERRAIN.voxelEdgeM);
+    const top = currentTopVoxel(
+      oracle,
+      world?.removedTerrainVoxels ?? [],
+      columnX,
+      columnZ,
+    );
+    const topY = top === null ? Number.NEGATIVE_INFINITY : (top + 1) * TERRAIN.voxelEdgeM;
+    const supportY = Math.floor(
+      (sample.y + TERRAIN.voxelEdgeM * 0.25) / TERRAIN.voxelEdgeM,
+    ) - 1;
+    const supportCell: VoxelCoordinate = {
+      x: columnX,
+      y: supportY,
+      z: columnZ,
+    };
+    const exactVoxelSupport =
+      Math.abs(sample.y - (supportY + 1) * TERRAIN.voxelEdgeM) <=
+        TERRAIN.voxelEdgeM * 0.55 &&
+      (stones.has(voxelKey(supportCell)) ||
+        isSolidTerrainVoxel(oracle, removed, supportCell));
+    const naturalSurfaceSupport =
+      top !== null &&
+      Math.abs(sample.y - expected.y) <= 0.8 &&
+      Math.abs(sample.y - topY) <= 0.8;
+    const nativeTop = baseTopVoxel(oracle, columnX, columnZ);
+    const insideExcavation =
+      nativeTop !== null &&
+      exactVoxelSupport &&
+      supportY < nativeTop &&
+      removed.has(
+        voxelKey({ x: columnX, y: supportY + 1, z: columnZ }),
+      ) &&
+      sample.y <= (nativeTop + 1) * TERRAIN.voxelEdgeM - 0.1;
+    let bodyClear = true;
+    if (insideExcavation) {
+      const bodyBottom = supportY + 1;
+      const bodyHeightCells = Math.ceil(1.72 / TERRAIN.voxelEdgeM);
+      const bodyColumns = [
+        { x: columnX, z: columnZ },
+        { x: columnX + 1, z: columnZ },
+        { x: columnX - 1, z: columnZ },
+        { x: columnX, z: columnZ + 1 },
+        { x: columnX, z: columnZ - 1 },
+      ];
+      bodyClear = bodyColumns.every((column) =>
+        Array.from({ length: bodyHeightCells }, (_, offset) => ({
+          x: column.x,
+          y: bodyBottom + offset,
+          z: column.z,
+        })).every(
+          (cell) =>
+            !stones.has(voxelKey(cell)) &&
+            !isSolidTerrainVoxel(oracle, removed, cell),
+        ),
+      );
+    }
+    const expectedAltitude =
+      expected.altitudeM + (sample.y - expected.y);
     if (
-      Math.abs(sample.y - expected.y) > 0.8 ||
-      Math.abs(sample.altitudeM - expected.altitudeM) > 0.8 ||
+      (!exactVoxelSupport && !naturalSurfaceSupport) ||
+      !bodyClear ||
+      Math.abs(sample.altitudeM - expectedAltitude) > 0.8 ||
       Math.abs(sample.slopeDegrees - expected.slopeDegrees) > 2.5 ||
       sample.surface !== expected.surface
     ) {

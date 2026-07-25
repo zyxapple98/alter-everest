@@ -31,8 +31,6 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern dist-static --ignore-pattern .next"
   },
   "dependencies": {
-    "@dimforge/rapier3d-deterministic-compat": "^0.19.3",
-    "@types/three": "^0.185.1",
     "next": "16.2.11",
     "react": "19.2.6",
     "react-dom": "19.2.6",
@@ -44,6 +42,7 @@
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "@types/three": "^0.185.1",
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "cross-env": "^10.1.0",

@@ -27,7 +27,7 @@ if (
 } else {
   const applied = await applyAcceptedCandidate(
     result.candidate,
-    { ...result.canonicalWorld, terrain: [] },
+    result.canonicalWorld,
     result.verdict,
   );
   const output = resolve(argument("--out") ?? "world/next-snapshot.json");
