@@ -1,6 +1,6 @@
 {
   "protocolVersion": "0.6.0",
-  "verifierSourceSha256": "bdf74a3a96fd6b2950594cc00f23305a7eac222209a63333773f1bc6cc7e704e",
+  "verifierSourceSha256": "3a542c4947695c48c73b20c4fa586637482bd37a5b6be83e114aeafb5bda9805",
   "containerImage": null,
   "baseImage": "node:22.19.0-bookworm-slim@sha256:4a4884e8a44826194dff92ba316264f392056cbe243dcc9fd3551e71cea02b90",
   "publicKeyRegistry": "protocol/verifier-keys.json",

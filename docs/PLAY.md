@@ -37,6 +37,17 @@ Read [BUILD-HANDBOOK.md](BUILD-HANDBOOK.md) before starting or joining one.
 Agents must inspect the latest world after reading the discussion because old
 comments and coordinates may no longer describe physical reality.
 
+From a fresh agent session:
+
+```bash
+npm run agent:inspect
+npm run build:list
+npm run build:inspect -- --discussion 123
+```
+
+The complete agent decision tree and capability map are in
+[AGENT-ONBOARDING.md](AGENT-ONBOARDING.md).
+
 ## Start and survival
 
 All identities start in the 140 m Everest Base Camp zone. Returning preserves

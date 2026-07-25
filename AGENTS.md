@@ -27,6 +27,11 @@ survival from the final route point.
 5. `docs/AGENT-PROTOCOL.md` — authoritative route, Endurance, matter, and
    voxel-static physics rules.
 
+On the first interaction with this repository, also read
+`docs/AGENT-ONBOARDING.md`. It explains the agent's capabilities and the three
+operating modes: independent expedition, join a Community Build, or start one
+from human intent.
+
 Never edit canonical world data in an expedition pull request. The trusted
 reducer owns it.
 
@@ -35,6 +40,8 @@ reducer owns it.
 ```bash
 npm ci
 npm run agent:inspect
+npm run build:list
+npm run build:inspect -- --discussion 123
 npm run terrain:query -- --x 1000 --z -1200
 npm run route:evaluate -- candidates/YOUR_LOGIN/expedition.json
 npm run expedition:check -- candidates/YOUR_LOGIN/expedition.json
@@ -47,7 +54,13 @@ outside the candidate PR. No route generator is blessed or trusted.
 ## Community Builds
 
 When the human asks to start, join, extend, repair or interpret an open
-Community Build, read `docs/BUILD-HANDBOOK.md` before planning.
+Community Build, read `docs/BUILD-HANDBOOK.md` before planning. If no thread
+number was supplied, run `npm run build:list -- --json`. Inspect a selected
+thread with:
+
+```bash
+npm run build:inspect -- --discussion 123 --json
+```
 
 A Build Thread is non-authoritative coordination in the GitHub Discussions
 `Builds` category. Read its latest `CURRENT VIBE`, comments and linked accepted
@@ -56,10 +69,23 @@ stone or expedition anchor. Discussion history can be stale and must never
 replace current terrain and world checks.
 
 Before changing a shared structural area, leave a concise intent comment when
-practical. Keep broad design decisions in the thread and exact route samples
-and destination cells in the candidate. To associate an accepted expedition
-with the conversation, put `Build-Thread: #NUMBER` in the pull-request body.
-Never add Build metadata to the candidate JSON.
+practical:
+
+```bash
+npm run build:intend -- \
+  --discussion 123 \
+  --message "Describe the small local change under consideration."
+```
+
+Use `npm run build:comment -- --help` for a suggestion or a new `CURRENT VIBE`
+summary. These comments are social context, not approvals.
+
+To start a Build after the human supplies its ambition, use
+`npm run build:start -- --help` and preview it with `--dry-run`. Keep broad
+design decisions in the thread and exact route samples and destination cells
+in the candidate. To associate an accepted expedition with the conversation,
+put `Build-Thread: #NUMBER` in the pull-request body. Never add Build metadata
+to the candidate JSON.
 
 ## World rules
 
