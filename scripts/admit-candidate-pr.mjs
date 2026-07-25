@@ -129,10 +129,16 @@ if (process.env.GITHUB_RUN_ID && !allowApplied) {
     );
   }
 
-  const acceptedBefore = (canonicalWorld.expeditions ?? []).some(
-    (expedition) => expedition.agentId === actor,
-  );
-  const dailyLimit = acceptedBefore ? 30 : 3;
+  const acceptedCount = (canonicalWorld.expeditions ?? []).filter(
+    (expedition) =>
+      String(expedition.agentId).toLowerCase() === actor.toLowerCase(),
+  ).length;
+  const limits =
+    acceptedCount === 0
+      ? { hourly: 6, daily: 12 }
+      : acceptedCount < 10
+        ? { hourly: 10, daily: 30 }
+        : { hourly: 20, daily: 100 };
   const now = Date.now();
 
   const markerName = `expedition-admission-${actor.toLowerCase()}`;
@@ -164,12 +170,14 @@ if (process.env.GITHUB_RUN_ID && !allowApplied) {
     createdTimes.filter((createdAt) => createdAt >= now - milliseconds).length;
   const hourlyStarts = countVerifierStartsSince(60 * 60 * 1000);
   const dailyStarts = countVerifierStartsSince(24 * 60 * 60 * 1000);
-  if (hourlyStarts >= 6) {
-    throw new Error("This identity exceeded six verifier starts in one hour.");
-  }
-  if (dailyStarts >= dailyLimit) {
+  if (hourlyStarts >= limits.hourly) {
     throw new Error(
-      `This identity exceeded its daily verifier limit of ${dailyLimit}.`,
+      `This identity reached its verifier limit of ${limits.hourly} starts in one hour.`,
+    );
+  }
+  if (dailyStarts >= limits.daily) {
+    throw new Error(
+      `This identity reached its daily verifier limit of ${limits.daily}.`,
     );
   }
 }

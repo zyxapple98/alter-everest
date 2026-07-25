@@ -414,10 +414,41 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
       /cannot be manually re-run/,
     );
 
-    admissionArtifacts = [1, 2, 3].map((id) => ({
-      id,
+    admissionArtifacts = Array.from({ length: 6 }, (_, index) => ({
+      id: index + 1,
       expired: false,
-      created_at: new Date(Date.now() - id * 60 * 1000).toISOString(),
+      created_at: new Date(Date.now() - (index + 1) * 60 * 1000).toISOString(),
+    }));
+    await assert.rejects(
+      execute(
+        process.execPath,
+        [
+          "scripts/admit-candidate-pr.mjs",
+          "--event",
+          eventPath,
+          "--out",
+          join(directory, "hourly-limited.json"),
+        ],
+        {
+          cwd: projectRoot,
+          env: {
+            ...process.env,
+            GITHUB_RUN_ID: "1000",
+            GITHUB_RUN_ATTEMPT: "1",
+            GITHUB_TOKEN: "test-token",
+            GITHUB_API_URL: `http://127.0.0.1:${address.port}`,
+          },
+        },
+      ),
+      /limit of 6 starts in one hour/,
+    );
+
+    admissionArtifacts = Array.from({ length: 12 }, (_, index) => ({
+      id: index + 1,
+      expired: false,
+      created_at: new Date(
+        Date.now() - (index + 1) * 70 * 60 * 1000,
+      ).toISOString(),
     }));
     await assert.rejects(
       execute(
@@ -440,7 +471,7 @@ test("PR admission downloads one JSON blob without checking out PR code", async 
           },
         },
       ),
-      /daily verifier limit of 3/,
+      /daily verifier limit of 12/,
     );
 
     const candidateHash = JSON.parse(accepted.stdout).candidateHash;
