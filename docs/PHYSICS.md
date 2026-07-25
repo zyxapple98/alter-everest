@@ -11,7 +11,7 @@ a rigid-body simulation and not engineering certification.
 - nominal stone mass: 21.6 kg
 - position: one exact integer `{x,y,z}` cell
 - contact: shared faces only
-- mutation: atomic accept or reject
+- action sequence: atomic accept or reject
 
 There are no release poses, rotations, velocities, friction impulses, falling
 bodies, or special scaffold material. A temporary prop is simply another
@@ -21,7 +21,7 @@ verifier does not animate a collapse into canonical state.
 
 ## Static structural checks
 
-After applying the proposed mutation in memory, the verifier finds every
+After applying each proposed mutation in memory, the verifier finds every
 face-connected stone component touched by the source or destination and checks:
 
 1. **Anchorage.** Every component needs at least one stone directly above solid
@@ -39,11 +39,12 @@ face-connected stone component touched by the source or destination and checks:
    exceed 4,096. Route validation applies the climber, and a carried stone when
    applicable, as a transient service load.
 
-For a move or quarry-and-relocate expedition, the pickup-only state is checked
-before the final destination state. A support cannot be removed during the
-journey merely because the eventual placement would make the final snapshot
-stable again. Route support and obstacles likewise switch between the
-pre-pickup, carried and post-release worlds at the declared action indices.
+For every move or quarry-and-relocate action, the pickup-only state is checked
+before the destination state. A support cannot be removed during the journey
+merely because a later action would make the final snapshot stable again.
+Route support and obstacles switch through each declared pickup and release
+world. All intermediate worlds must pass; the expedition still commits as one
+transaction.
 
 The model represents compression plus limited local tension, shear and bending
 inside interlocked masonry. It deliberately has no long-range tensile member,
@@ -76,6 +77,9 @@ The public hard limits are:
 - 250 distinct stone levels;
 - 8 touched 32 m physics chunks;
 - a 64³-cell local cavity window;
+- 512 ordered actions per expedition;
+- 100,000 cumulative evaluated stone cells per expedition;
+- 1,048,576 cumulative cavity cells per expedition;
 - 4 seconds and 256 MiB for the verifier process.
 
 Only components adjacent to the mutation and cavity cells near the excavation

@@ -1,7 +1,7 @@
 export interface ObservatoryExpedition {
   id: string;
   agent: string;
-  action: "ADDED" | "MOVED" | "RECOVERED" | "QUARRIED";
+  action: "ADDED" | "MOVED" | "RECOVERED" | "QUARRIED" | "BUILT";
   commit: string;
   color: string;
   returned: boolean;
@@ -9,6 +9,7 @@ export interface ObservatoryExpedition {
   enduranceUsed: number;
   score: number;
   releaseFraction: number;
+  actionFractions?: number[];
   totalScore: number;
   trace?: Array<{ column: number; row: number }> | null;
 }

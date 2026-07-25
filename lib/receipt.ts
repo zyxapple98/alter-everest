@@ -8,13 +8,18 @@ import {
 import type {
   CandidateCommit,
   CommitVerdict,
+  ExpeditionOperation,
   IdentityOutcome,
   MutationOperation,
 } from "../engine/types";
-import { operationLabel } from "../engine/mutation";
+import {
+  actionStoneIds,
+  operationLabel,
+  operationSummary,
+} from "../engine/mutation";
 
 export interface ReceiptBody {
-  receiptVersion: "1.1.0";
+  receiptVersion: "1.2.0";
   candidateHash: string;
   candidateId: string;
   agentId: string;
@@ -25,7 +30,10 @@ export interface ReceiptBody {
   result: {
     accepted: boolean;
     code: CommitVerdict["code"];
-    action: MutationOperation;
+    action: ExpeditionOperation;
+    actions: MutationOperation[];
+    actionCount: number;
+    stoneIds: string[];
     outcome: IdentityOutcome | null;
     enduranceUsed: number | null;
     energyKj: number | null;
@@ -69,7 +77,7 @@ export function receiptBody(
   issuedAt: string | null = null,
 ): ReceiptBody {
   return {
-    receiptVersion: "1.1.0",
+    receiptVersion: "1.2.0",
     candidateHash,
     candidateId: candidate.id,
     agentId: candidate.agentId,
@@ -80,7 +88,10 @@ export function receiptBody(
     result: {
       accepted: verdict.accepted,
       code: verdict.code,
-      action: operationLabel(candidate.proof.mutation),
+      action: operationSummary(candidate.proof.actions),
+      actions: candidate.proof.actions.map(operationLabel),
+      actionCount: candidate.proof.actions.length,
+      stoneIds: actionStoneIds(candidate.proof.actions),
       outcome: verdict.nextIdentityStatus,
       enduranceUsed: verdict.route
         ? Number(verdict.route.enduranceUsed.toFixed(6))

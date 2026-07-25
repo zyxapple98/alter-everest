@@ -52,7 +52,10 @@ test("the checked-in agent expedition reaches high Everest one-way", async () =>
   assert.equal(verdict.physics?.code, "STABLE");
   assert.equal(verdict.route?.outcome, "DEAD");
   assert.ok((verdict.route?.enduranceUsed ?? 101) < 100);
-  assert.ok(candidate.proof.route[candidate.proof.releaseIndex!].altitudeM > 8_700);
+  assert.ok(
+    candidate.proof.route[candidate.proof.actions[0].releaseIndex].altitudeM >
+      8_700,
+  );
 
   const applied = await applyAcceptedCandidate(candidate, world, verdict);
   assert.equal(applied.stones.length, 1);
@@ -103,20 +106,23 @@ test("a lower round-trip preserves the identity without an official planner", as
     agentId: "roundtrip-agent",
     proof: {
       route: [...ascent, ...descent],
-      releaseIndex,
-      mutation: {
-        kind: "RELOCATE",
-        matterId: "stone-fixture-lower-roundtrip",
-        source: { kind: "BASE" },
-        destination: {
-          kind: "WORLD",
-          cell: {
-            x: placementColumnX,
-            y: topVoxel + 1,
-            z: columnZ,
+      actions: [
+        {
+          kind: "RELOCATE",
+          matterId: "stone-fixture-lower-roundtrip",
+          source: { kind: "BASE" },
+          destination: {
+            kind: "WORLD",
+            cell: {
+              x: placementColumnX,
+              y: topVoxel + 1,
+              z: columnZ,
+            },
           },
+          pickupIndex: 0,
+          releaseIndex,
         },
-      },
+      ],
     },
   };
   candidate.proof.route[candidate.proof.route.length - 1] = {
@@ -194,28 +200,30 @@ test("an exposed terrain voxel can be quarried and relocated", async () => {
     safeStop: true,
   });
   const candidate: CandidateCommit = {
-    protocol: "0.5.0",
+    protocol: "0.6.0",
     id: "fixture-quarry",
     parentWorldHash: world.worldHash,
     terrainHash: world.terrainHash,
     agentId: "quarry-agent",
     proof: {
       route,
-      pickupIndex,
-      releaseIndex,
-      mutation: {
-        kind: "RELOCATE",
-        matterId: "stone-fixture-quarry",
-        source: { kind: "TERRAIN", voxel: source },
-        destination: {
-          kind: "WORLD",
-          cell: {
-            x: destinationColumn.x,
-            y: destinationTop + 1,
-            z: destinationColumn.z,
+      actions: [
+        {
+          kind: "RELOCATE",
+          matterId: "stone-fixture-quarry",
+          source: { kind: "TERRAIN", voxel: source },
+          destination: {
+            kind: "WORLD",
+            cell: {
+              x: destinationColumn.x,
+              y: destinationTop + 1,
+              z: destinationColumn.z,
+            },
           },
+          pickupIndex,
+          releaseIndex,
         },
-      },
+      ],
     },
   };
   const verdict = await validateCandidateCommit(
@@ -227,7 +235,9 @@ test("an exposed terrain voxel can be quarried and relocated", async () => {
   const applied = await applyAcceptedCandidate(candidate, world, verdict);
   assert.deepEqual(applied.removedTerrainVoxels, [source]);
   assert.ok(
-    applied.stones.some((stone) => stone.id === candidate.proof.mutation.matterId),
+    applied.stones.some(
+      (stone) => stone.id === candidate.proof.actions[0].matterId,
+    ),
   );
   assert.equal(applied.expeditions.at(-1)?.action, "QUARRY");
 });

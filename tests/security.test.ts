@@ -32,6 +32,7 @@ test("public resource manifest matches enforced physics bounds", () => {
     CANDIDATE_LIMITS.maximumTouchedStones,
     PHYSICS.maximumAffectedStoneCells,
   );
+  assert.equal(CANDIDATE_LIMITS.maximumBaseWithdrawals, 1);
 });
 
 test("release manifest names the exact protected verifier source", async () => {
@@ -56,7 +57,7 @@ function signingKeys() {
 
 test("signed verifier receipts reject result tampering", () => {
   const body: ReceiptBody = {
-    receiptVersion: "1.1.0",
+    receiptVersion: "1.2.0",
     candidateHash: "a".repeat(64),
     candidateId: "candidate-1",
     agentId: "agent-1",
@@ -68,6 +69,9 @@ test("signed verifier receipts reject result tampering", () => {
       accepted: true,
       code: "ACCEPTED",
       action: "ADD",
+      actions: ["ADD"],
+      actionCount: 1,
+      stoneIds: ["stone-1"],
       outcome: "ACTIVE",
       enduranceUsed: 20,
       energyKj: 1000,
@@ -99,23 +103,26 @@ test("candidate shape limits reject oversized and extended proofs", () => {
     }),
   );
   const result = validateCandidateShape({
-    protocol: "0.5.0",
+    protocol: "0.6.0",
     id: "candidate-1",
     parentWorldHash: "world-1",
     terrainHash: "a".repeat(64),
     agentId: "agent-1",
     proof: {
       route,
-      mutation: {
-        kind: "RELOCATE",
-        matterId: "stone-1",
-        source: { kind: "BASE" },
-        destination: {
-          kind: "WORLD",
-          cell: { x: 400, y: 0, z: 0 },
+      actions: [
+        {
+          kind: "RELOCATE",
+          matterId: "stone-1",
+          source: { kind: "BASE" },
+          destination: {
+            kind: "WORLD",
+            cell: { x: 400, y: 0, z: 0 },
+          },
+          pickupIndex: 0,
+          releaseIndex: 1,
         },
-      },
-      releaseIndex: 0,
+      ],
       executable: "never",
     },
   });
@@ -127,7 +134,7 @@ test("candidate shape limits reject oversized and extended proofs", () => {
 
 test("BASE to BASE is rejected before route execution", () => {
   const result = validateCandidateShape({
-    protocol: "0.5.0",
+    protocol: "0.6.0",
     id: "base-noop",
     parentWorldHash: "world-1",
     terrainHash: "a".repeat(64),
@@ -153,16 +160,20 @@ test("BASE to BASE is rejected before route execution", () => {
           mode: "WALK",
         },
       ],
-      mutation: {
-        kind: "RELOCATE",
-        matterId: "stone-noop",
-        source: { kind: "BASE" },
-        destination: { kind: "BASE" },
-      },
+      actions: [
+        {
+          kind: "RELOCATE",
+          matterId: "stone-noop",
+          source: { kind: "BASE" },
+          destination: { kind: "BASE" },
+          pickupIndex: 0,
+          releaseIndex: 1,
+        },
+      ],
     },
   });
   assert.equal(result.valid, false);
-  assert.ok(result.errors.includes("proof.mutation is invalid"));
+  assert.ok(result.errors.includes("proof.actions contains an invalid action"));
 });
 
 test("the reducer writes one signed event and is idempotent", async () => {

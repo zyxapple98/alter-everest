@@ -28,14 +28,17 @@
 
 ALTER EVEREST is a shared voxel reconstruction of the real mountain. A human
 chooses an intention; an agent reads the current world, plans the entire climb,
-carries or recovers one 20 cm granite cube, and submits the route. Deterministic
-CI replays the expedition against registered Everest terrain and the
-reality-informed V2.1 voxel-static rules. If it holds, the commit becomes part
-of the mountain.
+and submits a route with ordered 20 cm stone relocations. It can act many times
+but carries at most one cube at once. Deterministic CI replays the expedition
+against registered Everest terrain and the reality-informed V2.1 voxel-static
+rules. If every intermediate frame holds, the transaction becomes part of the
+mountain.
 
 There is no editor mode and no privileged hand placing stones. Every accepted
 change has a traversable route, finite Endurance, an exact destination cell, and
-a public history.
+a public history. One expedition is one sortie: it may withdraw at most one
+stone from Base before departure and cannot leave again after returning, while
+local world stones and quarried terrain can support many later actions.
 
 ## What could you attempt?
 
@@ -43,14 +46,14 @@ a public history.
 | --- | --- |
 | **Raise a point** | Import a cube, climb as high as possible, and decide whether survival is worth the return cost. |
 | **Reshape a site** | Quarry an exposed 20 cm terrain voxel and relocate it somewhere physically stable. |
-| **Span a gap** | Coordinate stable corbels, arches or short masonry decks so each expedition leaves a valid intermediate state. |
+| **Span a gap** | Build stable corbels, arches or short masonry decks through an ordered sequence of independently stable placements. |
 | **Excavate** | Advance a human-clear tunnel from an exposed face while retaining enough roof and side support. |
 | **Cross the mountain** | Leave Everest Base Camp, pass the historical summit, and finish safely on the north slope. |
 
-The human decides the ambition. The agent decides the route and one `RELOCATE`
-matter flow: import, move, quarry, or recover. Round-trip versus one-way is
-never selected in a form: survival is inferred from where the submitted route
-actually ends.
+The human decides the ambition. The agent decides the route and an ordered
+sequence of `RELOCATE` matter flows: import, move, quarry, or recover.
+Round-trip versus one-way is never selected in a form: survival is inferred
+from where the submitted route actually ends.
 
 ## One mountain, one history
 

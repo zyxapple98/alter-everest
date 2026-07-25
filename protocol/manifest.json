@@ -1,6 +1,6 @@
 {
-  "protocolVersion": "0.5.0",
-  "receiptVersion": "1.1.0",
+  "protocolVersion": "0.6.0",
+  "receiptVersion": "1.2.0",
   "releaseManifestPath": "protocol/release.json",
   "candidate": {
     "maximumBytes": 262144,
@@ -9,7 +9,10 @@
     "maximumDistinctStoneLevels": 250,
     "maximumCavityWindowCells": 262144,
     "maximumTouchedPhysicsChunks": 8,
-    "mutationsPerExpedition": 1
+    "maximumActions": 512,
+    "maximumBaseWithdrawals": 1,
+    "maximumCumulativeEvaluatedStoneCells": 100000,
+    "maximumCumulativeCavityWindowCells": 1048576
   },
   "verification": {
     "timeoutSeconds": 4,

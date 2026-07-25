@@ -11,7 +11,11 @@ import type {
 } from "./types";
 import { TERRAIN } from "./constants";
 import { chunkForVoxel } from "./surface";
-import { operationLabel, voxelKey } from "./mutation";
+import {
+  operationLabel,
+  operationSummary,
+  voxelKey,
+} from "./mutation";
 
 function hex(bytes: Uint8Array) {
   return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
@@ -174,29 +178,35 @@ export async function applyAcceptedCandidate(
     tombstones.push(tombstone);
   }
 
-  const actionIndex =
-    candidate.proof.mutation.destination.kind === "BASE"
-      ? candidate.proof.pickupIndex!
-      : candidate.proof.releaseIndex!;
-  const actionSample = candidate.proof.route[actionIndex];
+  const operations = candidate.proof.actions.map(operationLabel);
+  const altitudeM = Math.max(
+    ...candidate.proof.actions.map((action) => {
+      const actionIndex =
+        action.destination.kind === "BASE"
+          ? action.pickupIndex
+          : action.releaseIndex;
+      return candidate.proof.route[actionIndex].altitudeM;
+    }),
+  );
   const record: ExpeditionRecord = {
     id: candidate.id,
     agentId: candidate.agentId,
-    action: operationLabel(candidate.proof.mutation),
+    action: operationSummary(candidate.proof.actions),
+    actions: operations,
+    actionCount: operations.length,
     outcome: verdict.nextIdentityStatus,
-    altitudeM: actionSample.altitudeM,
+    altitudeM,
     enduranceUsed: verdict.route.enduranceUsed,
     energyKj: verdict.route.energyKj,
     score: verdict.score,
   };
 
-  const removedTerrainVoxels =
-    candidate.proof.mutation.source.kind === "TERRAIN"
-      ? [
-          ...currentWorld.removedTerrainVoxels,
-          candidate.proof.mutation.source.voxel,
-        ]
-      : currentWorld.removedTerrainVoxels;
+  const removedTerrainVoxels = [
+    ...currentWorld.removedTerrainVoxels,
+    ...candidate.proof.actions.flatMap((action) =>
+      action.source.kind === "TERRAIN" ? [action.source.voxel] : [],
+    ),
+  ];
   const spatial = await buildSpatialManifest(
     verdict.physics.finalStones,
     removedTerrainVoxels,

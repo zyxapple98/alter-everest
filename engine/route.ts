@@ -1,4 +1,6 @@
 import { CLIMBER, PHYSICS } from "./constants";
+import protocolManifest from "../protocol/manifest.json";
+import { isInsideBaseCamp } from "./mutation";
 import type {
   ExpeditionProof,
   LocomotionMode,
@@ -19,6 +21,31 @@ function horizontalDistance(a: Vec3, b: Vec3) {
 
 function validIndex(index: number | undefined, length: number) {
   return Number.isInteger(index) && index! >= 0 && index! < length;
+}
+
+function segmentMinimumHorizontalDistance(
+  from: Vec3,
+  to: Vec3,
+  point: Vec3,
+) {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const lengthSquared = dx * dx + dz * dz;
+  if (lengthSquared === 0) {
+    return Math.hypot(from.x - point.x, from.z - point.z);
+  }
+  const projection = Math.max(
+    0,
+    Math.min(
+      1,
+      ((point.x - from.x) * dx + (point.z - from.z) * dz) /
+        lengthSquared,
+    ),
+  );
+  return Math.hypot(
+    from.x + projection * dx - point.x,
+    from.z + projection * dz - point.z,
+  );
 }
 
 function invalid(
@@ -97,20 +124,11 @@ export function isCarryingStone(
   proof: ExpeditionProof,
   segmentIndex: number,
 ) {
-  const { mutation } = proof;
-  if (mutation.source.kind === "BASE") {
-    return (
-      mutation.destination.kind === "WORLD" &&
-      segmentIndex < (proof.releaseIndex ?? -1)
-    );
-  }
-  if (mutation.destination.kind === "WORLD") {
-    return (
-      segmentIndex >= (proof.pickupIndex ?? Number.POSITIVE_INFINITY) &&
-      segmentIndex < (proof.releaseIndex ?? -1)
-    );
-  }
-  return segmentIndex >= (proof.pickupIndex ?? Number.POSITIVE_INFINITY);
+  return proof.actions.some(
+    (action) =>
+      segmentIndex >= action.pickupIndex &&
+      segmentIndex < action.releaseIndex,
+  );
 }
 
 function allowedSlope(
@@ -200,11 +218,90 @@ export function evaluateRouteEndurance(proof: ExpeditionProof) {
 
 function validateActionIndices(proof: ExpeditionProof) {
   const length = proof.route.length;
-  const needsPickup = proof.mutation.source.kind !== "BASE";
-  const needsRelease = proof.mutation.destination.kind === "WORLD";
-  if (needsPickup !== validIndex(proof.pickupIndex, length)) return false;
-  if (needsRelease !== validIndex(proof.releaseIndex, length)) return false;
-  return !needsPickup || !needsRelease || proof.pickupIndex! < proof.releaseIndex!;
+  if (
+    proof.actions.length < 1 ||
+    proof.actions.length > protocolManifest.candidate.maximumActions
+  ) {
+    return false;
+  }
+  let availableAt = 0;
+  for (const action of proof.actions) {
+    if (
+      !validIndex(action.pickupIndex, length) ||
+      !validIndex(action.releaseIndex, length) ||
+      action.pickupIndex < availableAt ||
+      action.pickupIndex >= action.releaseIndex
+    ) {
+      return false;
+    }
+    availableAt = action.releaseIndex;
+  }
+  return true;
+}
+
+function validateExpeditionLifecycle(
+  proof: ExpeditionProof,
+  baseCamp: Vec3,
+): RouteFailureCode | null {
+  const departureIndex = proof.route.findIndex(
+    (sample) => !isInsideBaseCamp(sample, { baseCamp }),
+  );
+  if (departureIndex === -1) return "ROUTE_NEVER_LEFT_BASE";
+
+  const baseWithdrawals = proof.actions.filter(
+    (action) => action.source.kind === "BASE",
+  );
+  if (
+    baseWithdrawals.length >
+    protocolManifest.candidate.maximumBaseWithdrawals
+  ) {
+    return "BASE_WITHDRAWAL_LIMIT_EXCEEDED";
+  }
+  if (
+    baseWithdrawals.some(
+      (action) => action.pickupIndex >= departureIndex,
+    )
+  ) {
+    return "BASE_PICKUP_AFTER_DEPARTURE";
+  }
+
+  let returnIndex: number | null = null;
+  for (
+    let index = departureIndex;
+    index < proof.route.length - 1;
+    index += 1
+  ) {
+    const from = proof.route[index];
+    const to = proof.route[index + 1];
+    if (returnIndex !== null) {
+      if (!isInsideBaseCamp(to, { baseCamp })) {
+        return "BASE_REDEPARTURE_FORBIDDEN";
+      }
+      continue;
+    }
+    if (isInsideBaseCamp(to, { baseCamp })) {
+      returnIndex = index + 1;
+      continue;
+    }
+    if (
+      segmentMinimumHorizontalDistance(from, to, baseCamp) <
+      CLIMBER.baseCampRadiusM - 1e-6
+    ) {
+      return "BASE_REDEPARTURE_FORBIDDEN";
+    }
+  }
+  if (
+    returnIndex !== null &&
+    proof.actions.some(
+      (action) =>
+        action.pickupIndex >= returnIndex! ||
+        (action.releaseIndex >= returnIndex! &&
+          action.destination.kind !== "BASE"),
+    )
+  ) {
+    return "ACTION_AFTER_BASE_RETURN";
+  }
+  return null;
 }
 
 export function validateRoute(
@@ -212,23 +309,23 @@ export function validateRoute(
   baseCamp: Vec3,
 ): RouteVerdict {
   if (proof.route.length < 2) return invalid("ROUTE_TOO_SHORT");
-  const terminalDistanceFromBaseM = distance(
+  const terminalDistanceFromBaseM = horizontalDistance(
     proof.route.at(-1)!,
     baseCamp,
   );
-  if (distance(proof.route[0], baseCamp) > CLIMBER.baseCampRadiusM) {
+  if (!isInsideBaseCamp(proof.route[0], { baseCamp })) {
     return invalid("START_OUTSIDE_BASE", terminalDistanceFromBaseM);
   }
   if (!validateActionIndices(proof)) {
     return invalid("ACTION_INDEX_INVALID", terminalDistanceFromBaseM);
   }
-
-  const returnsToBase =
-    terminalDistanceFromBaseM <= CLIMBER.baseCampRadiusM;
-  if (proof.mutation.destination.kind === "BASE" && !returnsToBase) {
-    return invalid("BASE_DELIVERY_MUST_RETURN", terminalDistanceFromBaseM);
+  const lifecycleFailure = validateExpeditionLifecycle(proof, baseCamp);
+  if (lifecycleFailure) {
+    return invalid(lifecycleFailure, terminalDistanceFromBaseM);
   }
 
+  const returnsToBase =
+    isInsideBaseCamp(proof.route.at(-1)!, { baseCamp });
   const terminal = proof.route.at(-1)!;
   if (
     !returnsToBase &&

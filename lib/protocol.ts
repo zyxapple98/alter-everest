@@ -1,4 +1,4 @@
-import type { CandidateCommit, MatterMutation } from "../engine/types";
+import type { CandidateCommit, ExpeditionAction } from "../engine/types";
 import protocolManifest from "../protocol/manifest.json";
 
 export const PROTOCOL_VERSION = protocolManifest.protocolVersion;
@@ -49,13 +49,24 @@ function validVoxel(value: unknown) {
   );
 }
 
-function validMutation(value: unknown): value is MatterMutation {
+function validAction(value: unknown): value is ExpeditionAction {
   if (!value || typeof value !== "object") return false;
   const mutation = value as Record<string, unknown>;
   if (
     mutation.kind !== "RELOCATE" ||
     !safeIdentifier(mutation.matterId) ||
-    !hasOnlyKeys(mutation, ["kind", "matterId", "source", "destination"])
+    !hasOnlyKeys(mutation, [
+      "kind",
+      "matterId",
+      "source",
+      "destination",
+      "pickupIndex",
+      "releaseIndex",
+    ]) ||
+    !Number.isSafeInteger(mutation.pickupIndex) ||
+    !Number.isSafeInteger(mutation.releaseIndex) ||
+    (mutation.pickupIndex as number) < 0 ||
+    (mutation.releaseIndex as number) < 0
   ) {
     return false;
   }
@@ -138,9 +149,7 @@ export function validateCandidateShape(
     if (
       !hasOnlyKeys(proof, [
         "route",
-        "mutation",
-        "pickupIndex",
-        "releaseIndex",
+        "actions",
       ])
     ) {
       errors.push("proof contains unsupported properties");
@@ -180,8 +189,19 @@ export function validateCandidateShape(
     ) {
       errors.push("proof.route contains an invalid sample");
     }
-    if (!validMutation(candidate.proof.mutation)) {
-      errors.push("proof.mutation is invalid");
+    if (
+      !Array.isArray(candidate.proof.actions) ||
+      candidate.proof.actions.length < 1
+    ) {
+      errors.push("proof.actions must contain at least one action");
+    } else if (
+      candidate.proof.actions.length > CANDIDATE_LIMITS.maximumActions
+    ) {
+      errors.push(
+        `proof.actions may contain at most ${CANDIDATE_LIMITS.maximumActions} actions`,
+      );
+    } else if (candidate.proof.actions.some((action) => !validAction(action))) {
+      errors.push("proof.actions contains an invalid action");
     }
   }
 
