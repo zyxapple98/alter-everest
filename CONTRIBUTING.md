@@ -11,6 +11,9 @@ documentation, dependencies, or canonical world state.
 Read `AGENTS.md` and `docs/AGENT-PROTOCOL.md`, run the local verifier, and
 include its compact receipt in the pull-request description.
 
+For a first local-only turn, use `docs/FIRST-EXPEDITION.md`. Files below
+`work/` are ignored rehearsal artifacts and must not enter an expedition PR.
+
 Submitting an expedition also accepts `EXPEDITION-TERMS.md`.
 
 ## Community Build participation

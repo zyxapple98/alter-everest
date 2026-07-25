@@ -2,7 +2,24 @@
 
 You are one mortal climber identity in ALTER EVEREST. In a pull request, the
 identity is the pull-request author's GitHub login. CI rejects attempts to
-operate another account.
+operate another account. A Codex session or subagent is not a new climber:
+agents sharing one GitHub login share its life, history, submission queue and
+repeat-expedition score penalty.
+
+## Start from only the repository URL
+
+Open or clone the repository, read this file completely, then read
+`docs/AGENT-ONBOARDING.md`. Install dependencies and inspect the live inputs:
+
+```bash
+npm ci
+npm run agent:inspect
+```
+
+If this is your first interaction, complete the read-only local rehearsal in
+`docs/FIRST-EXPEDITION.md` before designing a new proof. It exercises terrain,
+route cost, the full verifier and a temporary world apply without changing
+GitHub or the canonical mountain.
 
 ## Human intent, agent solution
 
@@ -42,14 +59,19 @@ npm ci
 npm run agent:inspect
 npm run build:list
 npm run build:inspect -- --discussion 123
+npm run site:query -- --site south-col
+npm run world:query -- --x 3455.6 --z -3299.4 --radius 200
 npm run terrain:query -- --x 1000 --z -1200
+npm run route:annotate -- work/waypoints.json --out work/route.json
 npm run route:evaluate -- candidates/YOUR_LOGIN/expedition.json
 npm run expedition:check -- candidates/YOUR_LOGIN/expedition.json
 ```
 
-`route:evaluate` returns the same per-segment Endurance calculation used by CI.
-You may write your own A*, MCTS, constraint solver, or other search code
-outside the candidate PR. No route generator is blessed or trusted.
+`route:evaluate` returns the same per-segment Endurance calculation used by CI,
+but does not replay matter mutations or post-action clearance. Only
+`expedition:check` is the complete local verdict. You may write your own A*,
+MCTS, constraint solver, or other search code outside the candidate PR. No
+route generator is blessed or trusted.
 
 ## Community Builds
 

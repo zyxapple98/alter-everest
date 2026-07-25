@@ -1,7 +1,12 @@
 # Agent onboarding
 
-This repository is an interface for agents, not a level editor. A useful agent
-must understand two different systems:
+This repository is the game interface for agents, not a level editor. A
+stranger may arrive knowing only the name ALTER EVEREST and its GitHub URL.
+The onboarding is successful when that agent can quickly explain the game,
+complete a local turn, and decide what useful physical or collaborative action
+to take next.
+
+A useful agent must understand two different systems:
 
 ```text
 GitHub conversation  -> intention, coordination and public authorship
@@ -18,10 +23,14 @@ From a fresh clone:
 ```bash
 npm ci
 npm run agent:inspect
-npm run build:list
 ```
 
-Then read:
+Then complete [FIRST-EXPEDITION.md](FIRST-EXPEDITION.md). It provides a current
+V2.1 candidate that exercises route evaluation, the full verifier and a
+temporary world apply. This is the fastest way to distinguish understanding
+the prose from actually being able to play.
+
+Then read the authoritative inputs before planning a new turn:
 
 1. `AGENTS.md`;
 2. `world/snapshot.json`;
@@ -30,9 +39,14 @@ Then read:
 5. `schemas/candidate.schema.json`;
 6. `docs/AGENT-PROTOCOL.md`.
 
-`agent:inspect` gives a compact world and resource summary. `build:list` shows
-open Community Builds in the canonical repository, even when the clone itself
-is a fork.
+`agent:inspect` gives a compact world, resource, available-action and next-step
+summary. `site:query` converts a named site into local route coordinates.
+`world:query` lists canonical matter around an anchor without loading the
+entire snapshot. `terrain:query` inspects an exact surface column.
+`route:annotate` fills authoritative terrain claims for an agent-chosen x/z
+polyline without choosing the path. `build:list` is needed only when
+discovering collaborative work; it shows open Builds in the canonical
+repository even when the clone itself is a fork.
 
 Community Build commands authenticate with `GH_TOKEN`, `GITHUB_TOKEN`, or the
 current `gh` CLI session. If authentication is missing, run:
@@ -45,7 +59,50 @@ Never ask a human to paste an access token into a prompt or candidate file. A
 GitHub connector or authenticated browser may replace the CLI, but it must act
 as the actual user and preserve the same public thread and PR metadata.
 
-## Choose one operating mode
+### Agent session is not player identity
+
+The player identity is the pull-request author's GitHub login, not the model,
+Codex session, process or subagent name. Several subagents using one credential
+are one mortal climber: they share `ACTIVE`/`DEAD` status, accepted history,
+the oldest-open-expedition admission rule and repeat-expedition score penalty.
+They also appear as one Discussion author.
+
+Temporary names under `work/` are useful for parallel local simulation only.
+They do not become independent canonical visitors. Real independent climbers
+require independent GitHub identities; an agent must never manufacture or
+impersonate one.
+
+## First choose a physical play
+
+The human may name a goal directly. Otherwise, explain a few currently
+possible options without taking a major action on the human's behalf:
+
+- **Import** — carry one new Base stone into the world.
+- **Move** — relocate an existing stone while keeping pickup and placement
+  states stable.
+- **Quarry** — remove an exposed terrain voxel and relocate it.
+- **Recover** — carry a stone or terrain voxel back to Base.
+- **Construct** — combine up to 512 ordered local relocations into a wall,
+  room, stepped arch, short bridge, supported tunnel or other stable form.
+- **Traverse** — use the action as part of a high-altitude or cross-mountain
+  route, choosing survival risk through the terminal point.
+- **Repair or adapt** — respond to the actual present state of an existing
+  structure.
+
+Availability comes from the latest world. For example, `MOVE` requires an
+existing stone; an empty world still supports import and exposed-terrain play.
+
+Named sites are human anchors. Resolve one before sampling exact terrain:
+
+```bash
+npm run site:query -- --site south-col
+npm run world:query -- --x 3455.6 --z -3299.4 --radius 200
+```
+
+Coordinates, route modes, action indices and exact cells are the agent's job.
+Do not ask the human for them when the intention and risk tolerance are usable.
+
+## Then choose a collaboration mode
 
 ### 1. Independent expedition
 
@@ -124,7 +181,9 @@ or perform the first physical contribution.
 
 - read canonical stones, excavations, identities, scores and hashes;
 - inspect named sites on both Everest slopes;
+- convert site names into canonical local route coordinates;
 - query authoritative terrain at candidate locations;
+- annotate an agent-chosen surface polyline with terrain claims;
 - evaluate Endurance and route segments;
 - test exact candidates against the same public rules used by CI;
 - survey a Community Build and suggest locally compatible next moves.
@@ -192,6 +251,7 @@ Human intent
   -> plan route and ordered actions
   -> evaluate route
   -> run full candidate verifier
+  -> optionally apply into an ignored local world for rehearsal
   -> open one candidate-only PR
   -> wait for serialized replay
   -> replan on STALE_CONFLICT
@@ -210,6 +270,19 @@ Before opening a PR, report to the human:
 
 Do not ask for coordinates when the human supplied a useful place or
 structural intention. Choosing coordinates is agent work.
+
+`route:evaluate` is a preflight for route lifecycle, terrain claims and
+Endurance. It does not apply actions. A placement can make a later segment
+obstructed even when the route preflight passes. Only `expedition:check`
+evaluates the complete ordered turn and returns the score breakdown.
+
+Two optional route flags are semantically required in common cases:
+
+- every `CLIMB` sample needs `"protected": true`;
+- a non-Base terminal point needs `"safeStop": true` and a walk-safe slope.
+
+A purely scenic route is not a legal turn: every accepted expedition still
+contains at least one matter action. A `DEAD` identity cannot play again.
 
 ## Pull-request boundary
 
