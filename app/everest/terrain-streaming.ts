@@ -46,6 +46,13 @@ export interface TerrainPatchRequest {
   innerCellM: number;
   sealOuterBoundary: boolean;
   terrainTint: string;
+  fogDensity: number;
+  atmosphere: {
+    top: string;
+    middle: string;
+    horizon: string;
+    nadir: string;
+  };
   replayWorldState?: ExpeditionReplayWorldState;
 }
 
@@ -126,16 +133,91 @@ export function anchoredCanonicalWorldPosition(
   );
 }
 
-function createVoxelMaterial() {
-  return new THREE.MeshBasicMaterial({
+function createVoxelMaterial(
+  fogDensity: number,
+  atmosphere: TerrainPatchRequest["atmosphere"],
+) {
+  const material = new THREE.MeshBasicMaterial({
     color: "#ffffff",
     vertexColors: true,
     side: THREE.FrontSide,
     transparent: false,
     opacity: 1,
     depthWrite: true,
-    fog: true,
+    // Terrain uses the same directional gradient as the atmosphere. A
+    // constant scene fog colour leaves a visible silhouette wherever the far
+    // plane crosses high mountains because the sky above the horizon is not
+    // a constant colour.
+    fog: false,
   });
+  const skyTop = new THREE.Color(atmosphere.top);
+  const skyMiddle = new THREE.Color(atmosphere.middle);
+  const skyHorizon = new THREE.Color(atmosphere.horizon);
+  const skyNadir = new THREE.Color(atmosphere.nadir);
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.terrainFogDensity = { value: fogDensity };
+    shader.uniforms.terrainSkyTop = { value: skyTop };
+    shader.uniforms.terrainSkyMiddle = { value: skyMiddle };
+    shader.uniforms.terrainSkyHorizon = { value: skyHorizon };
+    shader.uniforms.terrainSkyNadir = { value: skyNadir };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+varying vec3 vTerrainWorldPosition;`,
+      )
+      .replace(
+        "#include <project_vertex>",
+        `#include <project_vertex>
+vTerrainWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+uniform float terrainFogDensity;
+uniform vec3 terrainSkyTop;
+uniform vec3 terrainSkyMiddle;
+uniform vec3 terrainSkyHorizon;
+uniform vec3 terrainSkyNadir;
+varying vec3 vTerrainWorldPosition;
+
+vec3 terrainAtmosphereColor(vec3 direction) {
+  float altitude = normalize(direction).y;
+  float middleMix = smoothstep(0.0, 0.3, altitude);
+  float topMix = smoothstep(0.22, 0.86, altitude);
+  vec3 upperSky = mix(terrainSkyHorizon, terrainSkyMiddle, middleMix);
+  upperSky = mix(upperSky, terrainSkyTop, topMix);
+  float belowHorizon = smoothstep(0.12, 0.58, -altitude);
+  vec3 lowerSky = mix(terrainSkyHorizon, terrainSkyNadir, belowHorizon);
+  return altitude >= 0.0 ? upperSky : lowerSky;
+}`,
+      )
+      .replace(
+        "#include <fog_fragment>",
+        `float terrainFogDistance =
+  length(vTerrainWorldPosition - cameraPosition);
+float terrainFogFactor = 1.0 - exp(
+  -terrainFogDensity * terrainFogDensity *
+  terrainFogDistance * terrainFogDistance
+);
+gl_FragColor.rgb = mix(
+  gl_FragColor.rgb,
+  terrainAtmosphereColor(vTerrainWorldPosition - cameraPosition),
+  terrainFogFactor
+);`,
+      );
+  };
+  material.customProgramCacheKey = () =>
+    [
+      "terrain-directional-fog-v1",
+      fogDensity.toFixed(9),
+      atmosphere.top,
+      atmosphere.middle,
+      atmosphere.horizon,
+      atmosphere.nadir,
+    ].join(":");
+  return material;
 }
 
 export class TerrainStreamingEngine {
@@ -488,7 +570,10 @@ export class TerrainStreamingEngine {
       new THREE.BufferAttribute(result.indices, 1),
     );
     surfaceGeometry.computeBoundingSphere();
-    const surfaceMaterial = createVoxelMaterial();
+    const surfaceMaterial = createVoxelMaterial(
+      request.fogDensity,
+      request.atmosphere,
+    );
     const surfaceMesh = new THREE.Mesh(
       surfaceGeometry,
       surfaceMaterial,

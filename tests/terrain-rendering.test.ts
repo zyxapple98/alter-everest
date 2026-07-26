@@ -44,7 +44,9 @@ import {
   MAX_TERRAIN_OVERVIEW_DISTANCE_M,
   planTerrainClipmap,
   snapCanonicalClipmapCoordinate,
+  TERRAIN_FAR_PLANE_TRANSMITTANCE,
   TERRAIN_CAMERA_FAR_DISTANCE_M,
+  terrainFogTransmittance,
   terrainClipmapLevelIndex,
   TERRAIN_CLIPMAP_LEVELS,
 } from "../app/everest/terrain-lod-plan";
@@ -114,19 +116,7 @@ test("one clipmap plan spans selectable detail and macro terrain", () => {
   assert.equal(rings[0].innerHoleM, 0);
   assert.deepEqual(
     rings.map(({ cellM }) => cellM),
-    [
-      1.6,
-      3.2,
-      6.4,
-      15,
-      30,
-      90,
-      180,
-      300,
-      600,
-      1_200,
-      2_400,
-    ],
+    [1.6, 3.2, 6.4, 15, 30, 90, 180, 300],
   );
   assert.equal(rings.at(-1)?.sealOuterBoundary, true);
   rings.slice(1).forEach((ring, index) => {
@@ -136,8 +126,29 @@ test("one clipmap plan spans selectable detail and macro terrain", () => {
   const outerRing = rings.at(-1);
   assert.ok(outerRing);
   assert.ok(
-    outerRing.windowM / 2 - MAX_TERRAIN_OVERVIEW_DISTANCE_M >
+    outerRing.windowM / 2 > TERRAIN_CAMERA_FAR_DISTANCE_M,
+  );
+  assert.ok(
+    MAX_TERRAIN_OVERVIEW_DISTANCE_M <
       TERRAIN_CAMERA_FAR_DISTANCE_M,
+  );
+});
+
+test("atmospheric fade hides the far clipping plane", () => {
+  const worldUnitsPerMeter = 0.235 / 30;
+  assert.ok(
+    Math.abs(
+      terrainFogTransmittance(
+        TERRAIN_CAMERA_FAR_DISTANCE_M,
+        worldUnitsPerMeter,
+      ) - TERRAIN_FAR_PLANE_TRANSMITTANCE,
+    ) < 1e-12,
+  );
+  assert.ok(
+    terrainFogTransmittance(
+      MAX_TERRAIN_OVERVIEW_DISTANCE_M,
+      worldUnitsPerMeter,
+    ) > 0.3,
   );
 });
 
@@ -731,6 +742,13 @@ test("streamed stone instances do not move when a patch recenters", async () => 
         innerCellM: 0,
         sealOuterBoundary: false,
         terrainTint: "#fff4e7",
+        fogDensity: 0.007,
+        atmosphere: {
+          top: "#31586f",
+          middle: "#6c91a4",
+          horizon: "#66869a",
+          nadir: "#273033",
+        },
       });
       const stoneMesh = patch.group.children.find(
         (child) => child instanceof THREE.InstancedMesh,
