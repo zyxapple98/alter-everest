@@ -64,6 +64,8 @@ import {
   snapCanonicalClipmapCoordinate,
   terrainClipmapCellM,
   terrainClipmapLevelIndex,
+  MAX_TERRAIN_OVERVIEW_DISTANCE_M,
+  TERRAIN_CAMERA_FAR_DISTANCE_M,
   TERRAIN_CLIPMAP_LEVELS,
 } from "./everest/terrain-lod-plan";
 import {
@@ -3109,7 +3111,7 @@ export default function EverestObservatory() {
         43,
         host.clientWidth / host.clientHeight,
         0.00035,
-        1_400,
+        TERRAIN_CAMERA_FAR_DISTANCE_M * WORLD_UNITS_PER_METER,
       );
       const renderer = new THREE.WebGLRenderer({
         antialias: true,
@@ -3353,7 +3355,8 @@ export default function EverestObservatory() {
       controls.zoomToCursor = false;
       controls.zoomSpeed = 1.75;
       controls.minDistance = 0.0018;
-      controls.maxDistance = 225;
+      controls.maxDistance =
+        MAX_TERRAIN_OVERVIEW_DISTANCE_M * WORLD_UNITS_PER_METER;
       controls.minPolarAngle = 0.16;
       controls.maxPolarAngle = Math.PI - 0.22;
       controls.autoRotate = false;
@@ -3464,7 +3467,6 @@ export default function EverestObservatory() {
           innerCellM,
           sealOuterBoundary,
           terrainTint: alpinePalette.terrainTint,
-          horizonColor: alpinePalette.fog,
           replayWorldState,
         });
         patch.setOpacity(1);

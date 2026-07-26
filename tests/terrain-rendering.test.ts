@@ -12,7 +12,6 @@ import {
 } from "../app/everest/terrain-runtime";
 import {
   buildTerrainMesh,
-  outerTerrainHorizonWeight,
   sampleTerrainElevation,
 } from "../app/everest/terrain-mesher";
 import {
@@ -42,8 +41,10 @@ import {
   worldToCanonical,
 } from "../app/everest/canonical-world";
 import {
+  MAX_TERRAIN_OVERVIEW_DISTANCE_M,
   planTerrainClipmap,
   snapCanonicalClipmapCoordinate,
+  TERRAIN_CAMERA_FAR_DISTANCE_M,
   terrainClipmapLevelIndex,
   TERRAIN_CLIPMAP_LEVELS,
 } from "../app/everest/terrain-lod-plan";
@@ -103,24 +104,6 @@ test("an upward orbit preserves pitch while clearing the terrain", () => {
   assert.equal(requiredOrbitVerticalShift(12, 0, 0, 3), 0);
 });
 
-test("the macro terrain dissolves radially before its square edge", () => {
-  const gridCells = 257;
-  const center = Math.floor(gridCells / 2);
-  assert.equal(
-    outerTerrainHorizonWeight(center, center, gridCells),
-    1,
-  );
-  assert.equal(
-    outerTerrainHorizonWeight(0, center, gridCells),
-    0,
-  );
-  assert.equal(outerTerrainHorizonWeight(0, 0, gridCells), 0);
-  assert.ok(
-    outerTerrainHorizonWeight(112, center, gridCells) >
-      outerTerrainHorizonWeight(8, center, gridCells),
-  );
-});
-
 test("one clipmap plan spans selectable detail and macro terrain", () => {
   const activeIndex = terrainClipmapLevelIndex("1.6 M");
   const rings = planTerrainClipmap(
@@ -131,13 +114,31 @@ test("one clipmap plan spans selectable detail and macro terrain", () => {
   assert.equal(rings[0].innerHoleM, 0);
   assert.deepEqual(
     rings.map(({ cellM }) => cellM),
-    [1.6, 3.2, 6.4, 15, 30, 90, 180, 300],
+    [
+      1.6,
+      3.2,
+      6.4,
+      15,
+      30,
+      90,
+      180,
+      300,
+      600,
+      1_200,
+      2_400,
+    ],
   );
   assert.equal(rings.at(-1)?.sealOuterBoundary, true);
   rings.slice(1).forEach((ring, index) => {
     assert.equal(ring.innerHoleM, rings[index].windowM);
     assert.equal(ring.innerCellM, rings[index].cellM);
   });
+  const outerRing = rings.at(-1);
+  assert.ok(outerRing);
+  assert.ok(
+    outerRing.windowM / 2 - MAX_TERRAIN_OVERVIEW_DISTANCE_M >
+      TERRAIN_CAMERA_FAR_DISTANCE_M,
+  );
 });
 
 test("each clipmap level recenters only by whole native cells", () => {
@@ -211,6 +212,20 @@ test("DEM pyramid selects by cell size and falls back by coverage", () => {
     30,
   );
   assert.ok(Math.abs(justInsideAuthority - justOutsideAuthority) < 1);
+  const justOutsideCoarsest = sampleTerrainElevation(
+    context,
+    601,
+    0,
+    1_200,
+  );
+  const remoteProxy = sampleTerrainElevation(
+    context,
+    60_600,
+    0,
+    1_200,
+  );
+  assert.ok(Math.abs(justOutsideCoarsest - 300) < 1);
+  assert.ok(remoteProxy < 1);
 });
 
 test("a stone belongs to only one nested clipmap ring", () => {
@@ -716,7 +731,6 @@ test("streamed stone instances do not move when a patch recenters", async () => 
         innerCellM: 0,
         sealOuterBoundary: false,
         terrainTint: "#fff4e7",
-        horizonColor: "#66869a",
       });
       const stoneMesh = patch.group.children.find(
         (child) => child instanceof THREE.InstancedMesh,
@@ -780,7 +794,6 @@ test("terrain mesher emits a single-owner sealed clipmap ring", () => {
       innerCellM: 0.4,
       sealOuterBoundary: true,
       terrainTint: "#fff4e7",
-      horizonColor: "#66869a",
       delta: {
         voxelEdgeM: 0.2,
         verticalDatumM: 5_259,

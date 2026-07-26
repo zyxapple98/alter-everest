@@ -70,7 +70,6 @@ export interface TerrainMeshRequest {
   innerCellM: number;
   sealOuterBoundary: boolean;
   terrainTint: string;
-  horizonColor: string;
   delta: {
     voxelEdgeM: number;
     verticalDatumM: number;
@@ -94,22 +93,6 @@ export interface TerrainMeshResult {
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(maximum, value));
-}
-
-/**
- * Circularly dissolves the sealed macro ring before its square data boundary.
- * The camera remains inside the fully visible 82% radius at maximum zoom.
- */
-export function outerTerrainHorizonWeight(
-  row: number,
-  column: number,
-  gridCells: number,
-) {
-  const halfGrid = Math.max(1, Math.floor(gridCells / 2));
-  const normalizedRadius =
-    Math.hypot(column - halfGrid, row - halfGrid) / halfGrid;
-  const linear = clamp((1 - normalizedRadius) / 0.18, 0, 1);
-  return linear * linear * (3 - 2 * linear);
 }
 
 function sampleDemElevation(
@@ -189,11 +172,60 @@ function sourceEdgeDistanceM(
   );
 }
 
+const DISTANT_TERRAIN_EXTENSION_M = 60_000;
+
+/**
+ * Continues the coarsest DEM beyond its measured rectangle without repeating
+ * its last row or column. The edge sample eases toward sea level over a broad
+ * proxy-only band that is ultimately hidden by aerial perspective.
+ */
+function sampleDistantTerrainExtension(
+  metadata: TerrainElevationSource["metadata"],
+  elevations: Int16Array,
+  latitude: number,
+  longitude: number,
+  metersPerDegreeLatitude: number,
+  metersPerDegreeLongitude: number,
+) {
+  const edgeLatitude = clamp(
+    latitude,
+    metadata.bounds.south,
+    metadata.bounds.north,
+  );
+  const edgeLongitude = clamp(
+    longitude,
+    metadata.bounds.west,
+    metadata.bounds.east,
+  );
+  const outsideNorthM =
+    (latitude - edgeLatitude) * metersPerDegreeLatitude;
+  const outsideEastM =
+    (longitude - edgeLongitude) * metersPerDegreeLongitude;
+  const outsideDistanceM = Math.hypot(
+    outsideNorthM,
+    outsideEastM,
+  );
+  const linear = clamp(
+    outsideDistanceM / DISTANT_TERRAIN_EXTENSION_M,
+    0,
+    1,
+  );
+  const extensionWeight = linear * linear * (3 - 2 * linear);
+  const edgeElevation = sampleSourceAtCoordinate(
+    metadata,
+    elevations,
+    edgeLatitude,
+    edgeLongitude,
+  );
+  return edgeElevation * (1 - extensionWeight);
+}
+
 /**
  * Samples the DEM pyramid in canonical metres. Cell size chooses the intended
  * source resolution; if that source does not cover an outer-ring coordinate,
- * progressively coarser sources provide geographic coverage instead of
- * clamping a narrow DEM into a repeated wall.
+ * progressively coarser sources provide geographic coverage. Beyond the
+ * coarsest source, a proxy-only continuation replaces edge clamping so the
+ * measured rectangle can never become a visible wall.
  */
 export function sampleTerrainElevation(
   context: TerrainMesherContext,
@@ -228,13 +260,7 @@ export function sampleTerrainElevation(
     }
   }
   let selectedIndex = preferredIndex;
-  if (
-    !sourceContainsCoordinate(
-      sourceMetadata,
-      latitude,
-      longitude,
-    )
-  ) {
+  if (!sourceContainsCoordinate(sourceMetadata, latitude, longitude)) {
     for (
       let index = preferredIndex + 1;
       index < fallbackSources.length;
@@ -253,6 +279,21 @@ export function sampleTerrainElevation(
         break;
       }
     }
+  }
+  if (!sourceContainsCoordinate(sourceMetadata, latitude, longitude)) {
+    const coarsestSource = fallbackSources.at(-1);
+    if (coarsestSource) {
+      sourceMetadata = coarsestSource.metadata;
+      sourceElevations = coarsestSource.elevations;
+    }
+    return sampleDistantTerrainExtension(
+      sourceMetadata,
+      sourceElevations,
+      latitude,
+      longitude,
+      context.metersPerDegreeLatitude,
+      metersPerDegreeLongitude,
+    );
   }
   const elevation = sampleSourceAtCoordinate(
     sourceMetadata,
@@ -470,26 +511,6 @@ export function buildTerrainMesh(
     }
   }
   if (!Number.isFinite(minimumTopLevel)) minimumTopLevel = 0;
-  if (sealOuterBoundary) {
-    const horizonFloorLevel =
-      minimumTopLevel - Math.max(6, Math.ceil(3_600 / cellM));
-    for (let row = 0; row < gridCells; row += 1) {
-      for (let column = 0; column < gridCells; column += 1) {
-        const index = row * gridCells + column;
-        if (!included[index]) continue;
-        const horizonWeight = outerTerrainHorizonWeight(
-          row,
-          column,
-          gridCells,
-        );
-        topLevels[index] = Math.round(
-          horizonFloorLevel +
-            (topLevels[index] - horizonFloorLevel) * horizonWeight,
-        );
-      }
-    }
-    minimumTopLevel = horizonFloorLevel;
-  }
   const skirtDepthLevels = 6;
   const skirtBottomLevel = minimumTopLevel - skirtDepthLevels;
 
@@ -617,9 +638,6 @@ export function buildTerrainMesh(
   const detailTint = MOUNTAIN_MATERIALS.valleyRock
     .clone()
     .set(request.terrainTint);
-  const horizonTint = MOUNTAIN_MATERIALS.valleyRock
-    .clone()
-    .set(request.horizonColor);
   const worldScale = canonicalWorldScale(context);
   const cellWorldX = cellM * worldScale.x;
   const cellWorldY = cellM * worldScale.y;
@@ -748,18 +766,13 @@ export function buildTerrainMesh(
         centerLongitude + localXM / metersPerDegreeLongitude;
       const sampleLatitude =
         centerLatitude - localZM / context.metersPerDegreeLatitude;
-      const horizonWeight = sealOuterBoundary
-        ? outerTerrainHorizonWeight(row, column, gridCells)
-        : 1;
       const color = terrainColor(
         elevationValues[index] + reliefValues[index],
         slopeDegrees,
         Math.round(sampleLongitude * 3600),
         Math.round(sampleLatitude * 3600),
         topShade,
-      )
-        .multiply(detailTint)
-        .lerp(horizonTint, 1 - horizonWeight);
+      ).multiply(detailTint);
       const red = color.r;
       const green = color.g;
       const blue = color.b;
@@ -802,7 +815,7 @@ export function buildTerrainMesh(
           (red * shade) / topShade,
           (green * shade) / topShade,
           (blue * shade) / topShade,
-        ).lerp(horizonTint, 1 - horizonWeight);
+        );
         writeFace(
           coordinates,
           TERRAIN_COLOR_SCRATCH.r,
