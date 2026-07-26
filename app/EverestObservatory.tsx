@@ -66,6 +66,12 @@ import {
   terrainClipmapLevelIndex,
   TERRAIN_CLIPMAP_LEVELS,
 } from "./everest/terrain-lod-plan";
+import {
+  createCameraAtmosphere,
+  disposeCameraAtmosphere,
+  updateCameraAtmosphere,
+  type AtmospherePalette,
+} from "./everest/atmosphere";
 
 interface DemMetadata {
   id: string;
@@ -307,34 +313,70 @@ const SKY_PHASES: Record<
   SkyPhase,
   {
     fog: string;
-    ground: string;
     exposure: number;
     terrainTint: string;
+    atmosphere: AtmospherePalette;
   }
 > = {
   night: {
     fog: "#294454",
-    ground: "#162329",
     exposure: 1.16,
     terrainTint: "#e6eeee",
+    atmosphere: {
+      top: "#02070e",
+      middle: "#071827",
+      horizon: "#294454",
+      nadir: "#111a1f",
+      celestial: "#d9edf5",
+      celestialGlow: "#8cc7e4",
+      celestialRadiusRadians: 0.011,
+      starOpacity: 0.52,
+    },
   },
   dawn: {
     fog: "#2c4050",
-    ground: "#151b1f",
     exposure: 1,
     terrainTint: "#eedfd2",
+    atmosphere: {
+      top: "#08111e",
+      middle: "#24334a",
+      horizon: "#2c4050",
+      nadir: "#151b1f",
+      celestial: "#ffd294",
+      celestialGlow: "#e99a6b",
+      celestialRadiusRadians: 0.013,
+      starOpacity: 0.08,
+    },
   },
   day: {
     fog: "#66869a",
-    ground: "#273033",
     exposure: 0.98,
     terrainTint: "#fff4e7",
+    atmosphere: {
+      top: "#31586f",
+      middle: "#6c91a4",
+      horizon: "#66869a",
+      nadir: "#273033",
+      celestial: "#fff3c9",
+      celestialGlow: "#ffe5a1",
+      celestialRadiusRadians: 0.013,
+      starOpacity: 0,
+    },
   },
   dusk: {
     fog: "#243a4a",
-    ground: "#171c20",
     exposure: 0.98,
     terrainTint: "#dfcfc5",
+    atmosphere: {
+      top: "#050c15",
+      middle: "#14243a",
+      horizon: "#243a4a",
+      nadir: "#171c20",
+      celestial: "#ffc86b",
+      celestialGlow: "#d97d53",
+      celestialRadiusRadians: 0.013,
+      starOpacity: 0.12,
+    },
   },
 };
 
@@ -3095,6 +3137,15 @@ export default function EverestObservatory() {
       );
       host.appendChild(renderer.domElement);
 
+      // The atmosphere follows camera position but not camera rotation. It
+      // therefore has no ground-plane depth surface to fight the terrain,
+      // while celestial directions remain fixed in the mountain world.
+      const atmosphere = createCameraAtmosphere(
+        camera.far * 0.92,
+        alpinePalette.atmosphere,
+      );
+      scene.add(atmosphere.root);
+
       // Keep navigation and all focus presets inside one canonical movement
       // envelope. Rendered terrain never uses this rectangle as a
       // 30 m/90 m mode boundary; every visible scale is owned by the unified
@@ -3258,20 +3309,6 @@ export default function EverestObservatory() {
       const prioritizedSiteObjects = [...siteObjects].sort(
         (left, right) => sitePriority(right.site) - sitePriority(left.site),
       );
-
-      const ground = new THREE.Mesh(
-        // A low-cost circular horizon extends beyond the camera's far plane.
-        // The former square plane exposed a rectangular world edge in the
-        // widest views even though the terrain itself was already fogged.
-        new THREE.CircleGeometry(2_000, 128),
-        new THREE.MeshBasicMaterial({
-          color: alpinePalette.ground,
-          fog: true,
-        }),
-      );
-      ground.rotation.x = -Math.PI / 2;
-      ground.position.y = 0.15;
-      scene.add(ground);
 
       const baseCampObject = siteObjects.find(
         (siteObject) => siteObject.site.id === "south-base-camp",
@@ -3963,6 +4000,7 @@ export default function EverestObservatory() {
         performance.now(),
         cellSizeForResolution("90 M") * 0.72,
       );
+      updateCameraAtmosphere(atmosphere, camera);
       renderer.render(scene, camera);
       setSceneStatus("ready");
 
@@ -5332,6 +5370,7 @@ export default function EverestObservatory() {
               : Math.sin(seconds * 1.6 + priority) * 0.08);
         });
 
+        updateCameraAtmosphere(atmosphere, camera);
         renderer.render(scene, camera);
       };
       frame = requestAnimationFrame(render);
@@ -5413,8 +5452,7 @@ export default function EverestObservatory() {
           surface.mesh.geometry.dispose();
           (surface.mesh.material as THREE.Material).dispose();
         });
-        ground.geometry.dispose();
-        (ground.material as THREE.Material).dispose();
+        disposeCameraAtmosphere(atmosphere);
         summitStone.geometry.dispose();
         (summitStone.material as THREE.Material).dispose();
         siteObjects.forEach(
@@ -5551,10 +5589,7 @@ export default function EverestObservatory() {
           : "false"
       }
     >
-      <div className="voxel-sky" aria-hidden="true">
-        <i />
-        <span />
-      </div>
+      <div className="voxel-sky" aria-hidden="true" />
       <div className="observatory-canvas" ref={canvasHost} />
       <div
         className="site-overlay"

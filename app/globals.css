@@ -50,7 +50,6 @@ button {
   --sky-top: #050c15;
   --sky-mid: #14243a;
   --sky-horizon: #9b5840;
-  --sun: #ffc86b;
   --atmosphere: rgba(83, 137, 166, 0.2);
   position: relative;
   min-height: 680px;
@@ -64,7 +63,6 @@ button {
   --sky-top: #02070e;
   --sky-mid: #071827;
   --sky-horizon: #182d3f;
-  --sun: #bde9ff;
   --atmosphere: rgba(52, 107, 142, 0.14);
 }
 
@@ -72,7 +70,6 @@ button {
   --sky-top: #08111e;
   --sky-mid: #24334a;
   --sky-horizon: #b66d54;
-  --sun: #ffd294;
   --atmosphere: rgba(207, 129, 91, 0.18);
 }
 
@@ -80,7 +77,6 @@ button {
   --sky-top: #31586f;
   --sky-mid: #6c91a4;
   --sky-horizon: #d2c1a7;
-  --sun: #fff3c9;
   --atmosphere: rgba(216, 238, 242, 0.23);
 }
 
@@ -125,43 +121,6 @@ button {
   background:
     linear-gradient(90deg, rgba(0, 0, 0, 0.24), transparent 18% 82%, rgba(0, 0, 0, 0.24)),
     linear-gradient(180deg, transparent 50%, rgba(1, 5, 9, 0.48));
-}
-
-.voxel-sky > i {
-  position: absolute;
-  top: 17%;
-  left: 17%;
-  width: 28px;
-  height: 28px;
-  background: var(--sun);
-  box-shadow:
-    0 0 0 9px color-mix(in srgb, var(--sun) 8%, transparent),
-    0 0 72px 22px color-mix(in srgb, var(--sun) 30%, transparent);
-  image-rendering: pixelated;
-  transition:
-    background 1.6s ease,
-    box-shadow 1.6s ease;
-}
-
-.voxel-sky > span {
-  position: absolute;
-  top: 12%;
-  right: 12%;
-  width: 2px;
-  height: 2px;
-  opacity: 0.45;
-  background: rgba(215, 239, 246, 0.9);
-  box-shadow:
-    -90px 28px rgba(215, 239, 246, 0.46),
-    -210px -24px rgba(215, 239, 246, 0.56),
-    -340px 48px rgba(215, 239, 246, 0.36),
-    -520px 8px rgba(215, 239, 246, 0.48),
-    -730px 52px rgba(215, 239, 246, 0.32),
-    -920px -4px rgba(215, 239, 246, 0.42);
-}
-
-[data-sky="day"] .voxel-sky > span {
-  opacity: 0;
 }
 
 .observatory-canvas {
@@ -1224,10 +1183,6 @@ button {
   margin-top: 9px;
 }
 
-.observatory[data-detail="true"] .voxel-sky > i {
-  display: none;
-}
-
 .rankings {
   position: absolute;
   z-index: 10;
@@ -1502,12 +1457,6 @@ button {
     display: none;
   }
 
-  .voxel-sky > i {
-    top: 14%;
-    left: 10%;
-    width: 20px;
-    height: 20px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
