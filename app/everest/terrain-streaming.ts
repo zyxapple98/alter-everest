@@ -46,6 +46,7 @@ export interface TerrainPatchRequest {
   innerCellM: number;
   sealOuterBoundary: boolean;
   terrainTint: string;
+  horizonColor: string;
   replayWorldState?: ExpeditionReplayWorldState;
 }
 
@@ -457,6 +458,7 @@ export class TerrainStreamingEngine {
       innerCellM: request.innerCellM,
       sealOuterBoundary: request.sealOuterBoundary,
       terrainTint: request.terrainTint,
+      horizonColor: request.horizonColor,
       delta: {
         voxelEdgeM: this.tiles.definition.voxelEdgeM,
         verticalDatumM: this.tiles.definition.verticalDatumM,

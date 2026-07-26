@@ -7,10 +7,12 @@ import type {
 } from "../lib/world";
 import {
   focusAnchoredTerrainCenter,
+  requiredOrbitVerticalShift,
   ScreenSpaceLodSelector,
 } from "../app/everest/terrain-runtime";
 import {
   buildTerrainMesh,
+  outerTerrainHorizonWeight,
   sampleTerrainElevation,
 } from "../app/everest/terrain-mesher";
 import {
@@ -80,6 +82,43 @@ test("orbiting a camera cannot move the terrain detail anchor", () => {
   assert.equal(northView, focus);
   assert.equal(eastView, focus);
   assert.deepEqual(northView, eastView);
+});
+
+test("an upward orbit preserves pitch while clearing the terrain", () => {
+  const cameraY = 2;
+  const targetY = 10;
+  const shift = requiredOrbitVerticalShift(
+    cameraY,
+    targetY,
+    0,
+    3,
+  );
+  assert.equal(shift, 1);
+  assert.equal(cameraY + shift, 3);
+  assert.equal(
+    cameraY + shift - (targetY + shift),
+    cameraY - targetY,
+  );
+
+  assert.equal(requiredOrbitVerticalShift(12, 0, 0, 3), 0);
+});
+
+test("the macro terrain dissolves radially before its square edge", () => {
+  const gridCells = 257;
+  const center = Math.floor(gridCells / 2);
+  assert.equal(
+    outerTerrainHorizonWeight(center, center, gridCells),
+    1,
+  );
+  assert.equal(
+    outerTerrainHorizonWeight(0, center, gridCells),
+    0,
+  );
+  assert.equal(outerTerrainHorizonWeight(0, 0, gridCells), 0);
+  assert.ok(
+    outerTerrainHorizonWeight(112, center, gridCells) >
+      outerTerrainHorizonWeight(8, center, gridCells),
+  );
 });
 
 test("one clipmap plan spans selectable detail and macro terrain", () => {
@@ -677,6 +716,7 @@ test("streamed stone instances do not move when a patch recenters", async () => 
         innerCellM: 0,
         sealOuterBoundary: false,
         terrainTint: "#fff4e7",
+        horizonColor: "#66869a",
       });
       const stoneMesh = patch.group.children.find(
         (child) => child instanceof THREE.InstancedMesh,
@@ -740,6 +780,7 @@ test("terrain mesher emits a single-owner sealed clipmap ring", () => {
       innerCellM: 0.4,
       sealOuterBoundary: true,
       terrainTint: "#fff4e7",
+      horizonColor: "#66869a",
       delta: {
         voxelEdgeM: 0.2,
         verticalDatumM: 5_259,
