@@ -3354,8 +3354,8 @@ export default function EverestObservatory() {
       controls.zoomSpeed = 1.75;
       controls.minDistance = 0.0018;
       controls.maxDistance = 225;
-      controls.minPolarAngle = 0.2;
-      controls.maxPolarAngle = 1.48;
+      controls.minPolarAngle = 0.16;
+      controls.maxPolarAngle = Math.PI - 0.22;
       controls.autoRotate = false;
       if (cameraViewRef.current) {
         camera.position.copy(cameraViewRef.current.position);
@@ -3464,6 +3464,7 @@ export default function EverestObservatory() {
           innerCellM,
           sealOuterBoundary,
           terrainTint: alpinePalette.terrainTint,
+          horizonColor: alpinePalette.fog,
           replayWorldState,
         });
         patch.setOpacity(1);

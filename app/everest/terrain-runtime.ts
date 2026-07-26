@@ -48,6 +48,28 @@ function smoothFlight(value: number) {
   return clamped * clamped * (3 - 2 * clamped);
 }
 
+/**
+ * Preserves the camera-to-target boom while lifting it clear of terrain.
+ *
+ * When the camera looks upward, OrbitControls places the target above the
+ * camera. Treating that target as a ground point would destroy the pitch on
+ * every frame. This shift keeps the ground focus planar while allowing the
+ * visual pivot to float as high as the requested view requires.
+ */
+export function requiredOrbitVerticalShift(
+  cameraY: number,
+  targetY: number,
+  targetSurfaceY: number,
+  minimumCameraY: number,
+) {
+  const boomY = cameraY - targetY;
+  const desiredTargetY = Math.max(
+    targetSurfaceY,
+    minimumCameraY - boomY,
+  );
+  return desiredTargetY - targetY;
+}
+
 export class SurfaceNavigationController {
   private readonly camera: THREE.PerspectiveCamera;
   private readonly controls: OrbitControls;
@@ -307,28 +329,29 @@ export class SurfaceNavigationController {
       this.controls.target.x,
       this.controls.target.z,
     );
-    const targetYShift = targetSurfaceY - this.controls.target.y;
-    this.controls.target.y = targetSurfaceY;
-    this.camera.position.y += targetYShift;
 
     const cameraInsideBounds =
       this.camera.position.x >= this.bounds.minX &&
       this.camera.position.x <= this.bounds.maxX &&
       this.camera.position.z >= this.bounds.minZ &&
       this.camera.position.z <= this.bounds.maxZ;
-    if (cameraInsideBounds) {
-      const cameraSurfaceY = this.sampleSurfaceY(
-        this.camera.position.x,
-        this.camera.position.z,
-      );
-      const minimumCameraY =
-        cameraSurfaceY +
-        Math.max(0.65, clearanceM) * this.worldUnitsPerMeter;
-      this.camera.position.y = Math.max(
-        this.camera.position.y,
-        minimumCameraY,
-      );
-    }
+    const cameraSurfaceY = cameraInsideBounds
+      ? this.sampleSurfaceY(
+          this.camera.position.x,
+          this.camera.position.z,
+        )
+      : targetSurfaceY;
+    const minimumCameraY =
+      cameraSurfaceY +
+      Math.max(0.65, clearanceM) * this.worldUnitsPerMeter;
+    const orbitShift = requiredOrbitVerticalShift(
+      this.camera.position.y,
+      this.controls.target.y,
+      targetSurfaceY,
+      minimumCameraY,
+    );
+    this.controls.target.y += orbitShift;
+    this.camera.position.y += orbitShift;
 
     const minimumDistance =
       Math.max(1.6, clearanceM * 1.15) *
@@ -375,6 +398,7 @@ export class SurfaceNavigationController {
       boomLift = Math.max(boomLift, requiredY - sightY);
     }
     if (boomLift > 0) {
+      this.controls.target.y += boomLift;
       this.camera.position.y += boomLift;
     }
 

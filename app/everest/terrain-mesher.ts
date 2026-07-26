@@ -70,6 +70,7 @@ export interface TerrainMeshRequest {
   innerCellM: number;
   sealOuterBoundary: boolean;
   terrainTint: string;
+  horizonColor: string;
   delta: {
     voxelEdgeM: number;
     verticalDatumM: number;
@@ -93,6 +94,22 @@ export interface TerrainMeshResult {
 
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+/**
+ * Circularly dissolves the sealed macro ring before its square data boundary.
+ * The camera remains inside the fully visible 82% radius at maximum zoom.
+ */
+export function outerTerrainHorizonWeight(
+  row: number,
+  column: number,
+  gridCells: number,
+) {
+  const halfGrid = Math.max(1, Math.floor(gridCells / 2));
+  const normalizedRadius =
+    Math.hypot(column - halfGrid, row - halfGrid) / halfGrid;
+  const linear = clamp((1 - normalizedRadius) / 0.18, 0, 1);
+  return linear * linear * (3 - 2 * linear);
 }
 
 function sampleDemElevation(
@@ -453,6 +470,26 @@ export function buildTerrainMesh(
     }
   }
   if (!Number.isFinite(minimumTopLevel)) minimumTopLevel = 0;
+  if (sealOuterBoundary) {
+    const horizonFloorLevel =
+      minimumTopLevel - Math.max(6, Math.ceil(3_600 / cellM));
+    for (let row = 0; row < gridCells; row += 1) {
+      for (let column = 0; column < gridCells; column += 1) {
+        const index = row * gridCells + column;
+        if (!included[index]) continue;
+        const horizonWeight = outerTerrainHorizonWeight(
+          row,
+          column,
+          gridCells,
+        );
+        topLevels[index] = Math.round(
+          horizonFloorLevel +
+            (topLevels[index] - horizonFloorLevel) * horizonWeight,
+        );
+      }
+    }
+    minimumTopLevel = horizonFloorLevel;
+  }
   const skirtDepthLevels = 6;
   const skirtBottomLevel = minimumTopLevel - skirtDepthLevels;
 
@@ -580,6 +617,9 @@ export function buildTerrainMesh(
   const detailTint = MOUNTAIN_MATERIALS.valleyRock
     .clone()
     .set(request.terrainTint);
+  const horizonTint = MOUNTAIN_MATERIALS.valleyRock
+    .clone()
+    .set(request.horizonColor);
   const worldScale = canonicalWorldScale(context);
   const cellWorldX = cellM * worldScale.x;
   const cellWorldY = cellM * worldScale.y;
@@ -708,13 +748,18 @@ export function buildTerrainMesh(
         centerLongitude + localXM / metersPerDegreeLongitude;
       const sampleLatitude =
         centerLatitude - localZM / context.metersPerDegreeLatitude;
+      const horizonWeight = sealOuterBoundary
+        ? outerTerrainHorizonWeight(row, column, gridCells)
+        : 1;
       const color = terrainColor(
         elevationValues[index] + reliefValues[index],
         slopeDegrees,
         Math.round(sampleLongitude * 3600),
         Math.round(sampleLatitude * 3600),
         topShade,
-      ).multiply(detailTint);
+      )
+        .multiply(detailTint)
+        .lerp(horizonTint, 1 - horizonWeight);
       const red = color.r;
       const green = color.g;
       const blue = color.b;
@@ -757,7 +802,7 @@ export function buildTerrainMesh(
           (red * shade) / topShade,
           (green * shade) / topShade,
           (blue * shade) / topShade,
-        );
+        ).lerp(horizonTint, 1 - horizonWeight);
         writeFace(
           coordinates,
           TERRAIN_COLOR_SCRATCH.r,
