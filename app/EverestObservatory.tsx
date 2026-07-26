@@ -138,7 +138,6 @@ interface TerrainClipmapPatch {
   cellM: number;
   windowM: number;
   voxelCount: number;
-  bufferBytes?: number;
   setOpacity(opacity: number): void;
   setHiddenStoneIds?(hiddenStoneIds: ReadonlySet<string>): void;
   dispose(): void;
@@ -166,18 +165,6 @@ interface SurfaceEditSource {
     verticalDatumM: number;
   };
   removedLevels(columnX: number, columnZ: number): Set<number> | undefined;
-}
-
-interface TerrainPerformanceSnapshot {
-  fps: number;
-  drawCalls: number;
-  triangles: number;
-  workerBuildMs: number;
-  meshCacheEntries: number;
-  residentBufferMB: number;
-  meshCacheHitPercent: number;
-  residentTiles: number;
-  workerQueue: number;
 }
 
 interface TerrainOptions {
@@ -295,11 +282,6 @@ type NavigationCommand =
       distanceM: number;
     }
   | {
-      type: "nudge";
-      forward: number;
-      right: number;
-    }
-  | {
       type: "coordinates";
       x: number;
       z: number;
@@ -320,29 +302,6 @@ const TERRAIN_SCREEN_LODS = TERRAIN_CLIPMAP_LEVELS.filter(
   value: TerrainResolution;
   cellM: number;
 }>;
-
-const NAVIGATION_PRESETS = [
-  {
-    siteId: "everest-summit",
-    label: "SUMMIT",
-    distanceM: 760,
-  },
-  {
-    siteId: "south-col",
-    label: "SOUTH COL",
-    distanceM: 920,
-  },
-  {
-    siteId: "north-col",
-    label: "NORTH COL",
-    distanceM: 920,
-  },
-  {
-    siteId: "south-base-camp",
-    label: "BASE CAMP",
-    distanceM: 1_150,
-  },
-] as const;
 
 const SKY_PHASES: Record<
   SkyPhase,
@@ -2060,6 +2019,35 @@ function worldSizeForPixels(
   );
 }
 
+function readableScaleDistance(maximumM: number) {
+  const safeMaximum = Math.max(0.01, maximumM);
+  const exponent = Math.floor(Math.log10(safeMaximum));
+  const magnitude = 10 ** exponent;
+  const normalized = safeMaximum / magnitude;
+  const step =
+    normalized >= 5
+      ? 5
+      : normalized >= 2
+        ? 2
+        : 1;
+  return step * magnitude;
+}
+
+function formatScaleDistance(distanceM: number) {
+  if (distanceM >= 1_000) {
+    const kilometres = distanceM / 1_000;
+    return `${kilometres >= 10 ? kilometres.toFixed(0) : kilometres.toFixed(1)} KM`;
+  }
+  if (distanceM >= 1) return `${distanceM.toFixed(0)} M`;
+  return `${Math.round(distanceM * 100)} CM`;
+}
+
+function navigationDistanceForSite(site: SiteAnchor) {
+  if (site.kind === "SUMMIT") return 760;
+  if (site.kind === "BASE" || site.id.endsWith("base-camp")) return 1_150;
+  return 920;
+}
+
 function createVoxelClimber(color: string) {
   const group = new THREE.Group();
   const jacketMaterial = new THREE.MeshBasicMaterial({
@@ -2806,11 +2794,30 @@ async function loadDem(signal: AbortSignal) {
   return { authority, core, mid, far, sites: sites.sites };
 }
 
+const CONTROLS_SEEN_STORAGE_KEY = "alter-everest-controls-seen";
+
+function controlsHaveBeenSeen() {
+  try {
+    return window.localStorage.getItem(CONTROLS_SEEN_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberControlsHaveBeenSeen() {
+  try {
+    window.localStorage.setItem(CONTROLS_SEEN_STORAGE_KEY, "1");
+  } catch {
+    // Storage can be unavailable in privacy-restricted browsing contexts.
+  }
+}
+
 export default function EverestObservatory() {
   const canvasHost = useRef<HTMLDivElement>(null);
   const siteOverlayHost = useRef<HTMLDivElement>(null);
   const replayProgressHost = useRef<HTMLDivElement>(null);
   const actionStatusHost = useRef<HTMLDivElement>(null);
+  const viewScaleHost = useRef<HTMLDivElement>(null);
   const activeExpeditionRef = useRef(0);
   const manualReplayStarted = useRef(0);
   const overviewReplayRef = useRef<{
@@ -2835,6 +2842,11 @@ export default function EverestObservatory() {
     number | null
   >(null);
   const [rankingsOpen, setRankingsOpen] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const [uiAwake, setUiAwake] = useState(true);
+  const [controlHintVisible, setControlHintVisible] = useState(false);
+  const [navigationSites, setNavigationSites] = useState<SiteAnchor[]>([]);
   const [coordinateX, setCoordinateX] = useState("");
   const [coordinateZ, setCoordinateZ] = useState("");
   const [coordinateStatus, setCoordinateStatus] = useState<
@@ -2842,18 +2854,6 @@ export default function EverestObservatory() {
   >("idle");
   const [terrainResolution, setTerrainResolution] =
     useState<TerrainResolution>("90 M");
-  const [terrainPerformance, setTerrainPerformance] =
-    useState<TerrainPerformanceSnapshot>({
-      fps: 0,
-      drawCalls: 0,
-      triangles: 0,
-      workerBuildMs: 0,
-      meshCacheEntries: 0,
-      residentBufferMB: 0,
-      meshCacheHitPercent: 0,
-      residentTiles: 0,
-      workerQueue: 0,
-    });
   const [skyPhase, setSkyPhase] = useState<SkyPhase>(() =>
     kathmanduSkyPhase(),
   );
@@ -2886,6 +2886,54 @@ export default function EverestObservatory() {
       memorialClusters,
     };
   }, [expeditions, feed, memorialClusters]);
+
+  useEffect(() => {
+    let idleTimer = 0;
+    const interfacePinned =
+      navigationOpen || controlsOpen || rankingsOpen;
+    const wakeInterface = () => {
+      setUiAwake(true);
+      if (idleTimer) window.clearTimeout(idleTimer);
+      if (!interfacePinned) {
+        idleTimer = window.setTimeout(() => setUiAwake(false), 3_800);
+      }
+    };
+    const events = [
+      "pointermove",
+      "pointerdown",
+      "wheel",
+      "keydown",
+      "touchstart",
+    ] as const;
+    events.forEach((eventName) =>
+      window.addEventListener(eventName, wakeInterface, {
+        passive: true,
+      }),
+    );
+    wakeInterface();
+    return () => {
+      if (idleTimer) window.clearTimeout(idleTimer);
+      events.forEach((eventName) =>
+        window.removeEventListener(eventName, wakeInterface),
+      );
+    };
+  }, [controlsOpen, navigationOpen, rankingsOpen]);
+
+  useEffect(() => {
+    if (controlsHaveBeenSeen()) return;
+    const reveal = window.setTimeout(
+      () => setControlHintVisible(true),
+      0,
+    );
+    const timeout = window.setTimeout(() => {
+      setControlHintVisible(false);
+      rememberControlsHaveBeenSeen();
+    }, 7_000);
+    return () => {
+      window.clearTimeout(reveal);
+      window.clearTimeout(timeout);
+    };
+  }, []);
 
   useEffect(() => {
     const update = () => setSkyPhase(kathmanduSkyPhase());
@@ -2960,16 +3008,35 @@ export default function EverestObservatory() {
   }, []);
 
   useEffect(() => {
-    const leaveWatchMode = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || manualReplayStarted.current <= 0) {
+    const dismissInterface = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (controlsOpen) {
+        event.preventDefault();
+        setControlsOpen(false);
         return;
       }
+      if (navigationOpen) {
+        event.preventDefault();
+        setNavigationOpen(false);
+        return;
+      }
+      if (rankingsOpen) {
+        event.preventDefault();
+        setRankingsOpen(false);
+        return;
+      }
+      if (manualReplayStarted.current <= 0) return;
       event.preventDefault();
       leaveExpeditionWatch();
     };
-    window.addEventListener("keydown", leaveWatchMode);
-    return () => window.removeEventListener("keydown", leaveWatchMode);
-  }, [leaveExpeditionWatch]);
+    window.addEventListener("keydown", dismissInterface);
+    return () => window.removeEventListener("keydown", dismissInterface);
+  }, [
+    controlsOpen,
+    leaveExpeditionWatch,
+    navigationOpen,
+    rankingsOpen,
+  ]);
 
   useEffect(() => {
     const host = canvasHost.current;
@@ -2985,6 +3052,7 @@ export default function EverestObservatory() {
         abortController.signal,
       );
       if (disposed) return;
+      setNavigationSites(sites);
       const {
         feed: sceneFeed,
         expeditions: sceneExpeditions,
@@ -3192,7 +3260,10 @@ export default function EverestObservatory() {
       );
 
       const ground = new THREE.Mesh(
-        new THREE.PlaneGeometry(1_600, 1_600),
+        // A low-cost circular horizon extends beyond the camera's far plane.
+        // The former square plane exposed a rectangular world edge in the
+        // widest views even though the terrain itself was already fogged.
+        new THREE.CircleGeometry(2_000, 128),
         new THREE.MeshBasicMaterial({
           color: alpinePalette.ground,
           fog: true,
@@ -3902,8 +3973,7 @@ export default function EverestObservatory() {
       let overviewSuppressedAt = 0;
       let lastPrefetchAt = 0;
       let lastPrefetchKey = "";
-      let performanceWindowStartedAt = started;
-      let performanceFrameCount = 0;
+      let lastScaleUpdateAt = 0;
       let workCameraReplayStart = -1;
       const workCameraDirection = new THREE.Vector3(0.72, 0, 0.69);
       let directorSideSign = 1;
@@ -3954,12 +4024,7 @@ export default function EverestObservatory() {
         if (navigationCommand) {
           navigationCommandRef.current = null;
           renderer.domElement.focus({ preventScroll: true });
-          if (navigationCommand.type === "nudge") {
-            navigation.nudge(
-              navigationCommand.forward,
-              navigationCommand.right,
-            );
-          } else if (navigationCommand.type === "focus") {
+          if (navigationCommand.type === "focus") {
             const siteObject = siteObjects.find(
               ({ site }) =>
                 site.id === navigationCommand.siteId,
@@ -4024,6 +4089,43 @@ export default function EverestObservatory() {
         const cameraDistanceM = navigationSnapshot.distanceM;
         const cameraDistance =
           cameraDistanceM * WORLD_UNITS_PER_METER;
+        if (
+          viewScaleHost.current &&
+          time - lastScaleUpdateAt >= 80
+        ) {
+          const referencePixels = 104;
+          const referenceDistanceM =
+            worldSizeForPixels(
+              cameraDistance,
+              referencePixels,
+              Math.max(1, host.clientHeight),
+              THREE.MathUtils.degToRad(camera.fov),
+            ) / WORLD_UNITS_PER_METER;
+          const scaleDistanceM = readableScaleDistance(
+            referenceDistanceM,
+          );
+          const scalePixels = THREE.MathUtils.clamp(
+            (referencePixels * scaleDistanceM) /
+              Math.max(0.001, referenceDistanceM),
+            42,
+            referencePixels,
+          );
+          viewScaleHost.current.style.setProperty(
+            "--scale-width",
+            `${scalePixels.toFixed(1)}px`,
+          );
+          const scaleLabel =
+            viewScaleHost.current.querySelector("span");
+          if (scaleLabel) {
+            scaleLabel.textContent =
+              formatScaleDistance(scaleDistanceM);
+          }
+          viewScaleHost.current.setAttribute(
+            "aria-label",
+            `Scale ${formatScaleDistance(scaleDistanceM)}`,
+          );
+          lastScaleUpdateAt = time;
+        }
         const nextResolution = lodSelector.update(
           cameraDistanceM,
           Math.max(1, host.clientHeight),
@@ -5231,48 +5333,6 @@ export default function EverestObservatory() {
         });
 
         renderer.render(scene, camera);
-        performanceFrameCount += 1;
-        const performanceElapsed = time - performanceWindowStartedAt;
-        if (performanceElapsed >= 850) {
-          const streamStats = terrainStreaming.stats();
-          const activeTerrainBufferBytes =
-            terrainClipmap.patches.reduce(
-              (bytes, patch) => bytes + (patch.bufferBytes ?? 0),
-              0,
-            );
-          const totalMeshCacheRequests =
-            streamStats.meshCacheHits + streamStats.meshCacheMisses;
-          setTerrainPerformance({
-            fps: Math.round(
-              (performanceFrameCount * 1000) /
-                Math.max(1, performanceElapsed),
-            ),
-            drawCalls: renderer.info.render.calls,
-            triangles: renderer.info.render.triangles,
-            workerBuildMs: streamStats.workerBuildMs,
-            meshCacheEntries: streamStats.meshCacheEntries,
-            residentBufferMB: Math.round(
-              (Math.max(
-                streamStats.meshCacheBytes,
-                activeTerrainBufferBytes,
-              ) +
-                streamStats.residentTileBytes) /
-                (1024 * 1024),
-            ),
-            meshCacheHitPercent:
-              totalMeshCacheRequests > 0
-                ? Math.round(
-                    (streamStats.meshCacheHits /
-                      totalMeshCacheRequests) *
-                      100,
-                  )
-                : 0,
-            residentTiles: streamStats.residentTiles,
-            workerQueue: streamStats.workerQueue,
-          });
-          performanceWindowStartedAt = time;
-          performanceFrameCount = 0;
-        }
       };
       frame = requestAnimationFrame(render);
 
@@ -5395,19 +5455,18 @@ export default function EverestObservatory() {
     expeditions.length > 0
       ? expeditions[activeExpedition % expeditions.length]
       : null;
-  const activeTerrainIndex = terrainClipmapLevelIndex(
-    terrainResolution,
-  );
-  const activeTerrainLod =
-    activeTerrainIndex >= 0
-      ? TERRAIN_CLIPMAP_LEVELS[activeTerrainIndex]
-      : null;
-  const activeTerrainPlan = planTerrainClipmap(
-    TERRAIN_CLIPMAP_LEVELS,
-    activeTerrainIndex,
-  );
-  const terrainCoverageM =
-    activeTerrainPlan.at(-1)?.windowM ?? 0;
+  const navigationGroups = (["BOTH", "SOUTH", "NORTH"] as const)
+    .map((side) => ({
+      side,
+      sites: navigationSites
+        .filter((site) => site.side === side)
+        .sort(
+          (left, right) =>
+            sitePriority(right) - sitePriority(left) ||
+            left.name.localeCompare(right.name),
+        ),
+    }))
+    .filter(({ sites }) => sites.length > 0);
   const selectReplay = useCallback(
     (index: number) => {
       if (manualReplayStarted.current > 0) {
@@ -5424,6 +5483,7 @@ export default function EverestObservatory() {
   );
   const navigate = (command: NavigationCommand) => {
     navigationCommandRef.current = command;
+    setNavigationOpen(false);
   };
   const focusCanonicalCoordinates = (
     x: number,
@@ -5478,6 +5538,11 @@ export default function EverestObservatory() {
       className="observatory"
       data-sky={skyPhase}
       data-watching={watchingExpedition === null ? "false" : "true"}
+      data-ui={
+        uiAwake || navigationOpen || controlsOpen || rankingsOpen
+          ? "awake"
+          : "quiet"
+      }
       data-detail={
         terrainResolution === "80 CM" ||
         terrainResolution === "40 CM" ||
@@ -5498,7 +5563,7 @@ export default function EverestObservatory() {
       />
 
       <header className="observatory-header">
-        <a className="wordmark" href="#world" aria-label="ALTER EVEREST">
+        <div className="wordmark" aria-label="ALTER EVEREST">
           <span className="wordmark-symbol" aria-hidden="true">
             <i />
             <i />
@@ -5508,210 +5573,222 @@ export default function EverestObservatory() {
             <span>ALTER</span>
             <span>EVEREST</span>
           </strong>
-        </a>
-        <div className="scene-clock" aria-label="Everest local light">
-          <small>EVEREST LIGHT</small>
-          <strong>{skyPhase}</strong>
         </div>
-        <div className="live-state">
-          <i />
-          {sceneStatus === "ready" && feedStatus === "live"
-            ? "LIVE"
-            : sceneStatus === "ready" && feedStatus === "fallback"
-              ? "FEED OFFLINE"
-            : sceneStatus === "error"
-              ? "DEM ERROR"
-              : "LOADING DEM"}
+        <div className="scene-tools">
+          <button
+            className="scene-tool scene-tool-navigation"
+            type="button"
+            aria-label="Open places and coordinates"
+            aria-expanded={navigationOpen}
+            onClick={() => {
+              setNavigationOpen((open) => !open);
+              setControlsOpen(false);
+              setRankingsOpen(false);
+            }}
+          >
+            <span className="compass-glyph" aria-hidden="true" />
+          </button>
+          <button
+            className="scene-tool scene-tool-help"
+            type="button"
+            aria-label="Show controls"
+            aria-expanded={controlsOpen}
+            onClick={() => {
+              setControlsOpen((open) => !open);
+              setNavigationOpen(false);
+              setRankingsOpen(false);
+              setControlHintVisible(false);
+              rememberControlsHaveBeenSeen();
+            }}
+          >
+            <span aria-hidden="true">?</span>
+          </button>
+          <button
+            className="scene-tool scene-tool-rank"
+            type="button"
+            aria-label="Open climber rankings"
+            aria-expanded={rankingsOpen}
+            onClick={() => {
+              setRankingsOpen((open) => !open);
+              setNavigationOpen(false);
+              setControlsOpen(false);
+            }}
+          >
+            <span className="rank-glyph" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          </button>
         </div>
-        <div
-          className="lod-indicator"
-          aria-label={`Live terrain resolution ${terrainResolution}`}
-          aria-live="polite"
-        >
-          <small>LIVE LOD</small>
-          <strong>{terrainResolution}</strong>
-        </div>
-        <button
-          className="rank-trigger"
-          type="button"
-          aria-expanded={rankingsOpen}
-          onClick={() => setRankingsOpen((open) => !open)}
-        >
-          RANK
-        </button>
       </header>
 
-      <section className="world-id" id="world" aria-label="Current world">
-        <small>THE MOUNTAIN IS THE COMMIT</small>
-        <span>{`WORLD ${feed.sequence.toLocaleString("en-US")}`}</span>
-        <strong>
-          {`${Math.round(
-            feed.currentHighestPoint?.altitudeM ?? feed.summitHeightM,
-          ).toLocaleString("en-US")} M`}
-        </strong>
-      </section>
+      <div
+        className="view-scale"
+        ref={viewScaleHost}
+        aria-label="Scale"
+      >
+        <i aria-hidden="true" />
+        <span>10 KM</span>
+      </div>
 
-      {feed.worldSummary ? (
-        <section className="world-summary" aria-label="World matter summary">
-          <span>{feed.worldSummary.stoneCount} STONES</span>
-          <span>
-            {feed.worldSummary.removedTerrainVoxelCount} QUARRIED
-          </span>
-          <span>{feed.worldSummary.expeditionCount} EXPEDITIONS</span>
-          <span>{feed.worldSummary.tombstoneCount} TOMBSTONES</span>
-        </section>
-      ) : null}
+      <div className="sr-only" role="status" aria-live="polite">
+        {sceneStatus === "ready" && feedStatus === "live"
+          ? "Everest world ready"
+          : sceneStatus === "ready" && feedStatus === "fallback"
+            ? "Everest world ready with offline feed"
+            : sceneStatus === "error"
+              ? "Terrain could not be loaded"
+              : "Loading Everest terrain"}
+      </div>
 
-      {activeTerrainLod ? (
-        <section className="inspection-readout" aria-label="Live terrain detail">
-          <small>STREAMED VOXEL FIELD</small>
-          <strong>{terrainResolution} CELLS</strong>
-          <span>
-            FOCUS-ANCHORED{" "}
-            <b>
-              {activeTerrainPlan.length} RINGS
-            </b>
-          </span>
-          <span>
-            CENTER{" "}
-            <b>
-              {activeTerrainLod.gridCells} ×{" "}
-              {activeTerrainLod.gridCells} COLUMNS
-            </b>
-          </span>
-          <span>
-            COVERAGE{" "}
-            <b>
-              {(terrainCoverageM / 1_000).toFixed(1)} ×{" "}
-              {(terrainCoverageM / 1_000).toFixed(1)} KM
-            </b>
-          </span>
-          <span>
-            PIPELINE{" "}
-            <b>
-              {terrainPerformance.fps} FPS ·{" "}
-              {terrainPerformance.drawCalls} DRAW ·{" "}
-              {(terrainPerformance.triangles / 1_000).toFixed(0)}K TRI
-            </b>
-          </span>
-          <span>
-            STREAM{" "}
-            <b>
-              {terrainPerformance.residentTiles} TILE ·{" "}
-              {terrainPerformance.meshCacheEntries} MESH ·{" "}
-              {terrainPerformance.residentBufferMB} MB ·{" "}
-              {terrainPerformance.meshCacheHitPercent}% HIT
-              {terrainPerformance.workerQueue > 0
-                ? ` · ${terrainPerformance.workerQueue} QUEUED`
-                : ""}
-            </b>
-          </span>
-          <p>
-            SAME MOUNTAIN · DEM-GUIDED · AE-SURFACE-V1
-          </p>
-        </section>
-      ) : null}
-
-      <aside className="terrain-navigator" aria-label="Terrain navigation">
-        <div className="terrain-navigator-heading">
-          <small>NAVIGATE</small>
-          <span>DOUBLE CLICK TO FOCUS</span>
-        </div>
-        <div className="terrain-destinations">
-          {NAVIGATION_PRESETS.map((preset) => (
+      {navigationOpen ? (
+        <aside className="terrain-navigator" aria-label="Places and coordinates">
+          <div className="panel-heading">
+            <strong>PLACES</strong>
             <button
-              key={preset.siteId}
               type="button"
-              onClick={() =>
-                navigate({
-                  type: "focus",
-                  siteId: preset.siteId,
-                  distanceM: preset.distanceM,
-                })
-              }
+              aria-label="Close places"
+              onClick={() => setNavigationOpen(false)}
             >
-              {preset.label}
+              ×
             </button>
-          ))}
-        </div>
-        <form className="coordinate-focus" onSubmit={focusCoordinates}>
-          <label>
-            <span>X</span>
-            <input
-              inputMode="decimal"
-              aria-label="Canonical X coordinate in metres"
-              value={coordinateX}
-              onChange={(event) => {
-                setCoordinateX(event.target.value);
-                setCoordinateStatus("idle");
-              }}
-              placeholder="-3985.0"
-            />
-          </label>
-          <label>
-            <span>Z</span>
-            <input
-              inputMode="decimal"
-              aria-label="Canonical Z coordinate in metres"
-              value={coordinateZ}
-              onChange={(event) => {
-                setCoordinateZ(event.target.value);
-                setCoordinateStatus("idle");
-              }}
-              placeholder="-6655.0"
-            />
-          </label>
-          <button type="submit">GO</button>
-          <small aria-live="polite">
-            {coordinateStatus === "invalid"
-              ? "ENTER FINITE X / Z"
-              : coordinateStatus === "outside"
-                ? "OUTSIDE PROJECT DETAIL DEM"
-                : coordinateStatus === "focused"
-                  ? "PROJECT FOCUS"
-                  : "CANONICAL METRES"}
+          </div>
+          <div className="terrain-destinations">
+            {navigationGroups.map((group) => (
+              <section key={group.side}>
+                <small>
+                  {group.side === "BOTH" ? "SUMMIT" : group.side}
+                </small>
+                {group.sites.map((site) => (
+                  <button
+                    key={site.id}
+                    type="button"
+                    onClick={() =>
+                      navigate({
+                        type: "focus",
+                        siteId: site.id,
+                        distanceM: navigationDistanceForSite(site),
+                      })
+                    }
+                  >
+                    <i aria-hidden="true" />
+                    <span>{site.name}</span>
+                  </button>
+                ))}
+              </section>
+            ))}
+          </div>
+          <details className="coordinate-disclosure">
+            <summary>COORDINATES</summary>
+            <form className="coordinate-focus" onSubmit={focusCoordinates}>
+              <label>
+                <span>X</span>
+                <input
+                  inputMode="decimal"
+                  aria-label="Canonical X coordinate in metres"
+                  value={coordinateX}
+                  onChange={(event) => {
+                    setCoordinateX(event.target.value);
+                    setCoordinateStatus("idle");
+                  }}
+                  placeholder="-3985.0"
+                />
+              </label>
+              <label>
+                <span>Z</span>
+                <input
+                  inputMode="decimal"
+                  aria-label="Canonical Z coordinate in metres"
+                  value={coordinateZ}
+                  onChange={(event) => {
+                    setCoordinateZ(event.target.value);
+                    setCoordinateStatus("idle");
+                  }}
+                  placeholder="-6655.0"
+                />
+              </label>
+              <button type="submit">GO</button>
+              <small aria-live="polite">
+                {coordinateStatus === "invalid"
+                  ? "ENTER FINITE X / Z"
+                  : coordinateStatus === "outside"
+                    ? "OUTSIDE NAVIGATION RANGE"
+                    : coordinateStatus === "focused"
+                      ? "FOCUSED"
+                      : "CANONICAL METRES"}
+              </small>
+            </form>
+          </details>
+        </aside>
+      ) : null}
+
+      {controlsOpen ? (
+        <aside className="controls-guide" aria-label="Controls">
+          <div className="panel-heading">
+            <strong>CONTROLS</strong>
+            <button
+              type="button"
+              aria-label="Close controls"
+              onClick={() => setControlsOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+          <div className="control-grid">
+            <div>
+              <span className="mouse-glyph drag-glyph" aria-hidden="true">
+                <i />
+              </span>
+              <strong>ORBIT</strong>
+              <small>LEFT DRAG</small>
+            </div>
+            <div>
+              <span className="mouse-glyph wheel-glyph" aria-hidden="true">
+                <i />
+              </span>
+              <strong>ZOOM</strong>
+              <small>WHEEL</small>
+            </div>
+            <div>
+              <kbd aria-hidden="true">WASD</kbd>
+              <strong>MOVE</strong>
+              <small>GROUND</small>
+            </div>
+            <div>
+              <span className="focus-glyph" aria-hidden="true">
+                <i />
+                <i />
+              </span>
+              <strong>FOCUS</strong>
+              <small>DOUBLE CLICK</small>
+            </div>
+          </div>
+          <p>Drag the scene. Double-click visible terrain to travel there.</p>
+          <small
+            className="data-attribution"
+            title="produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"
+          >
+            TERRAIN DATA · COPERNICUS GLO-30
           </small>
-        </form>
-        <div className="terrain-move-pad">
-          <button
-            type="button"
-            aria-label="Move view forward"
-            onClick={() =>
-              navigate({ type: "nudge", forward: 1, right: 0 })
-            }
-          >
-            ↑
-          </button>
-          <button
-            type="button"
-            aria-label="Move view left"
-            onClick={() =>
-              navigate({ type: "nudge", forward: 0, right: -1 })
-            }
-          >
-            ←
-          </button>
-          <span>MOVE</span>
-          <button
-            type="button"
-            aria-label="Move view right"
-            onClick={() =>
-              navigate({ type: "nudge", forward: 0, right: 1 })
-            }
-          >
-            →
-          </button>
-          <button
-            type="button"
-            aria-label="Move view backward"
-            onClick={() =>
-              navigate({ type: "nudge", forward: -1, right: 0 })
-            }
-          >
-            ↓
-          </button>
+        </aside>
+      ) : null}
+
+      {controlHintVisible && !controlsOpen ? (
+        <div className="control-teaser" aria-hidden="true">
+          <span className="mouse-glyph drag-glyph">
+            <i />
+          </span>
+          <span className="mouse-glyph wheel-glyph">
+            <i />
+          </span>
+          <kbd>WASD</kbd>
+          <span className="focus-glyph">
+            <i />
+            <i />
+          </span>
         </div>
-      </aside>
+      ) : null}
 
       {active ? (
         <aside className="expedition-card" aria-label="Last expedition event">
@@ -5862,19 +5939,6 @@ export default function EverestObservatory() {
         </aside>
       ) : null}
 
-      <div className="orbit-hint" aria-hidden="true">
-        <span>
-          LEFT DRAG · ZOOM · RIGHT DRAG / WASD MOVE
-        </span>
-        <i />
-      </div>
-
-      <div
-        className="dem-credit"
-        title="produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"
-      >
-        {`COPERNICUS GLO-30 · ${terrainResolution} LIVE TERRAIN LOD`}
-      </div>
     </main>
   );
 }
