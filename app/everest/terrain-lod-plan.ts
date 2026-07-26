@@ -5,39 +5,60 @@ export interface TerrainClipmapLevel {
   selectable: boolean;
 }
 
-export const MAX_TERRAIN_OVERVIEW_DISTANCE_M = 24_000;
-export const TERRAIN_CAMERA_FAR_DISTANCE_M = 175_000;
+/**
+ * The observatory is a mountain-scale experience, not a globe viewer.
+ * Keeping the legal orbit inside 18 km still frames both Everest approaches,
+ * while avoiding a camera/depth range that the terrain product does not need.
+ */
+export const MAX_TERRAIN_OVERVIEW_DISTANCE_M = 18_000;
+
+/**
+ * The public far DEM is about 100 km across. Its 300 m clipmap fills that
+ * authority and extends beyond this visibility budget in every direction, so
+ * the camera's far plane and atmospheric fade—not a mesh edge—end the view.
+ */
+export const TERRAIN_CAMERA_FAR_DISTANCE_M = 48_000;
+export const TERRAIN_FAR_PLANE_TRANSMITTANCE = 0.0005;
+
+/**
+ * Three.js FogExp2 uses exp(-(density * distance)^2). Calibrating density from
+ * the camera visibility budget guarantees terrain has faded into the matching
+ * horizon colour before the far plane clips it.
+ */
+export function terrainFogDensity(worldUnitsPerMeter: number) {
+  if (!Number.isFinite(worldUnitsPerMeter) || worldUnitsPerMeter <= 0) {
+    throw new Error("Terrain fog requires a finite positive world scale.");
+  }
+  return (
+    Math.sqrt(-Math.log(TERRAIN_FAR_PLANE_TRANSMITTANCE)) /
+    (TERRAIN_CAMERA_FAR_DISTANCE_M * worldUnitsPerMeter)
+  );
+}
+
+export function terrainFogTransmittance(
+  distanceM: number,
+  worldUnitsPerMeter: number,
+) {
+  const scaledDistance =
+    terrainFogDensity(worldUnitsPerMeter) *
+    Math.max(0, distanceM) *
+    worldUnitsPerMeter;
+  return Math.exp(-(scaledDistance * scaledDistance));
+}
 
 /**
  * One coarse-to-fine hierarchy owns every rendered terrain surface.
  *
  * The fine levels use the canonical 30 m authority plus deterministic
- * sub-grid relief. The macro levels select progressively coarser DEM sources
- * in the mesher, but they follow the same focus, grid, ownership, and
- * lifecycle rules as the local levels.
+ * sub-grid relief. The regional cap stays at the far DEM's native 300 m
+ * display resolution. Larger voxel sizes create kilometre-high quantization
+ * walls on the horizon, so distance beyond this cap is handled by atmosphere
+ * and the camera visibility budget rather than more voxel LODs.
  */
 export const TERRAIN_CLIPMAP_LEVELS = [
   {
-    cellM: 2_400,
-    gridCells: 177,
-    label: "2.4 KM",
-    selectable: false,
-  },
-  {
-    cellM: 1_200,
-    gridCells: 193,
-    label: "1.2 KM",
-    selectable: false,
-  },
-  {
-    cellM: 600,
-    gridCells: 193,
-    label: "600 M",
-    selectable: false,
-  },
-  {
     cellM: 300,
-    gridCells: 257,
+    gridCells: 337,
     label: "300 M",
     selectable: false,
   },
@@ -115,10 +136,10 @@ export interface TerrainClipmapRingPlan {
 
 /**
  * Produces a single-owner stack from the selected center resolution to the
- * regional 2.4 km proxy cap. Each coarse level cuts out the exact window
- * owned by the next finer level; no transition relies on depth order or
- * overlapping alpha surfaces. The proxy cap extends far enough that its true
- * boundary is beyond the atmospheric visibility budget.
+ * regional 300 m cap. Each coarse level cuts out the exact window owned by
+ * the next finer level; no transition relies on depth order or overlapping
+ * alpha surfaces. The cap fills the far DEM and ends beyond the camera's
+ * visibility budget.
  */
 export function planTerrainClipmap(
   levels: readonly TerrainClipmapLevel[],

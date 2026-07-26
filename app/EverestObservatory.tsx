@@ -64,6 +64,7 @@ import {
   snapCanonicalClipmapCoordinate,
   terrainClipmapCellM,
   terrainClipmapLevelIndex,
+  terrainFogDensity,
   MAX_TERRAIN_OVERVIEW_DISTANCE_M,
   TERRAIN_CAMERA_FAR_DISTANCE_M,
   TERRAIN_CLIPMAP_LEVELS,
@@ -3105,7 +3106,10 @@ export default function EverestObservatory() {
 
       const scene = new THREE.Scene();
       const alpinePalette = SKY_PHASES[skyPhase];
-      scene.fog = new THREE.FogExp2(alpinePalette.fog, 0.00415);
+      scene.fog = new THREE.FogExp2(
+        alpinePalette.fog,
+        terrainFogDensity(WORLD_UNITS_PER_METER),
+      );
 
       const camera = new THREE.PerspectiveCamera(
         43,
@@ -3467,6 +3471,8 @@ export default function EverestObservatory() {
           innerCellM,
           sealOuterBoundary,
           terrainTint: alpinePalette.terrainTint,
+          fogDensity: terrainFogDensity(WORLD_UNITS_PER_METER),
+          atmosphere: alpinePalette.atmosphere,
           replayWorldState,
         });
         patch.setOpacity(1);
