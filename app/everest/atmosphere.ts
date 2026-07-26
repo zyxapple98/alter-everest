@@ -51,7 +51,7 @@ const ATMOSPHERE_FRAGMENT_SHADER = `
     vec3 upperSky = mix(horizonColor, middleColor, middleMix);
     upperSky = mix(upperSky, topColor, topMix);
 
-    float belowHorizon = smoothstep(0.0, 0.58, -altitude);
+    float belowHorizon = smoothstep(0.12, 0.58, -altitude);
     vec3 lowerSky = mix(horizonColor, nadirColor, belowHorizon);
     vec3 skyColor = altitude >= 0.0 ? upperSky : lowerSky;
 
