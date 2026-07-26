@@ -8,11 +8,18 @@ import type {
 import { ScreenSpaceLodSelector } from "../app/everest/terrain-runtime";
 import { buildTerrainMesh } from "../app/everest/terrain-mesher";
 import {
+  clipTerrainRectangleToHole,
+  fillTerrainRectangleEdgeIntervals,
   clipTerrainCellToRing,
   subdivideTerrainSeam,
   terrainEdgeIntervals,
   terrainSeamNormalSign,
 } from "../app/everest/terrain-clipmap-topology";
+import {
+  geographicBoundsToTerrainHole,
+  terrainOverviewMorphWeight,
+  terrainOverviewTargetPoint,
+} from "../app/everest/terrain-overview-transition";
 import { SurfaceTileStore } from "../app/everest/surface-tile-store";
 import {
   anchoredCanonicalWorldPosition,
@@ -150,6 +157,97 @@ test("LOD seam faces always point toward the lower surface", () => {
   assert.equal(terrainSeamNormalSign(1, 10, 20), 1);
   assert.equal(terrainSeamNormalSign(-1, 20, 10), 1);
   assert.equal(terrainSeamNormalSign(-1, 10, 20), -1);
+});
+
+test("overview and activity terrain have exact single-owner coverage", () => {
+  const hole = {
+    minimumX: 2,
+    maximumX: 8,
+    minimumZ: 3,
+    maximumZ: 7,
+  };
+  const geometry = clipTerrainRectangleToHole(
+    0,
+    10,
+    0,
+    10,
+    hole,
+  );
+  const outerArea = geometry.tops.reduce(
+    (area, rectangle) =>
+      area +
+      (rectangle.maximumX - rectangle.minimumX) *
+        (rectangle.maximumZ - rectangle.minimumZ),
+    0,
+  );
+  const activityArea =
+    (hole.maximumX - hole.minimumX) *
+    (hole.maximumZ - hole.minimumZ);
+  assert.equal(outerArea + activityArea, 100);
+  assert.equal(geometry.seams.length, 4);
+
+  const intervals: number[] = [];
+  assert.equal(
+    fillTerrainRectangleEdgeIntervals(
+      0,
+      10,
+      5,
+      "z",
+      hole,
+      intervals,
+    ),
+    2,
+  );
+  assert.deepEqual(intervals, [0, 3, 7, 10]);
+});
+
+test("overview transition shares exact bounds and morphs only its edge", () => {
+  assert.deepEqual(
+    geographicBoundsToTerrainHole(
+      {
+        north: 11,
+        south: 9,
+        west: 19,
+        east: 22,
+      },
+      10,
+      20,
+      0.5,
+    ),
+    {
+      minimumX: -1_800,
+      maximumX: 3_600,
+      minimumZ: -1_800,
+      maximumZ: 1_800,
+    },
+  );
+  assert.equal(terrainOverviewMorphWeight(0, 12, 100, 80, 24), 1);
+  assert.ok(
+    terrainOverviewMorphWeight(12, 12, 100, 80, 24) > 0 &&
+      terrainOverviewMorphWeight(12, 12, 100, 80, 24) < 1,
+  );
+  assert.equal(
+    terrainOverviewMorphWeight(24, 24, 100, 80, 24),
+    0,
+  );
+  assert.deepEqual(
+    terrainOverviewTargetPoint(
+      79,
+      50,
+      100,
+      80,
+      5,
+      7,
+      {
+        minimumX: 0,
+        maximumX: 10,
+        minimumZ: 0,
+        maximumZ: 8,
+      },
+      0.01,
+    ),
+    { x: 5, z: 8.01 },
+  );
 });
 
 test("every production LOD seam is continuous at fine-cell precision", () => {
