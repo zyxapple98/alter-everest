@@ -7,6 +7,67 @@ export interface GeographicTerrainBounds {
   east: number;
 }
 
+export interface GeographicTerrainAnchor {
+  latitude: number;
+  longitude: number;
+}
+
+/**
+ * Computes one activity footprint on a shared geographic grid. Every visual
+ * resolution must resample inside this same rectangle; independently rounding
+ * 30 m and 90 m footprints creates a thin strip where both layers own the
+ * surface and fight in the depth buffer.
+ */
+export function alignedActivityTerrainBounds(
+  coreBounds: GeographicTerrainBounds,
+  anchors: readonly GeographicTerrainAnchor[],
+  paddingDegrees: number,
+  alignmentArcSeconds: number,
+): GeographicTerrainBounds {
+  if (alignmentArcSeconds <= 0) {
+    throw new Error("Terrain boundary alignment must be positive.");
+  }
+  const samplesPerDegree = 3600 / alignmentArcSeconds;
+  return {
+    north:
+      Math.ceil(
+        Math.max(
+          coreBounds.north,
+          ...anchors.map(
+            (anchor) => anchor.latitude + paddingDegrees,
+          ),
+        ) * samplesPerDegree,
+      ) / samplesPerDegree,
+    south:
+      Math.floor(
+        Math.min(
+          coreBounds.south,
+          ...anchors.map(
+            (anchor) => anchor.latitude - paddingDegrees,
+          ),
+        ) * samplesPerDegree,
+      ) / samplesPerDegree,
+    west:
+      Math.floor(
+        Math.min(
+          coreBounds.west,
+          ...anchors.map(
+            (anchor) => anchor.longitude - paddingDegrees,
+          ),
+        ) * samplesPerDegree,
+      ) / samplesPerDegree,
+    east:
+      Math.ceil(
+        Math.max(
+          coreBounds.east,
+          ...anchors.map(
+            (anchor) => anchor.longitude + paddingDegrees,
+          ),
+        ) * samplesPerDegree,
+      ) / samplesPerDegree,
+  };
+}
+
 /**
  * Converts the exact geographic activity rectangle into the same world-space
  * edge coordinates used by the overview and activity voxel meshes.

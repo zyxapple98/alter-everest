@@ -16,6 +16,7 @@ import {
   terrainSeamNormalSign,
 } from "../app/everest/terrain-clipmap-topology";
 import {
+  alignedActivityTerrainBounds,
   geographicBoundsToTerrainHole,
   terrainOverviewMorphWeight,
   terrainOverviewTargetPoint,
@@ -201,7 +202,108 @@ test("overview and activity terrain have exact single-owner coverage", () => {
   assert.deepEqual(intervals, [0, 3, 7, 10]);
 });
 
+test("progressive activity, context, and background tiers have one owner", () => {
+  const activity = {
+    minimumX: -20,
+    maximumX: 20,
+    minimumZ: -20,
+    maximumZ: 20,
+  };
+  const context = {
+    minimumX: -60,
+    maximumX: 60,
+    minimumZ: -60,
+    maximumZ: 60,
+  };
+  const farGeometry = clipTerrainRectangleToHole(
+    -100,
+    100,
+    -100,
+    100,
+    context,
+  );
+  const contextGeometry = clipTerrainRectangleToHole(
+    context.minimumX,
+    context.maximumX,
+    context.minimumZ,
+    context.maximumZ,
+    activity,
+  );
+  const ownsPoint = (
+    rectangles: readonly {
+      minimumX: number;
+      maximumX: number;
+      minimumZ: number;
+      maximumZ: number;
+    }[],
+    x: number,
+    z: number,
+  ) =>
+    rectangles.some(
+      (rectangle) =>
+        x > rectangle.minimumX &&
+        x < rectangle.maximumX &&
+        z > rectangle.minimumZ &&
+        z < rectangle.maximumZ,
+    );
+
+  for (let z = -99.5; z < 100; z += 1) {
+    for (let x = -99.5; x < 100; x += 1) {
+      const owners = [
+        ownsPoint(farGeometry.tops, x, z),
+        ownsPoint(contextGeometry.tops, x, z),
+        x > activity.minimumX &&
+          x < activity.maximumX &&
+          z > activity.minimumZ &&
+          z < activity.maximumZ,
+      ].filter(Boolean).length;
+      assert.equal(owners, 1, `expected one terrain owner at ${x}, ${z}`);
+    }
+  }
+});
+
 test("overview transition shares exact bounds and morphs only its edge", () => {
+  const sharedActivityBounds = alignedActivityTerrainBounds(
+    {
+      north: 28.035,
+      south: 27.94,
+      west: 86.87,
+      east: 86.98,
+    },
+    [
+      {
+        latitude: 28.1421,
+        longitude: 86.8519,
+      },
+    ],
+    0.04,
+    3,
+  );
+  const latitudeArcSeconds =
+    (sharedActivityBounds.north -
+      sharedActivityBounds.south) *
+    3600;
+  const longitudeArcSeconds =
+    (sharedActivityBounds.east -
+      sharedActivityBounds.west) *
+    3600;
+  assert.ok(
+    Math.abs(latitudeArcSeconds / 3 -
+      Math.round(latitudeArcSeconds / 3)) < 1e-8,
+  );
+  assert.ok(
+    Math.abs(longitudeArcSeconds / 3 -
+      Math.round(longitudeArcSeconds / 3)) < 1e-8,
+  );
+  assert.equal(
+    Math.round(latitudeArcSeconds),
+    Math.round(latitudeArcSeconds / 3) * 3,
+  );
+  assert.equal(
+    Math.round(longitudeArcSeconds),
+    Math.round(longitudeArcSeconds / 3) * 3,
+  );
+
   assert.deepEqual(
     geographicBoundsToTerrainHole(
       {
