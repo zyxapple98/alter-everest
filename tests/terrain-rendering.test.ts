@@ -6,10 +6,13 @@ import type {
   ObservatorySurfaceTile,
 } from "../lib/world";
 import { ScreenSpaceLodSelector } from "../app/everest/terrain-runtime";
+import { buildTerrainMesh } from "../app/everest/terrain-mesher";
 import {
-  buildTerrainMesh,
   clipTerrainCellToRing,
-} from "../app/everest/terrain-mesher";
+  subdivideTerrainSeam,
+  terrainEdgeIntervals,
+  terrainSeamNormalSign,
+} from "../app/everest/terrain-clipmap-topology";
 import { SurfaceTileStore } from "../app/everest/surface-tile-store";
 import {
   anchoredCanonicalWorldPosition,
@@ -130,6 +133,115 @@ test("clipmap rings assign every horizontal point to one LOD", () => {
     clipTerrainCellToRing(0, 0, 2, 4),
     { tops: [], seams: [] },
   );
+});
+
+test("ring side walls cannot cross the finer LOD footprint", () => {
+  assert.deepEqual(terrainEdgeIntervals(-2, 2, 0, 2), [
+    { minimum: -2, maximum: -1 },
+    { minimum: 1, maximum: 2 },
+  ]);
+  assert.deepEqual(terrainEdgeIntervals(-2, 2, 1, 2), [
+    { minimum: -2, maximum: 2 },
+  ]);
+});
+
+test("LOD seam faces always point toward the lower surface", () => {
+  assert.equal(terrainSeamNormalSign(1, 20, 10), -1);
+  assert.equal(terrainSeamNormalSign(1, 10, 20), 1);
+  assert.equal(terrainSeamNormalSign(-1, 20, 10), 1);
+  assert.equal(terrainSeamNormalSign(-1, 10, 20), -1);
+});
+
+test("every production LOD seam is continuous at fine-cell precision", () => {
+  const detailLods = [
+    { cellM: 15, gridCells: 257 },
+    { cellM: 6.4, gridCells: 161 },
+    { cellM: 3.2, gridCells: 129 },
+    { cellM: 1.6, gridCells: 129 },
+    { cellM: 0.8, gridCells: 129 },
+    { cellM: 0.4, gridCells: 129 },
+    { cellM: 0.2, gridCells: 129 },
+  ];
+  const pairs = [
+    {
+      coarse: { cellM: 30, gridCells: 257 },
+      fine: detailLods[0],
+    },
+    ...detailLods.slice(0, -1).map((coarse, index) => ({
+      coarse,
+      fine: detailLods[index + 1],
+    })),
+  ];
+  pairs.forEach(({ coarse, fine }) => {
+    const innerHoleM = fine.cellM * fine.gridCells;
+    const halfHole = innerHoleM / 2;
+    const coarseHalfGrid = Math.floor(coarse.gridCells / 2);
+    const segmentsByBoundary = new Map<
+      string,
+      Array<{ minimum: number; maximum: number }>
+    >([
+      ["x:-1", []],
+      ["x:1", []],
+      ["z:-1", []],
+      ["z:1", []],
+    ]);
+    for (let row = 0; row < coarse.gridCells; row += 1) {
+      for (
+        let column = 0;
+        column < coarse.gridCells;
+        column += 1
+      ) {
+        const geometry = clipTerrainCellToRing(
+          (column - coarseHalfGrid) * coarse.cellM,
+          (row - coarseHalfGrid) * coarse.cellM,
+          coarse.cellM,
+          innerHoleM,
+        );
+        geometry.seams.forEach((seam) => {
+          assert.ok(
+            Math.abs(seam.coordinate - seam.side * halfHole) < 1e-9,
+          );
+          segmentsByBoundary
+            .get(`${seam.axis}:${seam.side}`)!
+            .push(
+              ...subdivideTerrainSeam(
+                seam.minimum,
+                seam.maximum,
+                fine.cellM,
+              ),
+            );
+        });
+      }
+    }
+    segmentsByBoundary.forEach((segments, boundary) => {
+      segments.sort(
+        (left, right) => left.minimum - right.minimum,
+      );
+      assert.ok(
+        segments.length > 0,
+        `${coarse.cellM}/${fine.cellM} ${boundary} is empty`,
+      );
+      assert.ok(
+        Math.abs(segments[0].minimum + halfHole) < 1e-9,
+      );
+      assert.ok(
+        Math.abs(segments[segments.length - 1].maximum - halfHole) <
+          1e-9,
+      );
+      segments.forEach((segment, index) => {
+        assert.ok(
+          segment.maximum - segment.minimum <= fine.cellM + 1e-9,
+        );
+        if (index > 0) {
+          assert.ok(
+            Math.abs(
+              segments[index - 1].maximum - segment.minimum,
+            ) < 1e-9,
+          );
+        }
+      });
+    });
+  });
 });
 
 test("streamed stone instances do not move when a patch recenters", async () => {

@@ -9,6 +9,13 @@ import {
   canonicalWorldScale,
   worldToCanonical,
 } from "./canonical-world";
+import {
+  fillTerrainEdgeIntervals,
+  subdivideTerrainSeam,
+  terrainCellRingGeometry,
+  terrainSeamNormalSign,
+  type TerrainCellRingGeometry,
+} from "./terrain-clipmap-topology";
 
 export interface TerrainMesherContext {
   metadata: {
@@ -90,188 +97,6 @@ function sampleDemElevation(
   return north * (1 - tz) + south * tz;
 }
 
-interface TerrainTopRectangle {
-  minimumX: number;
-  maximumX: number;
-  minimumZ: number;
-  maximumZ: number;
-}
-
-interface TerrainInnerSeam {
-  axis: "x" | "z";
-  coordinate: number;
-  minimum: number;
-  maximum: number;
-  side: -1 | 1;
-}
-
-interface TerrainCellRingGeometry {
-  tops: TerrainTopRectangle[];
-  seams: TerrainInnerSeam[];
-}
-
-const GEOMETRY_EPSILON = 1e-9;
-
-function cellOverlapsInnerHole(
-  minimumX: number,
-  maximumX: number,
-  minimumZ: number,
-  maximumZ: number,
-  halfHole: number,
-) {
-  return (
-    maximumX > -halfHole + GEOMETRY_EPSILON &&
-    minimumX < halfHole - GEOMETRY_EPSILON &&
-    maximumZ > -halfHole + GEOMETRY_EPSILON &&
-    minimumZ < halfHole - GEOMETRY_EPSILON
-  );
-}
-
-/**
- * Subtracts the exact inner clipmap square from one terrain cell. No two LODs
- * own the same horizontal area, so depth order can never decide which height
- * is visible.
- */
-export function clipTerrainCellToRing(
-  localCenterX: number,
-  localCenterZ: number,
-  cellM: number,
-  innerHoleM: number,
-): TerrainCellRingGeometry {
-  const minimumX = localCenterX - cellM / 2;
-  const maximumX = localCenterX + cellM / 2;
-  const minimumZ = localCenterZ - cellM / 2;
-  const maximumZ = localCenterZ + cellM / 2;
-  if (innerHoleM <= 0) {
-    return {
-      tops: [{ minimumX, maximumX, minimumZ, maximumZ }],
-      seams: [],
-    };
-  }
-
-  const halfHole = innerHoleM / 2;
-  const overlapsHole = cellOverlapsInnerHole(
-    minimumX,
-    maximumX,
-    minimumZ,
-    maximumZ,
-    halfHole,
-  );
-  if (!overlapsHole) {
-    return {
-      tops: [{ minimumX, maximumX, minimumZ, maximumZ }],
-      seams: [],
-    };
-  }
-
-  const tops: TerrainTopRectangle[] = [];
-  const pushTop = (
-    rectangleMinimumX: number,
-    rectangleMaximumX: number,
-    rectangleMinimumZ: number,
-    rectangleMaximumZ: number,
-  ) => {
-    if (
-      rectangleMaximumX - rectangleMinimumX > GEOMETRY_EPSILON &&
-      rectangleMaximumZ - rectangleMinimumZ > GEOMETRY_EPSILON
-    ) {
-      tops.push({
-        minimumX: rectangleMinimumX,
-        maximumX: rectangleMaximumX,
-        minimumZ: rectangleMinimumZ,
-        maximumZ: rectangleMaximumZ,
-      });
-    }
-  };
-
-  pushTop(
-    minimumX,
-    Math.min(maximumX, -halfHole),
-    minimumZ,
-    maximumZ,
-  );
-  pushTop(
-    Math.max(minimumX, halfHole),
-    maximumX,
-    minimumZ,
-    maximumZ,
-  );
-  const centerMinimumX = Math.max(minimumX, -halfHole);
-  const centerMaximumX = Math.min(maximumX, halfHole);
-  pushTop(
-    centerMinimumX,
-    centerMaximumX,
-    minimumZ,
-    Math.min(maximumZ, -halfHole),
-  );
-  pushTop(
-    centerMinimumX,
-    centerMaximumX,
-    Math.max(minimumZ, halfHole),
-    maximumZ,
-  );
-
-  if (tops.length === 0) return { tops, seams: [] };
-  const seams: TerrainInnerSeam[] = [];
-  const seamMinimumZ = Math.max(minimumZ, -halfHole);
-  const seamMaximumZ = Math.min(maximumZ, halfHole);
-  const seamMinimumX = Math.max(minimumX, -halfHole);
-  const seamMaximumX = Math.min(maximumX, halfHole);
-  if (
-    minimumX <= -halfHole + GEOMETRY_EPSILON &&
-    maximumX >= -halfHole - GEOMETRY_EPSILON &&
-    seamMaximumZ - seamMinimumZ > GEOMETRY_EPSILON
-  ) {
-    seams.push({
-      axis: "x",
-      coordinate: -halfHole,
-      minimum: seamMinimumZ,
-      maximum: seamMaximumZ,
-      side: -1,
-    });
-  }
-  if (
-    minimumX <= halfHole + GEOMETRY_EPSILON &&
-    maximumX >= halfHole - GEOMETRY_EPSILON &&
-    seamMaximumZ - seamMinimumZ > GEOMETRY_EPSILON
-  ) {
-    seams.push({
-      axis: "x",
-      coordinate: halfHole,
-      minimum: seamMinimumZ,
-      maximum: seamMaximumZ,
-      side: 1,
-    });
-  }
-  if (
-    minimumZ <= -halfHole + GEOMETRY_EPSILON &&
-    maximumZ >= -halfHole - GEOMETRY_EPSILON &&
-    seamMaximumX - seamMinimumX > GEOMETRY_EPSILON
-  ) {
-    seams.push({
-      axis: "z",
-      coordinate: -halfHole,
-      minimum: seamMinimumX,
-      maximum: seamMaximumX,
-      side: -1,
-    });
-  }
-  if (
-    minimumZ <= halfHole + GEOMETRY_EPSILON &&
-    maximumZ >= halfHole - GEOMETRY_EPSILON &&
-    seamMaximumX - seamMinimumX > GEOMETRY_EPSILON
-  ) {
-    seams.push({
-      axis: "z",
-      coordinate: halfHole,
-      minimum: seamMinimumX,
-      maximum: seamMaximumX,
-      side: 1,
-    });
-  }
-  return { tops, seams };
-}
-
 export function buildTerrainMesh(
   context: TerrainMesherContext,
   request: TerrainMeshRequest,
@@ -288,6 +113,11 @@ export function buildTerrainMesh(
     sealOuterBoundary,
     delta,
   } = request;
+  if (innerHoleM > 0 && innerCellM <= 0) {
+    throw new Error(
+      "A clipmap ring with an inner hole requires its finer cell size.",
+    );
+  }
   const degreesPerSample = metadata.sampleSpacingArcSeconds / 3600;
   const centerColumn = clamp(
     (centerWorldX - terrain.xOrigin) / terrain.blockSize - 0.5,
@@ -405,31 +235,29 @@ export function buildTerrainMesh(
       const index = row * gridCells + column;
       const localXM = (column - halfGrid) * cellM;
       const localZM = (row - halfGrid) * cellM;
-      const overlapsInnerHole =
-        innerHoleM > 0 &&
-        cellOverlapsInnerHole(
-          localXM - cellM / 2,
-          localXM + cellM / 2,
-          localZM - cellM / 2,
-          localZM + cellM / 2,
-          innerHoleM / 2,
-        );
-      if (!overlapsInnerHole) {
-        included[index] = 1;
-        renderedTopCount += 1;
-        continue;
-      }
-      const cellGeometry = clipTerrainCellToRing(
+      const cellGeometry = terrainCellRingGeometry(
         localXM,
         localZM,
         cellM,
         innerHoleM,
+        innerCellM,
       );
+      if (!cellGeometry) {
+        included[index] = 1;
+        renderedTopCount += 1;
+        continue;
+      }
       if (cellGeometry.tops.length > 0) {
         ringGeometry[index] = cellGeometry;
         included[index] = 1;
         renderedTopCount += cellGeometry.tops.length;
-        innerSeamCount += cellGeometry.seams.length;
+        cellGeometry.seams.forEach((seam) => {
+          innerSeamCount += subdivideTerrainSeam(
+            seam.minimum,
+            seam.maximum,
+            innerCellM,
+          ).length;
+        });
       }
     }
   }
@@ -445,18 +273,31 @@ export function buildTerrainMesh(
   const skirtBottomLevel = minimumTopLevel - skirtDepthLevels;
 
   let faceCount = renderedTopCount + innerSeamCount;
+  const edgeIntervalScratch: number[] = [];
   for (let row = 0; row < gridCells; row += 1) {
     for (let column = 0; column < gridCells; column += 1) {
       const index = row * gridCells + column;
       if (!included[index]) continue;
       const level = topLevels[index];
+      const localXM = (column - halfGrid) * cellM;
+      const localZM = (row - halfGrid) * cellM;
+      const minimumX = localXM - cellM / 2;
+      const maximumX = localXM + cellM / 2;
+      const minimumZ = localZM - cellM / 2;
+      const maximumZ = localZM + cellM / 2;
       if (
         (column + 1 < gridCells &&
           included[index + 1] &&
           topLevels[index + 1] < level) ||
         (sealOuterBoundary && column + 1 >= gridCells)
       ) {
-        faceCount += 1;
+        faceCount += fillTerrainEdgeIntervals(
+          minimumZ,
+          maximumZ,
+          maximumX,
+          innerHoleM,
+          edgeIntervalScratch,
+        );
       }
       if (
         (column > 0 &&
@@ -464,7 +305,13 @@ export function buildTerrainMesh(
           topLevels[index - 1] < level) ||
         (sealOuterBoundary && column === 0)
       ) {
-        faceCount += 1;
+        faceCount += fillTerrainEdgeIntervals(
+          minimumZ,
+          maximumZ,
+          minimumX,
+          innerHoleM,
+          edgeIntervalScratch,
+        );
       }
       if (
         (row + 1 < gridCells &&
@@ -472,7 +319,13 @@ export function buildTerrainMesh(
           topLevels[index + gridCells] < level) ||
         (sealOuterBoundary && row + 1 >= gridCells)
       ) {
-        faceCount += 1;
+        faceCount += fillTerrainEdgeIntervals(
+          minimumX,
+          maximumX,
+          maximumZ,
+          innerHoleM,
+          edgeIntervalScratch,
+        );
       }
       if (
         (row > 0 &&
@@ -480,7 +333,13 @@ export function buildTerrainMesh(
           topLevels[index - gridCells] < level) ||
         (sealOuterBoundary && row === 0)
       ) {
-        faceCount += 1;
+        faceCount += fillTerrainEdgeIntervals(
+          minimumX,
+          maximumX,
+          minimumZ,
+          innerHoleM,
+          edgeIntervalScratch,
+        );
       }
     }
   }
@@ -732,10 +591,42 @@ export function buildTerrainMesh(
               : skirtBottomLevel) +
             1) *
           cellWorldY;
-        writeSide(
-          [x1, yBottom, z0, x1, yTop, z0, x1, yTop, z1, x1, yBottom, z1],
-          0.72,
+        fillTerrainEdgeIntervals(
+          localZM - cellM / 2,
+          localZM + cellM / 2,
+          localXM + cellM / 2,
+          innerHoleM,
+          edgeIntervalScratch,
         );
+        for (
+          let edgeIndex = 0;
+          edgeIndex < edgeIntervalScratch.length;
+          edgeIndex += 2
+        ) {
+          const edgeZ0 =
+            centerWorldZ +
+            edgeIntervalScratch[edgeIndex] * worldScale.z;
+          const edgeZ1 =
+            centerWorldZ +
+            edgeIntervalScratch[edgeIndex + 1] * worldScale.z;
+          writeSide(
+            [
+              x1,
+              yBottom,
+              edgeZ0,
+              x1,
+              yTop,
+              edgeZ0,
+              x1,
+              yTop,
+              edgeZ1,
+              x1,
+              yBottom,
+              edgeZ1,
+            ],
+            0.72,
+          );
+        }
       }
       if (
         (column > 0 &&
@@ -750,10 +641,42 @@ export function buildTerrainMesh(
               : skirtBottomLevel) +
             1) *
           cellWorldY;
-        writeSide(
-          [x0, yBottom, z1, x0, yTop, z1, x0, yTop, z0, x0, yBottom, z0],
-          0.56,
+        fillTerrainEdgeIntervals(
+          localZM - cellM / 2,
+          localZM + cellM / 2,
+          localXM - cellM / 2,
+          innerHoleM,
+          edgeIntervalScratch,
         );
+        for (
+          let edgeIndex = 0;
+          edgeIndex < edgeIntervalScratch.length;
+          edgeIndex += 2
+        ) {
+          const edgeZ0 =
+            centerWorldZ +
+            edgeIntervalScratch[edgeIndex] * worldScale.z;
+          const edgeZ1 =
+            centerWorldZ +
+            edgeIntervalScratch[edgeIndex + 1] * worldScale.z;
+          writeSide(
+            [
+              x0,
+              yBottom,
+              edgeZ1,
+              x0,
+              yTop,
+              edgeZ1,
+              x0,
+              yTop,
+              edgeZ0,
+              x0,
+              yBottom,
+              edgeZ0,
+            ],
+            0.56,
+          );
+        }
       }
       if (
         (row + 1 < gridCells &&
@@ -768,10 +691,42 @@ export function buildTerrainMesh(
               : skirtBottomLevel) +
             1) *
           cellWorldY;
-        writeSide(
-          [x0, yBottom, z1, x1, yBottom, z1, x1, yTop, z1, x0, yTop, z1],
-          0.64,
+        fillTerrainEdgeIntervals(
+          localXM - cellM / 2,
+          localXM + cellM / 2,
+          localZM + cellM / 2,
+          innerHoleM,
+          edgeIntervalScratch,
         );
+        for (
+          let edgeIndex = 0;
+          edgeIndex < edgeIntervalScratch.length;
+          edgeIndex += 2
+        ) {
+          const edgeX0 =
+            centerWorldX +
+            edgeIntervalScratch[edgeIndex] * worldScale.x;
+          const edgeX1 =
+            centerWorldX +
+            edgeIntervalScratch[edgeIndex + 1] * worldScale.x;
+          writeSide(
+            [
+              edgeX0,
+              yBottom,
+              z1,
+              edgeX1,
+              yBottom,
+              z1,
+              edgeX1,
+              yTop,
+              z1,
+              edgeX0,
+              yTop,
+              z1,
+            ],
+            0.64,
+          );
+        }
       }
       if (
         (row > 0 &&
@@ -786,103 +741,152 @@ export function buildTerrainMesh(
               : skirtBottomLevel) +
             1) *
           cellWorldY;
-        writeSide(
-          [x1, yBottom, z0, x0, yBottom, z0, x0, yTop, z0, x1, yTop, z0],
-          0.48,
+        fillTerrainEdgeIntervals(
+          localXM - cellM / 2,
+          localXM + cellM / 2,
+          localZM - cellM / 2,
+          innerHoleM,
+          edgeIntervalScratch,
         );
-      }
-      cellRingGeometry?.seams.forEach((seam) => {
-        const neighborTopY =
-          seam.axis === "x"
-            ? innerSurfaceTopY(
-                seam.coordinate,
-                (seam.minimum + seam.maximum) / 2,
-              )
-            : innerSurfaceTopY(
-                (seam.minimum + seam.maximum) / 2,
-                seam.coordinate,
-              );
-        const seamBottom = Math.min(yTop, neighborTopY);
-        const seamTop = Math.max(yTop, neighborTopY);
-        if (seam.axis === "x") {
-          const seamX =
-            centerWorldX + seam.coordinate * worldScale.x;
-          const seamZ0 =
-            centerWorldZ + seam.minimum * worldScale.z;
-          const seamZ1 =
-            centerWorldZ + seam.maximum * worldScale.z;
+        for (
+          let edgeIndex = 0;
+          edgeIndex < edgeIntervalScratch.length;
+          edgeIndex += 2
+        ) {
+          const edgeX0 =
+            centerWorldX +
+            edgeIntervalScratch[edgeIndex] * worldScale.x;
+          const edgeX1 =
+            centerWorldX +
+            edgeIntervalScratch[edgeIndex + 1] * worldScale.x;
           writeSide(
-            seam.side < 0
-              ? [
-                  seamX,
-                  seamBottom,
-                  seamZ0,
-                  seamX,
-                  seamTop,
-                  seamZ0,
-                  seamX,
-                  seamTop,
-                  seamZ1,
-                  seamX,
-                  seamBottom,
-                  seamZ1,
-                ]
-              : [
-                  seamX,
-                  seamBottom,
-                  seamZ1,
-                  seamX,
-                  seamTop,
-                  seamZ1,
-                  seamX,
-                  seamTop,
-                  seamZ0,
-                  seamX,
-                  seamBottom,
-                  seamZ0,
-                ],
-            seam.side < 0 ? 0.72 : 0.56,
-          );
-        } else {
-          const seamZ =
-            centerWorldZ + seam.coordinate * worldScale.z;
-          const seamX0 =
-            centerWorldX + seam.minimum * worldScale.x;
-          const seamX1 =
-            centerWorldX + seam.maximum * worldScale.x;
-          writeSide(
-            seam.side < 0
-              ? [
-                  seamX0,
-                  seamBottom,
-                  seamZ,
-                  seamX1,
-                  seamBottom,
-                  seamZ,
-                  seamX1,
-                  seamTop,
-                  seamZ,
-                  seamX0,
-                  seamTop,
-                  seamZ,
-                ]
-              : [
-                  seamX1,
-                  seamBottom,
-                  seamZ,
-                  seamX0,
-                  seamBottom,
-                  seamZ,
-                  seamX0,
-                  seamTop,
-                  seamZ,
-                  seamX1,
-                  seamTop,
-                  seamZ,
-                ],
-            seam.side < 0 ? 0.64 : 0.48,
+            [
+              edgeX1,
+              yBottom,
+              z0,
+              edgeX0,
+              yBottom,
+              z0,
+              edgeX0,
+              yTop,
+              z0,
+              edgeX1,
+              yTop,
+              z0,
+            ],
+            0.48,
           );
         }
+      }
+      cellRingGeometry?.seams.forEach((seam) => {
+        subdivideTerrainSeam(
+          seam.minimum,
+          seam.maximum,
+          innerCellM,
+        ).forEach((segment) => {
+          const segmentMiddle =
+            (segment.minimum + segment.maximum) / 2;
+          const finerParallelCenter =
+            Math.round(segmentMiddle / innerCellM) * innerCellM;
+          const neighborTopY =
+            seam.axis === "x"
+              ? innerSurfaceTopY(
+                  seam.coordinate -
+                    seam.side * innerCellM / 2,
+                  finerParallelCenter,
+                )
+              : innerSurfaceTopY(
+                  finerParallelCenter,
+                  seam.coordinate -
+                    seam.side * innerCellM / 2,
+                );
+          const seamBottom = Math.min(yTop, neighborTopY);
+          const seamTop = Math.max(yTop, neighborTopY);
+          const normalSign = terrainSeamNormalSign(
+            seam.side,
+            yTop,
+            neighborTopY,
+          );
+          if (seam.axis === "x") {
+            const seamX =
+              centerWorldX + seam.coordinate * worldScale.x;
+            const seamZ0 =
+              centerWorldZ + segment.minimum * worldScale.z;
+            const seamZ1 =
+              centerWorldZ + segment.maximum * worldScale.z;
+            writeSide(
+              normalSign > 0
+                ? [
+                    seamX,
+                    seamBottom,
+                    seamZ0,
+                    seamX,
+                    seamTop,
+                    seamZ0,
+                    seamX,
+                    seamTop,
+                    seamZ1,
+                    seamX,
+                    seamBottom,
+                    seamZ1,
+                  ]
+                : [
+                    seamX,
+                    seamBottom,
+                    seamZ1,
+                    seamX,
+                    seamTop,
+                    seamZ1,
+                    seamX,
+                    seamTop,
+                    seamZ0,
+                    seamX,
+                    seamBottom,
+                    seamZ0,
+                  ],
+              normalSign > 0 ? 0.72 : 0.56,
+            );
+          } else {
+            const seamZ =
+              centerWorldZ + seam.coordinate * worldScale.z;
+            const seamX0 =
+              centerWorldX + segment.minimum * worldScale.x;
+            const seamX1 =
+              centerWorldX + segment.maximum * worldScale.x;
+            writeSide(
+              normalSign > 0
+                ? [
+                    seamX0,
+                    seamBottom,
+                    seamZ,
+                    seamX1,
+                    seamBottom,
+                    seamZ,
+                    seamX1,
+                    seamTop,
+                    seamZ,
+                    seamX0,
+                    seamTop,
+                    seamZ,
+                  ]
+                : [
+                    seamX1,
+                    seamBottom,
+                    seamZ,
+                    seamX0,
+                    seamBottom,
+                    seamZ,
+                    seamX0,
+                    seamTop,
+                    seamZ,
+                    seamX1,
+                    seamTop,
+                    seamZ,
+                  ],
+              normalSign > 0 ? 0.64 : 0.48,
+            );
+          }
+        });
       });
     }
   }
