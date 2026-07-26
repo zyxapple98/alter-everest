@@ -49,6 +49,7 @@ import {
   type TerrainHoleRectangle,
 } from "./everest/terrain-clipmap-topology";
 import {
+  alignedActivityTerrainBounds,
   geographicBoundsToTerrainHole,
   terrainOverviewMorphWeight,
   terrainOverviewTargetPoint,
@@ -2721,42 +2722,11 @@ async function loadDemLayer(
 function createActivityDem(
   core: DemLayer,
   mid: DemLayer,
-  sites: SiteAnchor[],
+  bounds: DemBounds,
   sampleSpacingArcSeconds = 1,
 ): DemLayer {
-  const paddingDegrees = 0.04;
   const samplesPerDegree = 3600 / sampleSpacingArcSeconds;
   const degreesPerSample = 1 / samplesPerDegree;
-  const bounds = {
-    north:
-      Math.ceil(
-        Math.max(
-          core.metadata.bounds.north,
-          ...sites.map((site) => site.latitude + paddingDegrees),
-        ) * samplesPerDegree,
-      ) / samplesPerDegree,
-    south:
-      Math.floor(
-        Math.min(
-          core.metadata.bounds.south,
-          ...sites.map((site) => site.latitude - paddingDegrees),
-        ) * samplesPerDegree,
-      ) / samplesPerDegree,
-    west:
-      Math.floor(
-        Math.min(
-          core.metadata.bounds.west,
-          ...sites.map((site) => site.longitude - paddingDegrees),
-        ) * samplesPerDegree,
-      ) / samplesPerDegree,
-    east:
-      Math.ceil(
-        Math.max(
-          core.metadata.bounds.east,
-          ...sites.map((site) => site.longitude + paddingDegrees),
-        ) * samplesPerDegree,
-      ) / samplesPerDegree,
-  };
   const width = Math.round(
     (bounds.east - bounds.west) / degreesPerSample,
   );
@@ -3057,19 +3027,52 @@ export default function EverestObservatory() {
       );
       host.appendChild(renderer.domElement);
 
-      const activity = createActivityDem(core, mid, sites);
+      // One 90 m-aligned footprint is shared by the 30 m foreground, 90 m
+      // overview, and the hole cut into the 180 m context ring. Independent
+      // bounds leave a one-cell overlap strip that flashes while orbiting.
+      const activityBounds = alignedActivityTerrainBounds(
+        core.metadata.bounds,
+        sites,
+        0.04,
+        3,
+      );
+      const activity = createActivityDem(
+        core,
+        mid,
+        activityBounds,
+      );
       const activityOverview = createActivityDem(
         core,
         mid,
-        sites,
+        activityBounds,
         3,
+      );
+      // A lightweight 180 m context ring separates the detailed activity
+      // footprint from the 300 m regional backdrop. It keeps the functional
+      // area visually dominant without exposing one abrupt 90 m -> 300 m
+      // resolution step around it.
+      const regionalContext = createActivityDem(
+        core,
+        mid,
+        mid.metadata.bounds,
+        6,
       );
       const farTerrain = createVoxelTerrain(
         far.elevations,
         far.metadata,
         {
-          holeBounds: activity.metadata.bounds,
+          holeBounds: regionalContext.metadata.bounds,
           detailedSides: false,
+        },
+      );
+      const regionalContextTerrain = createVoxelTerrain(
+        regionalContext.elevations,
+        regionalContext.metadata,
+        {
+          holeBounds: activityBounds,
+          detailedSides: false,
+          edgeMorphTarget: farTerrain,
+          edgeMorphCells: 4,
         },
       );
       const activityOverviewTerrain = createVoxelTerrain(
@@ -3077,7 +3080,7 @@ export default function EverestObservatory() {
         activityOverview.metadata,
         {
           detailedSides: false,
-          edgeMorphTarget: farTerrain,
+          edgeMorphTarget: regionalContextTerrain,
           edgeMorphCells: 8,
         },
       );
@@ -3086,7 +3089,7 @@ export default function EverestObservatory() {
         activity.metadata,
         {
           detailedSides: false,
-          edgeMorphTarget: farTerrain,
+          edgeMorphTarget: regionalContextTerrain,
           edgeMorphCells: 24,
         },
       );
@@ -3111,6 +3114,7 @@ export default function EverestObservatory() {
       );
       const terrainLayers = [
         farTerrain,
+        regionalContextTerrain,
         activityOverviewTerrain,
         terrain,
       ];
@@ -4169,6 +4173,8 @@ export default function EverestObservatory() {
           (nextResolution === "90 M" ||
             nextResolution === "30 M");
         farTerrain.mesh.visible = overviewContextVisible;
+        regionalContextTerrain.mesh.visible =
+          overviewContextVisible;
         siteObjects.forEach(({ siteGroup }) => {
           siteGroup.visible = overviewContextVisible;
         });
