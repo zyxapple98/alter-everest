@@ -10,12 +10,29 @@ import {
   worldToCanonical,
 } from "./canonical-world";
 import {
-  fillTerrainEdgeIntervals,
+  fillTerrainRectangleEdgeIntervals,
   subdivideTerrainSeam,
-  terrainCellRingGeometry,
+  terrainCellRectangularRingGeometry,
   terrainSeamNormalSign,
   type TerrainCellRingGeometry,
+  type TerrainHoleRectangle,
 } from "./terrain-clipmap-topology";
+
+export interface TerrainElevationSource {
+  minimumCellM: number;
+  metadata: {
+    sampleSpacingArcSeconds: number;
+    width: number;
+    height: number;
+    bounds: {
+      north: number;
+      south: number;
+      west: number;
+      east: number;
+    };
+  };
+  elevations: Int16Array;
+}
 
 export interface TerrainMesherContext {
   metadata: {
@@ -24,10 +41,13 @@ export interface TerrainMesherContext {
     height: number;
     bounds: {
       north: number;
+      south: number;
       west: number;
+      east: number;
     };
   };
   elevations: Int16Array;
+  elevationSources?: readonly TerrainElevationSource[];
   terrain: {
     blockSize: number;
     xOrigin: number;
@@ -42,6 +62,8 @@ export interface TerrainMesherContext {
 export interface TerrainMeshRequest {
   centerWorldX: number;
   centerWorldZ: number;
+  innerCenterWorldX?: number;
+  innerCenterWorldZ?: number;
   cellM: number;
   gridCells: number;
   innerHoleM: number;
@@ -97,15 +119,174 @@ function sampleDemElevation(
   return north * (1 - tz) + south * tz;
 }
 
+function sourceContainsCoordinate(
+  metadata: TerrainElevationSource["metadata"],
+  latitude: number,
+  longitude: number,
+) {
+  const { bounds } = metadata;
+  return (
+    latitude <= bounds.north &&
+    latitude >= bounds.south &&
+    longitude >= bounds.west &&
+    longitude <= bounds.east
+  );
+}
+
+function sampleSourceAtCoordinate(
+  metadata: TerrainElevationSource["metadata"],
+  elevations: Int16Array,
+  latitude: number,
+  longitude: number,
+) {
+  const degreesPerSample = metadata.sampleSpacingArcSeconds / 3600;
+  const column =
+    (longitude - metadata.bounds.west) / degreesPerSample - 0.5;
+  const row =
+    (metadata.bounds.north - latitude) / degreesPerSample - 0.5;
+  return sampleDemElevation(
+    elevations,
+    metadata.width,
+    metadata.height,
+    column,
+    row,
+  );
+}
+
+function sourceEdgeDistanceM(
+  metadata: TerrainElevationSource["metadata"],
+  latitude: number,
+  longitude: number,
+  metersPerDegreeLatitude: number,
+  metersPerDegreeLongitude: number,
+) {
+  const { bounds } = metadata;
+  return Math.max(
+    0,
+    Math.min(
+      (bounds.north - latitude) * metersPerDegreeLatitude,
+      (latitude - bounds.south) * metersPerDegreeLatitude,
+      (longitude - bounds.west) * metersPerDegreeLongitude,
+      (bounds.east - longitude) * metersPerDegreeLongitude,
+    ),
+  );
+}
+
+/**
+ * Samples the DEM pyramid in canonical metres. Cell size chooses the intended
+ * source resolution; if that source does not cover an outer-ring coordinate,
+ * progressively coarser sources provide geographic coverage instead of
+ * clamping a narrow DEM into a repeated wall.
+ */
+export function sampleTerrainElevation(
+  context: TerrainMesherContext,
+  canonicalX: number,
+  canonicalZ: number,
+  cellM: number,
+) {
+  const latitude =
+    context.canonicalOriginLatitude -
+    canonicalZ / context.metersPerDegreeLatitude;
+  const longitude =
+    context.canonicalOriginLongitude +
+    canonicalX /
+      (context.metersPerDegreeLatitude *
+        Math.cos(
+          (context.canonicalOriginLatitude * Math.PI) / 180,
+        ));
+  const metersPerDegreeLongitude =
+    context.metersPerDegreeLatitude *
+    Math.cos(
+      (context.canonicalOriginLatitude * Math.PI) / 180,
+    );
+  const fallbackSources = context.elevationSources ?? [];
+  let preferredIndex = -1;
+  let sourceMetadata = context.metadata;
+  let sourceElevations = context.elevations;
+  for (let index = 0; index < fallbackSources.length; index += 1) {
+    if (fallbackSources[index].minimumCellM <= cellM) {
+      preferredIndex = index;
+      sourceMetadata = fallbackSources[index].metadata;
+      sourceElevations = fallbackSources[index].elevations;
+    }
+  }
+  let selectedIndex = preferredIndex;
+  if (
+    !sourceContainsCoordinate(
+      sourceMetadata,
+      latitude,
+      longitude,
+    )
+  ) {
+    for (
+      let index = preferredIndex + 1;
+      index < fallbackSources.length;
+      index += 1
+    ) {
+      if (
+        sourceContainsCoordinate(
+          fallbackSources[index].metadata,
+          latitude,
+          longitude,
+        )
+      ) {
+        sourceMetadata = fallbackSources[index].metadata;
+        sourceElevations = fallbackSources[index].elevations;
+        selectedIndex = index;
+        break;
+      }
+    }
+  }
+  const elevation = sampleSourceAtCoordinate(
+    sourceMetadata,
+    sourceElevations,
+    latitude,
+    longitude,
+  );
+  const coarserIndex = selectedIndex + 1;
+  if (
+    coarserIndex >= fallbackSources.length ||
+    !sourceContainsCoordinate(
+      fallbackSources[coarserIndex].metadata,
+      latitude,
+      longitude,
+    )
+  ) {
+    return elevation;
+  }
+  const edgeDistanceM = sourceEdgeDistanceM(
+    sourceMetadata,
+    latitude,
+    longitude,
+    context.metersPerDegreeLatitude,
+    metersPerDegreeLongitude,
+  );
+  const sourceSampleM =
+    (sourceMetadata.sampleSpacingArcSeconds / 3600) *
+    context.metersPerDegreeLatitude;
+  const blendWidthM = Math.max(cellM * 4, sourceSampleM * 4);
+  if (edgeDistanceM >= blendWidthM) return elevation;
+  const coarseElevation = sampleSourceAtCoordinate(
+    fallbackSources[coarserIndex].metadata,
+    fallbackSources[coarserIndex].elevations,
+    latitude,
+    longitude,
+  );
+  const linear = Math.max(0, Math.min(1, edgeDistanceM / blendWidthM));
+  const fineWeight = linear * linear * (3 - 2 * linear);
+  return coarseElevation + (elevation - coarseElevation) * fineWeight;
+}
+
 export function buildTerrainMesh(
   context: TerrainMesherContext,
   request: TerrainMeshRequest,
 ): TerrainMeshResult {
   const startedAt = performance.now();
-  const { metadata, elevations, terrain } = context;
   const {
     centerWorldX,
     centerWorldZ,
+    innerCenterWorldX = centerWorldX,
+    innerCenterWorldZ = centerWorldZ,
     cellM,
     gridCells,
     innerHoleM,
@@ -118,22 +299,29 @@ export function buildTerrainMesh(
       "A clipmap ring with an inner hole requires its finer cell size.",
     );
   }
-  const degreesPerSample = metadata.sampleSpacingArcSeconds / 3600;
-  const centerColumn = clamp(
-    (centerWorldX - terrain.xOrigin) / terrain.blockSize - 0.5,
-    1,
-    metadata.width - 2,
-  );
-  const centerRow = clamp(
-    (centerWorldZ - terrain.zOrigin) / terrain.blockSize - 0.5,
-    1,
-    metadata.height - 2,
-  );
   const centerCanonical = worldToCanonical(
     context,
     centerWorldX,
     centerWorldZ,
   );
+  const innerCenterCanonical = worldToCanonical(
+    context,
+    innerCenterWorldX,
+    innerCenterWorldZ,
+  );
+  const innerCenterOffsetX =
+    innerCenterCanonical.x - centerCanonical.x;
+  const innerCenterOffsetZ =
+    innerCenterCanonical.z - centerCanonical.z;
+  const innerHole: TerrainHoleRectangle | null =
+    innerHoleM > 0
+      ? {
+          minimumX: innerCenterOffsetX - innerHoleM / 2,
+          maximumX: innerCenterOffsetX + innerHoleM / 2,
+          minimumZ: innerCenterOffsetZ - innerHoleM / 2,
+          maximumZ: innerCenterOffsetZ + innerHoleM / 2,
+        }
+      : null;
   const centerLatitude =
     context.canonicalOriginLatitude -
     centerCanonical.z / context.metersPerDegreeLatitude;
@@ -144,24 +332,16 @@ export function buildTerrainMesh(
         Math.cos(
           (context.canonicalOriginLatitude * Math.PI) / 180,
         ));
-  const latitudeRadians = (centerLatitude * Math.PI) / 180;
-  const sampleWidthM =
-    degreesPerSample *
-    context.metersPerDegreeLatitude *
-    Math.cos(latitudeRadians);
-  const sampleHeightM =
-    degreesPerSample * context.metersPerDegreeLatitude;
   const metersPerDegreeLongitude =
     context.metersPerDegreeLatitude *
     Math.cos((context.canonicalOriginLatitude * Math.PI) / 180);
   const centerCanonicalX = centerCanonical.x;
   const centerCanonicalZ = centerCanonical.z;
-  const centerElevationM = sampleDemElevation(
-    elevations,
-    metadata.width,
-    metadata.height,
-    centerColumn,
-    centerRow,
+  const centerElevationM = sampleTerrainElevation(
+    context,
+    centerCanonicalX,
+    centerCanonicalZ,
+    cellM,
   );
   const centerTopVoxel = Math.floor(
     (centerElevationM +
@@ -192,12 +372,11 @@ export function buildTerrainMesh(
       const localZM = (row - halfGrid) * cellM;
       const canonicalX = centerCanonicalX + localXM;
       const canonicalZ = centerCanonicalZ + localZM;
-      const elevationM = sampleDemElevation(
-        elevations,
-        metadata.width,
-        metadata.height,
-        centerColumn + localXM / sampleWidthM,
-        centerRow + localZM / sampleHeightM,
+      const elevationM = sampleTerrainElevation(
+        context,
+        canonicalX,
+        canonicalZ,
+        cellM,
       );
       const reliefM = syntheticReliefM(canonicalX, canonicalZ);
       let absoluteTopVoxel = Math.floor(
@@ -235,12 +414,14 @@ export function buildTerrainMesh(
       const index = row * gridCells + column;
       const localXM = (column - halfGrid) * cellM;
       const localZM = (row - halfGrid) * cellM;
-      const cellGeometry = terrainCellRingGeometry(
+      const cellGeometry = terrainCellRectangularRingGeometry(
         localXM,
         localZM,
         cellM,
-        innerHoleM,
+        innerHole,
         innerCellM,
+        innerCenterOffsetX,
+        innerCenterOffsetZ,
       );
       if (!cellGeometry) {
         included[index] = 1;
@@ -256,6 +437,9 @@ export function buildTerrainMesh(
             seam.minimum,
             seam.maximum,
             innerCellM,
+            seam.axis === "x"
+              ? innerCenterOffsetZ
+              : innerCenterOffsetX,
           ).length;
         });
       }
@@ -291,11 +475,12 @@ export function buildTerrainMesh(
           topLevels[index + 1] < level) ||
         (sealOuterBoundary && column + 1 >= gridCells)
       ) {
-        faceCount += fillTerrainEdgeIntervals(
+        faceCount += fillTerrainRectangleEdgeIntervals(
           minimumZ,
           maximumZ,
           maximumX,
-          innerHoleM,
+          "z",
+          innerHole,
           edgeIntervalScratch,
         );
       }
@@ -305,11 +490,12 @@ export function buildTerrainMesh(
           topLevels[index - 1] < level) ||
         (sealOuterBoundary && column === 0)
       ) {
-        faceCount += fillTerrainEdgeIntervals(
+        faceCount += fillTerrainRectangleEdgeIntervals(
           minimumZ,
           maximumZ,
           minimumX,
-          innerHoleM,
+          "z",
+          innerHole,
           edgeIntervalScratch,
         );
       }
@@ -319,11 +505,12 @@ export function buildTerrainMesh(
           topLevels[index + gridCells] < level) ||
         (sealOuterBoundary && row + 1 >= gridCells)
       ) {
-        faceCount += fillTerrainEdgeIntervals(
+        faceCount += fillTerrainRectangleEdgeIntervals(
           minimumX,
           maximumX,
           maximumZ,
-          innerHoleM,
+          "x",
+          innerHole,
           edgeIntervalScratch,
         );
       }
@@ -333,11 +520,12 @@ export function buildTerrainMesh(
           topLevels[index - gridCells] < level) ||
         (sealOuterBoundary && row === 0)
       ) {
-        faceCount += fillTerrainEdgeIntervals(
+        faceCount += fillTerrainRectangleEdgeIntervals(
           minimumX,
           maximumX,
           minimumZ,
-          innerHoleM,
+          "x",
+          innerHole,
           edgeIntervalScratch,
         );
       }
@@ -404,12 +592,11 @@ export function buildTerrainMesh(
     if (innerCellM <= 0) return 0;
     const canonicalX = centerCanonicalX + localXM;
     const canonicalZ = centerCanonicalZ + localZM;
-    const elevationM = sampleDemElevation(
-      elevations,
-      metadata.width,
-      metadata.height,
-      centerColumn + localXM / sampleWidthM,
-      centerRow + localZM / sampleHeightM,
+    const elevationM = sampleTerrainElevation(
+      context,
+      canonicalX,
+      canonicalZ,
+      innerCellM,
     );
     const reliefM = syntheticReliefM(canonicalX, canonicalZ);
     let absoluteTopVoxel = Math.floor(
@@ -591,11 +778,12 @@ export function buildTerrainMesh(
               : skirtBottomLevel) +
             1) *
           cellWorldY;
-        fillTerrainEdgeIntervals(
+        fillTerrainRectangleEdgeIntervals(
           localZM - cellM / 2,
           localZM + cellM / 2,
           localXM + cellM / 2,
-          innerHoleM,
+          "z",
+          innerHole,
           edgeIntervalScratch,
         );
         for (
@@ -641,11 +829,12 @@ export function buildTerrainMesh(
               : skirtBottomLevel) +
             1) *
           cellWorldY;
-        fillTerrainEdgeIntervals(
+        fillTerrainRectangleEdgeIntervals(
           localZM - cellM / 2,
           localZM + cellM / 2,
           localXM - cellM / 2,
-          innerHoleM,
+          "z",
+          innerHole,
           edgeIntervalScratch,
         );
         for (
@@ -691,11 +880,12 @@ export function buildTerrainMesh(
               : skirtBottomLevel) +
             1) *
           cellWorldY;
-        fillTerrainEdgeIntervals(
+        fillTerrainRectangleEdgeIntervals(
           localXM - cellM / 2,
           localXM + cellM / 2,
           localZM + cellM / 2,
-          innerHoleM,
+          "x",
+          innerHole,
           edgeIntervalScratch,
         );
         for (
@@ -741,11 +931,12 @@ export function buildTerrainMesh(
               : skirtBottomLevel) +
             1) *
           cellWorldY;
-        fillTerrainEdgeIntervals(
+        fillTerrainRectangleEdgeIntervals(
           localXM - cellM / 2,
           localXM + cellM / 2,
           localZM - cellM / 2,
-          innerHoleM,
+          "x",
+          innerHole,
           edgeIntervalScratch,
         );
         for (
@@ -779,15 +970,25 @@ export function buildTerrainMesh(
         }
       }
       cellRingGeometry?.seams.forEach((seam) => {
+        const finerParallelGridOffset =
+          seam.axis === "x"
+            ? innerCenterOffsetZ
+            : innerCenterOffsetX;
         subdivideTerrainSeam(
           seam.minimum,
           seam.maximum,
           innerCellM,
+          finerParallelGridOffset,
         ).forEach((segment) => {
           const segmentMiddle =
             (segment.minimum + segment.maximum) / 2;
           const finerParallelCenter =
-            Math.round(segmentMiddle / innerCellM) * innerCellM;
+            finerParallelGridOffset +
+            Math.round(
+              (segmentMiddle - finerParallelGridOffset) /
+                innerCellM,
+            ) *
+              innerCellM;
           const neighborTopY =
             seam.axis === "x"
               ? innerSurfaceTopY(

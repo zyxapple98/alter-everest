@@ -28,6 +28,7 @@ export interface StreamedDetailPatch {
   cellM: number;
   windowM: number;
   voxelCount: number;
+  bufferBytes: number;
   setOpacity(opacity: number): void;
   setHiddenStoneIds(hiddenStoneIds: ReadonlySet<string>): void;
   dispose(): void;
@@ -37,6 +38,8 @@ export interface TerrainPatchRequest {
   key: string;
   centerWorldX: number;
   centerWorldZ: number;
+  innerCenterWorldX?: number;
+  innerCenterWorldZ?: number;
   cellM: number;
   gridCells: number;
   innerHoleM: number;
@@ -90,12 +93,17 @@ export function pointBelongsToPatchRing(
   localZ: number,
   windowM: number,
   innerHoleM: number,
+  innerCenterOffsetX = 0,
+  innerCenterOffsetZ = 0,
 ) {
-  const inset = Math.max(Math.abs(localX), Math.abs(localZ));
+  const insideInnerHole =
+    innerHoleM > 0 &&
+    Math.abs(localX - innerCenterOffsetX) < innerHoleM / 2 &&
+    Math.abs(localZ - innerCenterOffsetZ) < innerHoleM / 2;
   return (
     Math.abs(localX) < windowM / 2 &&
     Math.abs(localZ) < windowM / 2 &&
-    (innerHoleM <= 0 || inset >= innerHoleM / 2)
+    !insideInnerHole
   );
 }
 
@@ -174,15 +182,37 @@ export class TerrainStreamingEngine {
         });
         worker.addEventListener("message", this.handleWorkerMessage);
         worker.addEventListener("error", this.handleWorkerFailure);
-        const { elevations, ...workerContext } = context;
+        const {
+          elevations,
+          elevationSources = [],
+          ...workerContext
+        } = context;
         const elevationCopy = elevations.slice();
+        const elevationSourceCopies = elevationSources.map(
+          ({ elevations: sourceElevations, ...source }) => {
+            const sourceCopy = sourceElevations.slice();
+            return {
+              source: {
+                ...source,
+                elevations: sourceCopy.buffer,
+              },
+              buffer: sourceCopy.buffer,
+            };
+          },
+        );
         worker.postMessage(
           {
             type: "initialize",
             context: workerContext,
             elevations: elevationCopy.buffer,
+            elevationSources: elevationSourceCopies.map(
+              ({ source }) => source,
+            ),
           },
-          [elevationCopy.buffer],
+          [
+            elevationCopy.buffer,
+            ...elevationSourceCopies.map(({ buffer }) => buffer),
+          ],
         );
       } catch (error) {
         console.warn("Terrain worker is unavailable; using main thread.", error);
@@ -391,13 +421,16 @@ export class TerrainStreamingEngine {
   ): Promise<StreamedDetailPatch> {
     this.setFeed(this.feed);
     const windowM = request.cellM * request.gridCells;
-    const finalChunks = await this.tiles.chunksInBounds(
-      this.boundsForPatch(
-        request.centerWorldX,
-        request.centerWorldZ,
-        windowM,
-      ),
-    );
+    const finalChunks =
+      request.cellM <= 1.6
+        ? await this.tiles.chunksInBounds(
+            this.boundsForPatch(
+              request.centerWorldX,
+              request.centerWorldZ,
+              windowM,
+            ),
+          )
+        : [];
     const replayWorldState =
       request.replayWorldState ?? FINAL_WORLD_REPLAY_STATE;
     const chunks =
@@ -416,6 +449,8 @@ export class TerrainStreamingEngine {
     const meshRequest: TerrainMeshRequest = {
       centerWorldX: request.centerWorldX,
       centerWorldZ: request.centerWorldZ,
+      innerCenterWorldX: request.innerCenterWorldX,
+      innerCenterWorldZ: request.innerCenterWorldZ,
       cellM: request.cellM,
       gridCells: request.gridCells,
       innerHoleM: request.innerHoleM,
@@ -486,6 +521,14 @@ export class TerrainStreamingEngine {
       stoneMesh.instanceMatrix.needsUpdate = true;
     };
     if (request.cellM <= 1.6) {
+      const innerCenterCanonical = this.worldToCanonical(
+        request.innerCenterWorldX ?? request.centerWorldX,
+        request.innerCenterWorldZ ?? request.centerWorldZ,
+      );
+      const innerCenterOffsetX =
+        innerCenterCanonical.x - result.centerCanonicalX;
+      const innerCenterOffsetZ =
+        innerCenterCanonical.z - result.centerCanonicalZ;
       const stones = chunks
         .flatMap((chunk) => chunk.stones)
         .filter(({ cell }) => {
@@ -500,6 +543,8 @@ export class TerrainStreamingEngine {
             localZ,
             windowM,
             request.innerHoleM,
+            innerCenterOffsetX,
+            innerCenterOffsetZ,
           );
         });
       if (stones.length > 0) {
@@ -556,6 +601,7 @@ export class TerrainStreamingEngine {
       cellM: request.cellM,
       windowM,
       voxelCount: result.renderedTopCount + stoneVoxelCount,
+      bufferBytes: meshByteLength(result),
       setOpacity(opacity: number) {
         const safeOpacity = THREE.MathUtils.clamp(opacity, 0, 1);
         group.visible = safeOpacity > 0.01;
