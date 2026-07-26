@@ -16,6 +16,11 @@ import {
   type SurfaceBounds,
   type SurfaceDefinition,
 } from "./surface-tile-store";
+import {
+  canonicalWorldScale,
+  worldToCanonical,
+  type CanonicalWorldScale,
+} from "./canonical-world";
 
 export interface StreamedDetailPatch {
   key: string;
@@ -35,8 +40,8 @@ export interface TerrainPatchRequest {
   cellM: number;
   gridCells: number;
   innerHoleM: number;
-  innerOverlapM: number;
-  outerTransitionM: number;
+  innerCellM: number;
+  sealOuterBoundary: boolean;
   terrainTint: string;
   replayWorldState?: ExpeditionReplayWorldState;
 }
@@ -76,7 +81,6 @@ function meshByteLength(result: TerrainMeshResult) {
   return (
     result.positions.byteLength +
     result.colors.byteLength +
-    result.visibility.byteLength +
     result.indices.byteLength
   );
 }
@@ -103,19 +107,19 @@ export function anchoredCanonicalWorldPosition(
   anchorCanonicalZ: number,
   anchorWorldX: number,
   anchorWorldZ: number,
-  worldUnitsPerMeter: number,
+  worldScale: CanonicalWorldScale,
 ) {
   return new THREE.Vector3(
     anchorWorldX +
-      (canonicalX - anchorCanonicalX) * worldUnitsPerMeter,
-    canonicalY * worldUnitsPerMeter,
+      (canonicalX - anchorCanonicalX) * worldScale.x,
+    canonicalY * worldScale.y,
     anchorWorldZ +
-      (canonicalZ - anchorCanonicalZ) * worldUnitsPerMeter,
+      (canonicalZ - anchorCanonicalZ) * worldScale.z,
   );
 }
 
-function createDitheredVoxelMaterial() {
-  const material = new THREE.MeshBasicMaterial({
+function createVoxelMaterial() {
+  return new THREE.MeshBasicMaterial({
     color: "#ffffff",
     vertexColors: true,
     side: THREE.FrontSide,
@@ -124,36 +128,6 @@ function createDitheredVoxelMaterial() {
     depthWrite: true,
     fog: true,
   });
-  material.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace(
-        "#include <common>",
-        `#include <common>
-attribute float lodVisibility;
-varying float vLodVisibility;`,
-      )
-      .replace(
-        "#include <begin_vertex>",
-        `#include <begin_vertex>
-vLodVisibility = lodVisibility;`,
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        "#include <common>",
-        `#include <common>
-varying float vLodVisibility;
-float lodDither(vec2 point) {
-  return fract(52.9829189 * fract(dot(point, vec2(0.06711056, 0.00583715))));
-}`,
-      )
-      .replace(
-        "#include <dithering_fragment>",
-        `if (lodDither(gl_FragCoord.xy) > vLodVisibility) discard;
-#include <dithering_fragment>`,
-      );
-  };
-  material.customProgramCacheKey = () => "ae-voxel-lod-dither-v1";
-  return material;
 }
 
 export class TerrainStreamingEngine {
@@ -170,9 +144,11 @@ export class TerrainStreamingEngine {
   private meshCacheMisses = 0;
   private lastWorkerBuildMs = 0;
   private replayWorldState = FINAL_WORLD_REPLAY_STATE;
+  private readonly worldScale: CanonicalWorldScale;
 
   constructor(context: TerrainMesherContext, feed: ObservatoryFeed) {
     this.context = context;
+    this.worldScale = canonicalWorldScale(context);
     this.feed = feed;
     this.tiles = new SurfaceTileStore(feed);
     if (typeof Worker !== "undefined") {
@@ -255,7 +231,7 @@ export class TerrainStreamingEngine {
       anchorCanonical.z,
       anchorWorldX,
       anchorWorldZ,
-      this.context.worldUnitsPerMeter,
+      this.worldScale,
     );
   }
 
@@ -382,29 +358,7 @@ export class TerrainStreamingEngine {
   }
 
   private worldToCanonical(worldX: number, worldZ: number) {
-    const { metadata, terrain } = this.context;
-    const degreesPerSample = metadata.sampleSpacingArcSeconds / 3600;
-    const column =
-      (worldX - terrain.xOrigin) / terrain.blockSize - 0.5;
-    const row =
-      (worldZ - terrain.zOrigin) / terrain.blockSize - 0.5;
-    const latitude =
-      metadata.bounds.north - (row + 0.5) * degreesPerSample;
-    const longitude =
-      metadata.bounds.west + (column + 0.5) * degreesPerSample;
-    const metersPerDegreeLongitude =
-      this.context.metersPerDegreeLatitude *
-      Math.cos(
-        (this.context.canonicalOriginLatitude * Math.PI) / 180,
-      );
-    return {
-      x:
-        (longitude - this.context.canonicalOriginLongitude) *
-        metersPerDegreeLongitude,
-      z:
-        (this.context.canonicalOriginLatitude - latitude) *
-        this.context.metersPerDegreeLatitude,
-    };
+    return worldToCanonical(this.context, worldX, worldZ);
   }
 
   private boundsForPatch(
@@ -465,8 +419,8 @@ export class TerrainStreamingEngine {
       cellM: request.cellM,
       gridCells: request.gridCells,
       innerHoleM: request.innerHoleM,
-      innerOverlapM: request.innerOverlapM,
-      outerTransitionM: request.outerTransitionM,
+      innerCellM: request.innerCellM,
+      sealOuterBoundary: request.sealOuterBoundary,
       terrainTint: request.terrainTint,
       delta: {
         voxelEdgeM: this.tiles.definition.voxelEdgeM,
@@ -495,15 +449,11 @@ export class TerrainStreamingEngine {
       "color",
       new THREE.BufferAttribute(result.colors, 3, true),
     );
-    surfaceGeometry.setAttribute(
-      "lodVisibility",
-      new THREE.BufferAttribute(result.visibility, 1, true),
-    );
     surfaceGeometry.setIndex(
       new THREE.BufferAttribute(result.indices, 1),
     );
     surfaceGeometry.computeBoundingSphere();
-    const surfaceMaterial = createDitheredVoxelMaterial();
+    const surfaceMaterial = createVoxelMaterial();
     const surfaceMesh = new THREE.Mesh(
       surfaceGeometry,
       surfaceMaterial,
@@ -553,13 +503,10 @@ export class TerrainStreamingEngine {
           );
         });
       if (stones.length > 0) {
-        const stoneWorld =
-          this.tiles.definition.voxelEdgeM *
-          this.context.worldUnitsPerMeter;
         const stoneGeometry = new THREE.BoxGeometry(
-          stoneWorld,
-          stoneWorld,
-          stoneWorld,
+          this.tiles.definition.voxelEdgeM * this.worldScale.x,
+          this.tiles.definition.voxelEdgeM * this.worldScale.y,
+          this.tiles.definition.voxelEdgeM * this.worldScale.z,
         );
         const stoneMaterial = new THREE.MeshLambertMaterial({
           color: MOUNTAIN_MATERIALS.placedGranite,
@@ -587,7 +534,7 @@ export class TerrainStreamingEngine {
               result!.centerCanonicalZ,
               request.centerWorldX,
               request.centerWorldZ,
-              this.context.worldUnitsPerMeter,
+              this.worldScale,
             ),
           );
           transform.quaternion.identity();
