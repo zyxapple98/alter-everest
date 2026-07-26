@@ -5,7 +5,10 @@ import type {
   ObservatoryFeed,
   ObservatorySurfaceTile,
 } from "../lib/world";
-import { ScreenSpaceLodSelector } from "../app/everest/terrain-runtime";
+import {
+  focusAnchoredTerrainCenter,
+  ScreenSpaceLodSelector,
+} from "../app/everest/terrain-runtime";
 import { buildTerrainMesh } from "../app/everest/terrain-mesher";
 import {
   clipTerrainRectangleToHole,
@@ -52,6 +55,21 @@ test("screen-space terrain LOD follows projected voxel density", () => {
     selector.update(1_000, 1_000, Math.PI / 4, 300, false),
     "20 CM",
   );
+});
+
+test("orbiting a camera cannot move the terrain detail anchor", () => {
+  const focus = { x: 125, z: -75 };
+  const northView = focusAnchoredTerrainCenter(
+    focus,
+    { x: 125, z: -25 },
+  );
+  const eastView = focusAnchoredTerrainCenter(
+    focus,
+    { x: 175, z: -75 },
+  );
+  assert.equal(northView, focus);
+  assert.equal(eastView, focus);
+  assert.deepEqual(northView, eastView);
 });
 
 test("a stone belongs to only one nested clipmap ring", () => {

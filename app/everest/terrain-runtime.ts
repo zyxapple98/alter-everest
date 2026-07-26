@@ -483,6 +483,26 @@ export interface ScreenSpaceLod<T extends string> {
   cellM: number;
 }
 
+export interface TerrainPlanarPoint {
+  x: number;
+  z: number;
+}
+
+/**
+ * The terrain clipmap follows the observed place, not the orbiting camera.
+ * Returning the target reference avoids per-frame allocation and makes camera
+ * rotation incapable of sliding detail rings across stationary ground.
+ */
+export function focusAnchoredTerrainCenter<
+  T extends TerrainPlanarPoint,
+>(
+  target: T,
+  camera: TerrainPlanarPoint,
+): T {
+  void camera;
+  return target;
+}
+
 /**
  * Selects a voxel size by its projected screen footprint. The same camera
  * produces the same visual density on a phone, a laptop, or a large display;

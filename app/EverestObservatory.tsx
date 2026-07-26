@@ -21,6 +21,7 @@ import {
   type ReplayActionWindow,
 } from "./everest/expedition-replay";
 import {
+  focusAnchoredTerrainCenter,
   ScreenSpaceLodSelector,
   SurfaceNavigationController,
 } from "./everest/terrain-runtime";
@@ -3485,18 +3486,18 @@ export default function EverestObservatory() {
           activeIndex >= 0
             ? DETAIL_LODS[DETAIL_LODS.length - 1].cellM
             : OUTER_CLIPMAP_LOD.cellM;
-        // Cover both the orbit target and the camera footprint. Centering only
-        // on the target puts the camera outside a small high-resolution patch
-        // at grazing angles, exposing its boundary from underneath.
-        const viewCenterX =
-          (controls.target.x + camera.position.x) * 0.5;
-        const viewCenterZ =
-          (controls.target.z + camera.position.z) * 0.5;
+        // The observed place owns the detail anchor. Orbiting changes only the
+        // camera pose; it must never slide LOD rings across stationary terrain.
+        // Translation still moves controls.target and recenters normally.
+        const focusAnchor = focusAnchoredTerrainCenter(
+          controls.target,
+          camera.position,
+        );
         const canonicalCenter = snapDetailCenterToCanonicalGrid(
           activity,
           terrain,
-          viewCenterX,
-          viewCenterZ,
+          focusAnchor.x,
+          focusAnchor.z,
           snapCellM,
         );
         return new THREE.Vector2(
@@ -5593,7 +5594,7 @@ export default function EverestObservatory() {
           <small>STREAMED VOXEL FIELD</small>
           <strong>{terrainResolution} CELLS</strong>
           <span>
-            CAMERA-CENTERED{" "}
+            FOCUS-ANCHORED{" "}
             <b>
               {activeDetailLod.gridCells} ×{" "}
               {activeDetailLod.gridCells} COLUMNS
