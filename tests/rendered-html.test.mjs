@@ -34,13 +34,15 @@ test("renders the read-only Everest observatory", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>ALTER EVEREST<\/title>/);
-  assert.match(html, /WORLD 0/);
   assert.match(html, /NO EXPEDITIONS/);
   assert.match(html, /AWAITING FIRST EXPEDITION/);
   assert.doesNotMatch(html, /LIVE REPLAY/);
-  assert.match(html, /CANONICAL METRES/);
-  assert.match(html, /DRAG · ZOOM/);
-  assert.match(html, /COPERNICUS GLO-30/);
+  assert.match(html, /Open places and coordinates/);
+  assert.match(html, /Show controls/);
+  assert.doesNotMatch(
+    html,
+    /STREAMED VOXEL FIELD|LIVE LOD|EVEREST LIGHT|LEFT DRAG · ZOOM|CANONICAL METRES/,
+  );
   assert.match(html, /observatory-canvas/);
   assert.doesNotMatch(
     html,

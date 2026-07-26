@@ -185,16 +185,6 @@ export class SurfaceNavigationController {
     this.lastInputAt = now;
   }
 
-  nudge(forwardAmount: number, rightAmount: number) {
-    const distanceM =
-      this.camera.position.distanceTo(this.controls.target) /
-      this.worldUnitsPerMeter;
-    const stepM = THREE.MathUtils.clamp(distanceM * 0.09, 6, 420);
-    this.translateOnGround(forwardAmount, rightAmount, stepM);
-    this.lastInputAt = performance.now();
-    this.cancelFocus();
-  }
-
   targetPlanarDistanceM(point: THREE.Vector3) {
     return (
       Math.hypot(
