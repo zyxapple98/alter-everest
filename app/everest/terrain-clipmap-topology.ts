@@ -23,6 +23,13 @@ export interface TerrainInterval {
   maximum: number;
 }
 
+export interface TerrainHoleRectangle {
+  minimumX: number;
+  maximumX: number;
+  minimumZ: number;
+  maximumZ: number;
+}
+
 const GEOMETRY_EPSILON = 1e-9;
 
 function cellOverlapsInnerHole(
@@ -469,4 +476,207 @@ export function terrainCellRingGeometry(
     ),
     finerCellM,
   );
+}
+
+function rectangularHoleSeams(
+  minimumX: number,
+  maximumX: number,
+  minimumZ: number,
+  maximumZ: number,
+  hole: TerrainHoleRectangle,
+) {
+  const seams: TerrainInnerSeam[] = [];
+  const seamMinimumZ = Math.max(minimumZ, hole.minimumZ);
+  const seamMaximumZ = Math.min(maximumZ, hole.maximumZ);
+  const seamMinimumX = Math.max(minimumX, hole.minimumX);
+  const seamMaximumX = Math.min(maximumX, hole.maximumX);
+  if (
+    minimumX <= hole.minimumX + GEOMETRY_EPSILON &&
+    maximumX >= hole.minimumX - GEOMETRY_EPSILON &&
+    seamMaximumZ - seamMinimumZ > GEOMETRY_EPSILON
+  ) {
+    seams.push({
+      axis: "x",
+      coordinate: hole.minimumX,
+      minimum: seamMinimumZ,
+      maximum: seamMaximumZ,
+      side: -1,
+    });
+  }
+  if (
+    minimumX <= hole.maximumX + GEOMETRY_EPSILON &&
+    maximumX >= hole.maximumX - GEOMETRY_EPSILON &&
+    seamMaximumZ - seamMinimumZ > GEOMETRY_EPSILON
+  ) {
+    seams.push({
+      axis: "x",
+      coordinate: hole.maximumX,
+      minimum: seamMinimumZ,
+      maximum: seamMaximumZ,
+      side: 1,
+    });
+  }
+  if (
+    minimumZ <= hole.minimumZ + GEOMETRY_EPSILON &&
+    maximumZ >= hole.minimumZ - GEOMETRY_EPSILON &&
+    seamMaximumX - seamMinimumX > GEOMETRY_EPSILON
+  ) {
+    seams.push({
+      axis: "z",
+      coordinate: hole.minimumZ,
+      minimum: seamMinimumX,
+      maximum: seamMaximumX,
+      side: -1,
+    });
+  }
+  if (
+    minimumZ <= hole.maximumZ + GEOMETRY_EPSILON &&
+    maximumZ >= hole.maximumZ - GEOMETRY_EPSILON &&
+    seamMaximumX - seamMinimumX > GEOMETRY_EPSILON
+  ) {
+    seams.push({
+      axis: "z",
+      coordinate: hole.maximumZ,
+      minimum: seamMinimumX,
+      maximum: seamMaximumX,
+      side: 1,
+    });
+  }
+  return seams;
+}
+
+/**
+ * Subtracts an arbitrary rectangular inner layer from one outer terrain cell.
+ * This is the same single-owner contract used by square detail clipmaps, but
+ * it also covers the fixed 30 m activity / 300 m overview transition.
+ */
+export function clipTerrainRectangleToHole(
+  minimumX: number,
+  maximumX: number,
+  minimumZ: number,
+  maximumZ: number,
+  hole: TerrainHoleRectangle,
+): TerrainCellRingGeometry {
+  const intersectionMinimumX = Math.max(minimumX, hole.minimumX);
+  const intersectionMaximumX = Math.min(maximumX, hole.maximumX);
+  const intersectionMinimumZ = Math.max(minimumZ, hole.minimumZ);
+  const intersectionMaximumZ = Math.min(maximumZ, hole.maximumZ);
+  const overlapsHole =
+    intersectionMaximumX - intersectionMinimumX >
+      GEOMETRY_EPSILON &&
+    intersectionMaximumZ - intersectionMinimumZ >
+      GEOMETRY_EPSILON;
+  if (!overlapsHole) {
+    return {
+      tops: [{ minimumX, maximumX, minimumZ, maximumZ }],
+      seams: rectangularHoleSeams(
+        minimumX,
+        maximumX,
+        minimumZ,
+        maximumZ,
+        hole,
+      ),
+    };
+  }
+
+  const tops: TerrainTopRectangle[] = [];
+  const pushTop = (
+    rectangleMinimumX: number,
+    rectangleMaximumX: number,
+    rectangleMinimumZ: number,
+    rectangleMaximumZ: number,
+  ) => {
+    if (
+      rectangleMaximumX - rectangleMinimumX > GEOMETRY_EPSILON &&
+      rectangleMaximumZ - rectangleMinimumZ > GEOMETRY_EPSILON
+    ) {
+      tops.push({
+        minimumX: rectangleMinimumX,
+        maximumX: rectangleMaximumX,
+        minimumZ: rectangleMinimumZ,
+        maximumZ: rectangleMaximumZ,
+      });
+    }
+  };
+  pushTop(
+    minimumX,
+    intersectionMinimumX,
+    minimumZ,
+    maximumZ,
+  );
+  pushTop(
+    intersectionMaximumX,
+    maximumX,
+    minimumZ,
+    maximumZ,
+  );
+  pushTop(
+    intersectionMinimumX,
+    intersectionMaximumX,
+    minimumZ,
+    intersectionMinimumZ,
+  );
+  pushTop(
+    intersectionMinimumX,
+    intersectionMaximumX,
+    intersectionMaximumZ,
+    maximumZ,
+  );
+
+  return {
+    tops,
+    seams:
+      tops.length > 0
+        ? rectangularHoleSeams(
+            minimumX,
+            maximumX,
+            minimumZ,
+            maximumZ,
+            hole,
+          )
+        : [],
+  };
+}
+
+/**
+ * Clips an internal height-wall edge to an arbitrary rectangular hole.
+ * `axis` is the varying coordinate of the edge.
+ */
+export function fillTerrainRectangleEdgeIntervals(
+  minimum: number,
+  maximum: number,
+  fixedCoordinate: number,
+  axis: "x" | "z",
+  hole: TerrainHoleRectangle | null,
+  output: number[],
+) {
+  output.length = 0;
+  if (!hole) {
+    output.push(minimum, maximum);
+    return 1;
+  }
+  const fixedMinimum =
+    axis === "x" ? hole.minimumZ : hole.minimumX;
+  const fixedMaximum =
+    axis === "x" ? hole.maximumZ : hole.maximumX;
+  if (
+    fixedCoordinate <= fixedMinimum + GEOMETRY_EPSILON ||
+    fixedCoordinate >= fixedMaximum - GEOMETRY_EPSILON
+  ) {
+    output.push(minimum, maximum);
+    return 1;
+  }
+  const holeMinimum =
+    axis === "x" ? hole.minimumX : hole.minimumZ;
+  const holeMaximum =
+    axis === "x" ? hole.maximumX : hole.maximumZ;
+  const firstMaximum = Math.min(maximum, holeMinimum);
+  if (firstMaximum - minimum > GEOMETRY_EPSILON) {
+    output.push(minimum, firstMaximum);
+  }
+  const secondMinimum = Math.max(minimum, holeMaximum);
+  if (maximum - secondMinimum > GEOMETRY_EPSILON) {
+    output.push(secondMinimum, maximum);
+  }
+  return output.length / 2;
 }

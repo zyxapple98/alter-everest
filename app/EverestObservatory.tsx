@@ -42,6 +42,17 @@ import {
   canonicalWorldScale,
   worldToCanonical,
 } from "./everest/canonical-world";
+import {
+  clipTerrainRectangleToHole,
+  fillTerrainRectangleEdgeIntervals,
+  type TerrainCellRingGeometry,
+  type TerrainHoleRectangle,
+} from "./everest/terrain-clipmap-topology";
+import {
+  geographicBoundsToTerrainHole,
+  terrainOverviewMorphWeight,
+  terrainOverviewTargetPoint,
+} from "./everest/terrain-overview-transition";
 
 interface DemMetadata {
   id: string;
@@ -90,6 +101,7 @@ interface MemorialCluster {
 interface VoxelTerrain {
   mesh: THREE.Mesh;
   levels: Int16Array;
+  topHeights: Float32Array;
   width: number;
   height: number;
   blockSize: number;
@@ -156,7 +168,8 @@ interface TerrainPerformanceSnapshot {
 
 interface TerrainOptions {
   holeBounds?: DemBounds;
-  overlapCells?: number;
+  edgeMorphTarget?: VoxelTerrain;
+  edgeMorphCells?: number;
   yOffset?: number;
   detailedSides?: boolean;
   edgeFeatherCells?: number;
@@ -503,7 +516,8 @@ function createVoxelTerrain(
   const { width, height } = metadata;
   const {
     holeBounds,
-    overlapCells = 1.25,
+    edgeMorphTarget,
+    edgeMorphCells = 0,
     yOffset = 0,
     detailedSides = true,
     edgeFeatherCells = 0,
@@ -521,23 +535,31 @@ function createVoxelTerrain(
     (ORIGIN_LATITUDE - metadata.bounds.north) *
     3600 *
     WORLD_PER_ARC_SECOND;
+  const terrainBounds: TerrainHoleRectangle = {
+    minimumX: xOrigin,
+    maximumX: xOrigin + width * blockSize,
+    minimumZ: zOrigin,
+    maximumZ: zOrigin + height * blockSize,
+  };
   const levels = new Int16Array(elevations.length);
+  const topHeights = new Float32Array(elevations.length);
   const included = new Uint8Array(elevations.length);
+  const ringGeometry = new Array<TerrainCellRingGeometry | null>(
+    elevations.length,
+  ).fill(null);
+  const hole: TerrainHoleRectangle | null = holeBounds
+    ? geographicBoundsToTerrainHole(
+        holeBounds,
+        ORIGIN_LATITUDE,
+        ORIGIN_LONGITUDE,
+        WORLD_PER_ARC_SECOND,
+      )
+    : null;
   let peakIndex = 0;
 
   for (let index = 0; index < elevations.length; index += 1) {
     const row = Math.floor(index / width);
     const column = index % width;
-    const latitude =
-      metadata.bounds.north - (row + 0.5) * degreesPerSample;
-    const longitude =
-      metadata.bounds.west + (column + 0.5) * degreesPerSample;
-    const insideHole =
-      holeBounds &&
-      latitude < holeBounds.north - overlapCells * degreesPerSample &&
-      latitude > holeBounds.south + overlapCells * degreesPerSample &&
-      longitude < holeBounds.east - overlapCells * degreesPerSample &&
-      longitude > holeBounds.west + overlapCells * degreesPerSample;
     const edgeDistance = Math.min(
       row,
       column,
@@ -549,39 +571,152 @@ function createVoxelTerrain(
       edgeDistance < edgeFeatherCells &&
       hashNoise(column, row, metadata.lod === "core" ? 211 : 307) >
         (edgeDistance + 0.5) / edgeFeatherCells;
-    included[index] = insideHole || featheredOut ? 0 : 1;
     levels[index] = Math.max(
       0,
       Math.floor(
         (elevations[index] - BASE_ELEVATION_M) / verticalStepM,
       ),
     );
+    const x0 = xOrigin + column * blockSize;
+    const x1 = x0 + blockSize;
+    const z0 = zOrigin + row * blockSize;
+    const z1 = z0 + blockSize;
+    const cellGeometry = hole
+      ? clipTerrainRectangleToHole(x0, x1, z0, z1, hole)
+      : null;
+    if (cellGeometry && cellGeometry.tops.length > 0) {
+      ringGeometry[index] = cellGeometry;
+    }
+    included[index] =
+      featheredOut ||
+      (cellGeometry !== null && cellGeometry.tops.length === 0)
+        ? 0
+        : 1;
+    const nativeTopY = (levels[index] + 1) * blockSize + yOffset;
+    const morphWeight = edgeMorphTarget
+      ? terrainOverviewMorphWeight(
+          row,
+          column,
+          width,
+          height,
+          edgeMorphCells,
+        )
+      : 0;
+    if (edgeMorphTarget && morphWeight > 0) {
+      const targetPoint = terrainOverviewTargetPoint(
+        row,
+        column,
+        width,
+        height,
+        (x0 + x1) / 2,
+        (z0 + z1) / 2,
+        terrainBounds,
+        blockSize * 0.01,
+      );
+      const targetColumn = THREE.MathUtils.clamp(
+        Math.floor(
+          (targetPoint.x - edgeMorphTarget.xOrigin) /
+            edgeMorphTarget.blockSize,
+        ),
+        0,
+        edgeMorphTarget.width - 1,
+      );
+      const targetRow = THREE.MathUtils.clamp(
+        Math.floor(
+          (targetPoint.z - edgeMorphTarget.zOrigin) /
+            edgeMorphTarget.blockSize,
+        ),
+        0,
+        edgeMorphTarget.height - 1,
+      );
+      const targetTopY =
+        edgeMorphTarget.topHeights[
+          targetRow * edgeMorphTarget.width + targetColumn
+        ];
+      topHeights[index] = THREE.MathUtils.lerp(
+        nativeTopY,
+        targetTopY,
+        morphWeight,
+      );
+    } else {
+      topHeights[index] = nativeTopY;
+    }
     if (elevations[index] > elevations[peakIndex]) peakIndex = index;
   }
 
   let faceCount = 0;
+  const edgeIntervalScratch: number[] = [];
+  const countSideFaces = (
+    index: number,
+    neighborIndex: number,
+    minimum: number,
+    maximum: number,
+    fixedCoordinate: number,
+    axis: "x" | "z",
+  ) => {
+    if (
+      neighborIndex < 0 ||
+      !included[neighborIndex] ||
+      topHeights[neighborIndex] >= topHeights[index] - 1e-8
+    ) {
+      return 0;
+    }
+    const intervalCount = fillTerrainRectangleEdgeIntervals(
+      minimum,
+      maximum,
+      fixedCoordinate,
+      axis,
+      hole,
+      edgeIntervalScratch,
+    );
+    if (!detailedSides) return intervalCount;
+    const difference = Math.max(
+      1,
+      levels[index] - levels[neighborIndex],
+    );
+    return intervalCount * difference;
+  };
   for (let row = 0; row < height; row += 1) {
     for (let column = 0; column < width; column += 1) {
       const index = row * width + column;
       if (!included[index]) continue;
-      faceCount += 1;
-      const level = levels[index];
-      if (column < width - 1 && included[index + 1]) {
-        const difference = Math.max(0, level - levels[index + 1]);
-        faceCount += detailedSides ? difference : Number(difference > 0);
-      }
-      if (column > 0 && included[index - 1]) {
-        const difference = Math.max(0, level - levels[index - 1]);
-        faceCount += detailedSides ? difference : Number(difference > 0);
-      }
-      if (row < height - 1 && included[index + width]) {
-        const difference = Math.max(0, level - levels[index + width]);
-        faceCount += detailedSides ? difference : Number(difference > 0);
-      }
-      if (row > 0 && included[index - width]) {
-        const difference = Math.max(0, level - levels[index - width]);
-        faceCount += detailedSides ? difference : Number(difference > 0);
-      }
+      faceCount += ringGeometry[index]?.tops.length ?? 1;
+      const x0 = xOrigin + column * blockSize;
+      const x1 = x0 + blockSize;
+      const z0 = zOrigin + row * blockSize;
+      const z1 = z0 + blockSize;
+      faceCount += countSideFaces(
+        index,
+        column < width - 1 ? index + 1 : -1,
+        z0,
+        z1,
+        x1,
+        "z",
+      );
+      faceCount += countSideFaces(
+        index,
+        column > 0 ? index - 1 : -1,
+        z0,
+        z1,
+        x0,
+        "z",
+      );
+      faceCount += countSideFaces(
+        index,
+        row < height - 1 ? index + width : -1,
+        x0,
+        x1,
+        z1,
+        "x",
+      );
+      faceCount += countSideFaces(
+        index,
+        row > 0 ? index - width : -1,
+        x0,
+        x1,
+        z0,
+        "x",
+      );
     }
   }
 
@@ -627,7 +762,7 @@ function createVoxelTerrain(
       const x1 = x0 + blockSize;
       const z0 = zOrigin + row * blockSize;
       const z1 = z0 + blockSize;
-      const yTop = (level + 1) * blockSize + yOffset;
+      const yTop = topHeights[index];
       const elevationM = elevations[index];
       const noiseColumn = Math.round(
         (metadata.bounds.west + column * degreesPerSample) * 3600,
@@ -660,41 +795,153 @@ function createVoxelTerrain(
       );
       const topShade = 0.76 + sunDot * 0.24;
 
-      writeFace(
-        [x0, yTop, z0, x0, yTop, z1, x1, yTop, z1, x1, yTop, z0],
-        terrainColor(
-          elevationM,
-          slopeDegrees,
-          noiseColumn,
-          noiseRow,
-          topShade,
-        ),
+      const topColor = terrainColor(
+        elevationM,
+        slopeDegrees,
+        noiseColumn,
+        noiseRow,
+        topShade,
       );
+      const cellRingGeometry = ringGeometry[index];
+      if (cellRingGeometry) {
+        cellRingGeometry.tops.forEach((rectangle) => {
+          writeFace(
+            [
+              rectangle.minimumX,
+              yTop,
+              rectangle.minimumZ,
+              rectangle.minimumX,
+              yTop,
+              rectangle.maximumZ,
+              rectangle.maximumX,
+              yTop,
+              rectangle.maximumZ,
+              rectangle.maximumX,
+              yTop,
+              rectangle.minimumZ,
+            ],
+            topColor,
+          );
+        });
+      } else {
+        writeFace(
+          [x0, yTop, z0, x0, yTop, z1, x1, yTop, z1, x1, yTop, z0],
+          topColor,
+        );
+      }
 
       const sides = [
         {
           neighborIndex: column < width - 1 ? index + 1 : -1,
           shade: 0.72,
-          vertices: (y0: number, y1: number) =>
-            [x1, y0, z0, x1, y1, z0, x1, y1, z1, x1, y0, z1] as const,
+          minimum: z0,
+          maximum: z1,
+          fixedCoordinate: x1,
+          axis: "z" as const,
+          vertices: (
+            y0: number,
+            y1: number,
+            minimum: number,
+            maximum: number,
+          ) =>
+            [
+              x1,
+              y0,
+              minimum,
+              x1,
+              y1,
+              minimum,
+              x1,
+              y1,
+              maximum,
+              x1,
+              y0,
+              maximum,
+            ] as const,
         },
         {
           neighborIndex: column > 0 ? index - 1 : -1,
           shade: 0.56,
-          vertices: (y0: number, y1: number) =>
-            [x0, y0, z1, x0, y1, z1, x0, y1, z0, x0, y0, z0] as const,
+          minimum: z0,
+          maximum: z1,
+          fixedCoordinate: x0,
+          axis: "z" as const,
+          vertices: (
+            y0: number,
+            y1: number,
+            minimum: number,
+            maximum: number,
+          ) =>
+            [
+              x0,
+              y0,
+              maximum,
+              x0,
+              y1,
+              maximum,
+              x0,
+              y1,
+              minimum,
+              x0,
+              y0,
+              minimum,
+            ] as const,
         },
         {
           neighborIndex: row < height - 1 ? index + width : -1,
           shade: 0.64,
-          vertices: (y0: number, y1: number) =>
-            [x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1] as const,
+          minimum: x0,
+          maximum: x1,
+          fixedCoordinate: z1,
+          axis: "x" as const,
+          vertices: (
+            y0: number,
+            y1: number,
+            minimum: number,
+            maximum: number,
+          ) =>
+            [
+              minimum,
+              y0,
+              z1,
+              maximum,
+              y0,
+              z1,
+              maximum,
+              y1,
+              z1,
+              minimum,
+              y1,
+              z1,
+            ] as const,
         },
         {
           neighborIndex: row > 0 ? index - width : -1,
           shade: 0.48,
-          vertices: (y0: number, y1: number) =>
-            [x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0] as const,
+          minimum: x0,
+          maximum: x1,
+          fixedCoordinate: z0,
+          axis: "x" as const,
+          vertices: (
+            y0: number,
+            y1: number,
+            minimum: number,
+            maximum: number,
+          ) =>
+            [
+              maximum,
+              y0,
+              z0,
+              minimum,
+              y0,
+              z0,
+              minimum,
+              y1,
+              z0,
+              maximum,
+              y1,
+              z0,
+            ] as const,
         },
       ];
 
@@ -702,17 +949,59 @@ function createVoxelTerrain(
         if (
           side.neighborIndex < 0 ||
           !included[side.neighborIndex] ||
-          levels[side.neighborIndex] >= level
+          topHeights[side.neighborIndex] >= yTop - 1e-8
         ) {
           continue;
         }
+        fillTerrainRectangleEdgeIntervals(
+          side.minimum,
+          side.maximum,
+          side.fixedCoordinate,
+          side.axis,
+          hole,
+          edgeIntervalScratch,
+        );
         const neighborLevel = levels[side.neighborIndex];
         if (detailedSides) {
           for (let layer = neighborLevel + 1; layer <= level; layer += 1) {
             const y0 = layer * blockSize + yOffset;
             const y1 = (layer + 1) * blockSize + yOffset;
+            for (
+              let edgeIndex = 0;
+              edgeIndex < edgeIntervalScratch.length;
+              edgeIndex += 2
+            ) {
+              writeFace(
+                side.vertices(
+                  y0,
+                  y1,
+                  edgeIntervalScratch[edgeIndex],
+                  edgeIntervalScratch[edgeIndex + 1],
+                ),
+                terrainColor(
+                  elevationM,
+                  slopeDegrees,
+                  noiseColumn,
+                  noiseRow,
+                  side.shade,
+                ),
+              );
+            }
+          }
+        } else {
+          const y0 = topHeights[side.neighborIndex];
+          for (
+            let edgeIndex = 0;
+            edgeIndex < edgeIntervalScratch.length;
+            edgeIndex += 2
+          ) {
             writeFace(
-              side.vertices(y0, y1),
+              side.vertices(
+                y0,
+                yTop,
+                edgeIntervalScratch[edgeIndex],
+                edgeIntervalScratch[edgeIndex + 1],
+              ),
               terrainColor(
                 elevationM,
                 slopeDegrees,
@@ -722,21 +1011,14 @@ function createVoxelTerrain(
               ),
             );
           }
-        } else {
-          const y0 = (neighborLevel + 1) * blockSize + yOffset;
-          writeFace(
-            side.vertices(y0, yTop),
-            terrainColor(
-              elevationM,
-              slopeDegrees,
-              noiseColumn,
-              noiseRow,
-              side.shade,
-            ),
-          );
         }
       }
     }
+  }
+  if (face !== faceCount) {
+    throw new Error(
+      `Overview terrain topology mismatch: allocated ${faceCount} faces, wrote ${face}.`,
+    );
   }
 
   const geometry = new THREE.BufferGeometry();
@@ -759,6 +1041,7 @@ function createVoxelTerrain(
   return {
     mesh,
     levels,
+    topHeights,
     width,
     height,
     blockSize,
@@ -1574,10 +1857,10 @@ function gridPoint(
     0,
     terrain.height - 1,
   );
-  const level = terrain.levels[safeRow * terrain.width + safeColumn];
+  const index = safeRow * terrain.width + safeColumn;
   return new THREE.Vector3(
     terrain.xOrigin + (safeColumn + 0.5) * terrain.blockSize,
-    (level + 1 + lift) * terrain.blockSize,
+    terrain.topHeights[index] + lift * terrain.blockSize,
     terrain.zOrigin + (safeRow + 0.5) * terrain.blockSize,
   );
 }
@@ -2786,8 +3069,6 @@ export default function EverestObservatory() {
         far.metadata,
         {
           holeBounds: activity.metadata.bounds,
-          overlapCells: 2.5,
-          yOffset: -0.08,
           detailedSides: false,
         },
       );
@@ -2795,14 +3076,19 @@ export default function EverestObservatory() {
         activityOverview.elevations,
         activityOverview.metadata,
         {
-          yOffset: -0.035,
           detailedSides: false,
+          edgeMorphTarget: farTerrain,
+          edgeMorphCells: 8,
         },
       );
       const terrain = createVoxelTerrain(
         activity.elevations,
         activity.metadata,
-        { detailedSides: false },
+        {
+          detailedSides: false,
+          edgeMorphTarget: farTerrain,
+          edgeMorphCells: 24,
+        },
       );
       const authorityTerrain = terrainGridRegistration(
         authority.metadata,
