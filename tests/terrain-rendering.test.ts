@@ -1,16 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import * as THREE from "three";
 import type {
   ObservatoryFeed,
   ObservatorySurfaceTile,
 } from "../lib/world";
 import { ScreenSpaceLodSelector } from "../app/everest/terrain-runtime";
-import { buildTerrainMesh } from "../app/everest/terrain-mesher";
+import {
+  buildTerrainMesh,
+  clipTerrainCellToRing,
+} from "../app/everest/terrain-mesher";
 import { SurfaceTileStore } from "../app/everest/surface-tile-store";
 import {
   anchoredCanonicalWorldPosition,
   pointBelongsToPatchRing,
+  TerrainStreamingEngine,
 } from "../app/everest/terrain-streaming";
+import {
+  canonicalToWorld,
+  canonicalWorldScale,
+  worldToCanonical,
+} from "../app/everest/canonical-world";
 
 test("screen-space terrain LOD follows projected voxel density", () => {
   const levels = [
@@ -41,24 +51,199 @@ test("a stone belongs to only one nested clipmap ring", () => {
 });
 
 test("matter animation and final stone share one anchored transform", () => {
-  const position = anchoredCanonicalWorldPosition(
-    -4_135.5,
-    5_268.1,
-    -6_545.7,
-    -4_136,
-    -6_546,
-    -172.2,
-    -272.75,
-    1.25 / 30,
+  const registration = {
+    metadata: {
+      sampleSpacingArcSeconds: 1,
+      bounds: { north: 28, west: 86.9 },
+    },
+    terrain: {
+      blockSize: 0.235,
+      xOrigin: -20,
+      zOrigin: -20,
+    },
+    canonicalOriginLatitude: 27.94236111111111,
+    canonicalOriginLongitude: 86.89486111111111,
+    metersPerDegreeLatitude: 111_320,
+    worldUnitsPerMeter: 0.235 / 30,
+  };
+  const canonicalCell = {
+    x: -4_135.5,
+    y: 5_268.1,
+    z: -6_545.7,
+  };
+  const firstAnchorCanonical = { x: -4_136, z: -6_546 };
+  const secondAnchorCanonical = { x: -4_080, z: -6_480 };
+  const firstAnchorWorld = canonicalToWorld(
+    registration,
+    firstAnchorCanonical.x,
+    firstAnchorCanonical.z,
   );
-  assert.deepEqual(position.toArray(), [
-    -172.17916666666665,
-    219.50416666666666,
-    -272.7375,
-  ]);
+  const secondAnchorWorld = canonicalToWorld(
+    registration,
+    secondAnchorCanonical.x,
+    secondAnchorCanonical.z,
+  );
+  const scale = canonicalWorldScale(registration);
+  const firstPosition = anchoredCanonicalWorldPosition(
+    canonicalCell.x,
+    canonicalCell.y,
+    canonicalCell.z,
+    firstAnchorCanonical.x,
+    firstAnchorCanonical.z,
+    firstAnchorWorld.x,
+    firstAnchorWorld.z,
+    scale,
+  );
+  const secondPosition = anchoredCanonicalWorldPosition(
+    canonicalCell.x,
+    canonicalCell.y,
+    canonicalCell.z,
+    secondAnchorCanonical.x,
+    secondAnchorCanonical.z,
+    secondAnchorWorld.x,
+    secondAnchorWorld.z,
+    scale,
+  );
+  assert.ok(firstPosition.distanceTo(secondPosition) < 1e-10);
+  const roundTrip = worldToCanonical(
+    registration,
+    firstPosition.x,
+    firstPosition.z,
+  );
+  assert.ok(Math.abs(roundTrip.x - canonicalCell.x) < 1e-9);
+  assert.ok(Math.abs(roundTrip.z - canonicalCell.z) < 1e-9);
 });
 
-test("terrain mesher emits an opaque-backed transition without invalid data", () => {
+test("clipmap rings assign every horizontal point to one LOD", () => {
+  const crossing = clipTerrainCellToRing(2, 2, 2, 4);
+  assert.equal(crossing.tops.length, 2);
+  assert.equal(crossing.seams.length, 2);
+  const topArea = crossing.tops.reduce(
+    (area, rectangle) =>
+      area +
+      (rectangle.maximumX - rectangle.minimumX) *
+        (rectangle.maximumZ - rectangle.minimumZ),
+    0,
+  );
+  assert.equal(topArea, 3);
+  assert.deepEqual(
+    clipTerrainCellToRing(0, 0, 2, 4),
+    { tops: [], seams: [] },
+  );
+});
+
+test("streamed stone instances do not move when a patch recenters", async () => {
+  const width = 32;
+  const height = 32;
+  const blockSize = 0.235;
+  const registration = {
+    metadata: {
+      sampleSpacingArcSeconds: 1,
+      width,
+      height,
+      bounds: {
+        north: 27.94236111111111,
+        west: 86.89486111111111,
+      },
+    },
+    elevations: new Int16Array(width * height).fill(5_260),
+    terrain: {
+      blockSize,
+      xOrigin: 0,
+      zOrigin: 0,
+    },
+    canonicalOriginLatitude: 27.94236111111111,
+    canonicalOriginLongitude: 86.89486111111111,
+    metersPerDegreeLatitude: 111_320,
+    worldUnitsPerMeter: blockSize / 30,
+  };
+  const tile: ObservatorySurfaceTile = {
+    schemaVersion: "1.1.0",
+    id: "0:0",
+    x: 0,
+    z: 0,
+    hash: "stable-stone-tile",
+    chunks: [
+      {
+        id: "0:0",
+        x: 0,
+        z: 0,
+        hash: "stable-stone-chunk",
+        removedTerrainVoxels: [],
+        stones: [{ id: "stable-stone", cell: { x: 2, y: 5, z: 3 } }],
+      },
+    ],
+  };
+  const feed = {
+    schemaVersion: "1.4.0",
+    sequence: 1,
+    worldHash: "stable-stone-world",
+    summitHeightM: 8_848.86,
+    surfaceTiles: {
+      voxelEdgeM: 0.2,
+      physicsChunkEdgeM: 32,
+      tileEdgeM: 256,
+      verticalDatumM: 5_259,
+      tiles: [
+        {
+          id: tile.id,
+          x: tile.x,
+          z: tile.z,
+          hash: tile.hash,
+          path: `tiles/${tile.hash}.json`,
+          chunkCount: 1,
+          removedTerrainVoxelCount: 0,
+          stoneCount: 1,
+          lodSummary: [],
+        },
+      ],
+    },
+    recentExpeditions: [],
+    leaderboard: [],
+  } satisfies ObservatoryFeed;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) =>
+    String(input).endsWith(`${tile.hash}.json`)
+      ? new Response(JSON.stringify(tile), {
+          headers: { "content-type": "application/json" },
+        })
+      : new Response(null, { status: 404 });
+  const engine = new TerrainStreamingEngine(registration, feed);
+  try {
+    const centers = [
+      canonicalToWorld(registration, 0.5, 0.7),
+      canonicalToWorld(registration, 2.5, 2.7),
+    ];
+    const positions: THREE.Vector3[] = [];
+    for (const [index, center] of centers.entries()) {
+      const patch = await engine.createPatch({
+        key: `stable-${index}`,
+        centerWorldX: center.x,
+        centerWorldZ: center.z,
+        cellM: 0.8,
+        gridCells: 17,
+        innerHoleM: 0,
+        innerCellM: 0,
+        sealOuterBoundary: false,
+        terrainTint: "#fff4e7",
+      });
+      const stoneMesh = patch.group.children.find(
+        (child) => child instanceof THREE.InstancedMesh,
+      ) as THREE.InstancedMesh | undefined;
+      assert.ok(stoneMesh);
+      const matrix = new THREE.Matrix4();
+      stoneMesh.getMatrixAt(0, matrix);
+      positions.push(new THREE.Vector3().setFromMatrixPosition(matrix));
+      patch.dispose();
+    }
+    assert.ok(positions[0].distanceTo(positions[1]) < 1e-10);
+  } finally {
+    engine.dispose();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("terrain mesher emits a single-owner sealed clipmap ring", () => {
   const width = 12;
   const height = 12;
   const elevations = new Int16Array(width * height);
@@ -94,8 +279,8 @@ test("terrain mesher emits an opaque-backed transition without invalid data", ()
       cellM: 0.8,
       gridCells: 17,
       innerHoleM: 4,
-      innerOverlapM: 1.6,
-      outerTransitionM: 3.2,
+      innerCellM: 0.4,
+      sealOuterBoundary: true,
       terrainTint: "#fff4e7",
       delta: {
         voxelEdgeM: 0.2,
@@ -107,14 +292,26 @@ test("terrain mesher emits an opaque-backed transition without invalid data", ()
 
   assert.ok(result.renderedTopCount > 0);
   assert.equal(result.positions.length, result.colors.length);
-  assert.equal(result.positions.length / 3, result.visibility.length);
   assert.ok(result.indices.length > 0);
-  assert.ok(result.visibility.some((value) => value > 0 && value < 255));
   assert.ok(result.colors instanceof Uint8Array);
-  assert.ok(result.visibility instanceof Uint8Array);
+  const scale = canonicalWorldScale({
+    metadata: {
+      sampleSpacingArcSeconds: 1,
+      bounds: { north: 28, west: 86.9 },
+    },
+    terrain: {
+      blockSize,
+      xOrigin: 0,
+      zOrigin: 0,
+    },
+    canonicalOriginLatitude: 27.94236111111111,
+    canonicalOriginLongitude: 86.89486111111111,
+    metersPerDegreeLatitude: 111_320,
+    worldUnitsPerMeter: blockSize / 30,
+  });
   const expectedMinimumX =
     blockSize * 6 -
-    (8 * 0.8 + 0.4) * (blockSize / 30);
+    (8 * 0.8 + 0.4) * scale.x;
   let hasOuterBoundarySkirt = false;
   for (
     let faceIndex = 0;
@@ -138,16 +335,6 @@ test("terrain mesher emits an opaque-backed transition without invalid data", ()
         ) < 0.000_001,
     );
     hasOuterBoundarySkirt ||= liesOnMinimumX;
-    const visibilityOffset = faceIndex * 4;
-    assert.deepEqual(
-      Array.from(
-        result.visibility.subarray(
-          visibilityOffset,
-          visibilityOffset + 4,
-        ),
-      ),
-      [255, 255, 255, 255],
-    );
   }
   assert.equal(hasOuterBoundarySkirt, true);
   assert.ok(

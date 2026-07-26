@@ -50,7 +50,6 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         transfer: [
           result.positions.buffer,
           result.colors.buffer,
-          result.visibility.buffer,
           result.indices.buffer,
         ],
       },

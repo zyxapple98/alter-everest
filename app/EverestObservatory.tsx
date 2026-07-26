@@ -36,6 +36,12 @@ import {
   requiredCameraLift,
 } from "./everest/camera-director";
 import { renderIntervalMs } from "./everest/render-budget";
+import {
+  canonicalDistanceM,
+  canonicalToWorld,
+  canonicalWorldScale,
+  worldToCanonical,
+} from "./everest/canonical-world";
 
 interface DemMetadata {
   id: string;
@@ -1425,53 +1431,29 @@ function snapDetailCenterToCanonicalGrid(
   worldZ: number,
   cellM: number,
 ) {
-  const { metadata } = core;
-  const degreesPerSample =
-    metadata.sampleSpacingArcSeconds / 3600;
-  const column = THREE.MathUtils.clamp(
-    (worldX - terrain.xOrigin) / terrain.blockSize - 0.5,
-    1,
-    metadata.width - 2,
+  const registration = {
+    metadata: core.metadata,
+    terrain,
+    canonicalOriginLatitude: CANONICAL_ORIGIN_LATITUDE,
+    canonicalOriginLongitude: CANONICAL_ORIGIN_LONGITUDE,
+    metersPerDegreeLatitude: METERS_PER_DEGREE_LATITUDE,
+    worldUnitsPerMeter: WORLD_UNITS_PER_METER,
+  };
+  const canonical = worldToCanonical(
+    registration,
+    worldX,
+    worldZ,
   );
-  const row = THREE.MathUtils.clamp(
-    (worldZ - terrain.zOrigin) / terrain.blockSize - 0.5,
-    1,
-    metadata.height - 2,
-  );
-  const latitude =
-    metadata.bounds.north - (row + 0.5) * degreesPerSample;
-  const longitude =
-    metadata.bounds.west + (column + 0.5) * degreesPerSample;
-  const latitudeRadians = (latitude * Math.PI) / 180;
-  const sampleWidthM =
-    degreesPerSample *
-    METERS_PER_DEGREE_LATITUDE *
-    Math.cos(latitudeRadians);
-  const sampleHeightM =
-    degreesPerSample * METERS_PER_DEGREE_LATITUDE;
-  const metersPerDegreeLongitude =
-    METERS_PER_DEGREE_LATITUDE *
-    Math.cos(
-      (CANONICAL_ORIGIN_LATITUDE * Math.PI) / 180,
-    );
-  const canonicalX =
-    (longitude - CANONICAL_ORIGIN_LONGITUDE) *
-    metersPerDegreeLongitude;
-  const canonicalZ =
-    (CANONICAL_ORIGIN_LATITUDE - latitude) *
-    METERS_PER_DEGREE_LATITUDE;
   const snappedCanonicalX =
-    (Math.floor(canonicalX / cellM) + 0.5) * cellM;
+    (Math.floor(canonical.x / cellM) + 0.5) * cellM;
   const snappedCanonicalZ =
-    (Math.floor(canonicalZ / cellM) + 0.5) * cellM;
-  return new THREE.Vector2(
-    worldX +
-      ((snappedCanonicalX - canonicalX) / sampleWidthM) *
-        terrain.blockSize,
-    worldZ +
-      ((snappedCanonicalZ - canonicalZ) / sampleHeightM) *
-        terrain.blockSize,
+    (Math.floor(canonical.z / cellM) + 0.5) * cellM;
+  const snappedWorld = canonicalToWorld(
+    registration,
+    snappedCanonicalX,
+    snappedCanonicalZ,
   );
+  return new THREE.Vector2(snappedWorld.x, snappedWorld.z);
 }
 
 function detailedSurfaceY(
@@ -2825,16 +2807,20 @@ export default function EverestObservatory() {
       const authorityTerrain = terrainGridRegistration(
         authority.metadata,
       );
+      const terrainStreamingContext = {
+        metadata: authority.metadata,
+        elevations: authority.elevations,
+        terrain: authorityTerrain,
+        canonicalOriginLatitude: CANONICAL_ORIGIN_LATITUDE,
+        canonicalOriginLongitude: CANONICAL_ORIGIN_LONGITUDE,
+        metersPerDegreeLatitude: METERS_PER_DEGREE_LATITUDE,
+        worldUnitsPerMeter: WORLD_UNITS_PER_METER,
+      };
+      const detailWorldScale = canonicalWorldScale(
+        terrainStreamingContext,
+      );
       const terrainStreaming = new TerrainStreamingEngine(
-        {
-          metadata: authority.metadata,
-          elevations: authority.elevations,
-          terrain: authorityTerrain,
-          canonicalOriginLatitude: CANONICAL_ORIGIN_LATITUDE,
-          canonicalOriginLongitude: CANONICAL_ORIGIN_LONGITUDE,
-          metersPerDegreeLatitude: METERS_PER_DEGREE_LATITUDE,
-          worldUnitsPerMeter: WORLD_UNITS_PER_METER,
-        },
+        terrainStreamingContext,
         sceneFeed,
       );
       const terrainLayers = [
@@ -3059,8 +3045,8 @@ export default function EverestObservatory() {
         cellM: number,
         gridCells: number,
         innerHoleM: number,
-        innerOverlapM: number,
-        outerTransitionM: number,
+        innerCellM: number,
+        sealOuterBoundary: boolean,
         worldHash: string,
         replayTerrainKey: string,
       ) =>
@@ -3071,8 +3057,8 @@ export default function EverestObservatory() {
           cellM,
           gridCells,
           innerHoleM.toFixed(3),
-          innerOverlapM.toFixed(3),
-          outerTransitionM.toFixed(3),
+          innerCellM.toFixed(3),
+          sealOuterBoundary ? "sealed" : "open",
           replayTerrainKey,
         ].join(":");
       const registerDetailPatch = async (
@@ -3080,8 +3066,8 @@ export default function EverestObservatory() {
         cellM: number,
         gridCells: number,
         innerHoleM: number,
-        innerOverlapM: number,
-        outerTransitionM: number,
+        innerCellM: number,
+        sealOuterBoundary: boolean,
         feedSnapshot: ObservatoryFeed,
         replayWorldState: ExpeditionReplayWorldState,
         reusablePatches: ReadonlyMap<string, DetailPatch>,
@@ -3091,8 +3077,8 @@ export default function EverestObservatory() {
           cellM,
           gridCells,
           innerHoleM,
-          innerOverlapM,
-          outerTransitionM,
+          innerCellM,
+          sealOuterBoundary,
           feedSnapshot.worldHash,
           replayWorldState.terrainKey,
         );
@@ -3106,8 +3092,8 @@ export default function EverestObservatory() {
           cellM,
           gridCells,
           innerHoleM,
-          innerOverlapM,
-          outerTransitionM,
+          innerCellM,
+          sealOuterBoundary,
           terrainTint: alpinePalette.terrainTint,
           replayWorldState,
         });
@@ -3137,7 +3123,7 @@ export default function EverestObservatory() {
             activeLod.gridCells,
             0,
             0,
-            0,
+            false,
             feedSnapshot,
             replayWorldState,
             reusablePatches,
@@ -3154,11 +3140,8 @@ export default function EverestObservatory() {
               coarseLod.cellM,
               coarseLod.gridCells,
               finerWindowM,
-              Math.max(
-                finerLod.cellM * 10,
-                coarseLod.cellM * 2,
-              ),
-              0,
+              finerLod.cellM,
+              false,
               feedSnapshot,
               replayWorldState,
               reusablePatches,
@@ -3173,8 +3156,8 @@ export default function EverestObservatory() {
             OUTER_CLIPMAP_LOD.cellM,
             OUTER_CLIPMAP_LOD.gridCells,
             coarsestWindowM,
-            DETAIL_LODS[0].cellM * 10,
-            0,
+            DETAIL_LODS[0].cellM,
+            true,
             feedSnapshot,
             replayWorldState,
             reusablePatches,
@@ -3315,8 +3298,11 @@ export default function EverestObservatory() {
         const activeLod =
           activeIndex >= 0 ? DETAIL_LODS[activeIndex] : null;
         const inFlightDriftM = inFlightBuild
-          ? inFlightBuild.center.distanceTo(nextCenter) /
-            WORLD_UNITS_PER_METER
+          ? canonicalDistanceM(
+              detailWorldScale,
+              inFlightBuild.center.x - nextCenter.x,
+              inFlightBuild.center.y - nextCenter.y,
+            )
           : Number.POSITIVE_INFINITY;
         const inFlightCoverageM = activeLod
           ? Math.max(
@@ -3596,34 +3582,6 @@ export default function EverestObservatory() {
           distanceKeyframes,
           actionWindows,
         );
-        const actionMarkerGeometry = new THREE.BoxGeometry(1, 1, 1);
-        const actionMarkerMaterial = new THREE.MeshBasicMaterial({
-          color: "#ffc86b",
-          transparent: true,
-          opacity: 0.5,
-          depthWrite: false,
-        });
-        const actionMarkers = new THREE.InstancedMesh(
-          actionMarkerGeometry,
-          actionMarkerMaterial,
-          Math.max(1, releasePoints.length),
-        );
-        actionMarkers.count = releasePoints.length;
-        const actionMarkerDummy = new THREE.Object3D();
-        const initialMarkerWorld = 0.24 * WORLD_UNITS_PER_METER;
-        releasePoints.forEach((point, pointIndex) => {
-          actionMarkerDummy.position.copy(point);
-          actionMarkerDummy.position.y += initialMarkerWorld * 1.5;
-          actionMarkerDummy.scale.setScalar(initialMarkerWorld);
-          actionMarkerDummy.updateMatrix();
-          actionMarkers.setMatrixAt(
-            pointIndex,
-            actionMarkerDummy.matrix,
-          );
-        });
-        actionMarkers.instanceMatrix.needsUpdate = true;
-        scene.add(actionMarkers);
-
         const actionSignal = createAgentSignal("#ffc86b");
         scene.add(actionSignal.group);
 
@@ -3648,11 +3606,6 @@ export default function EverestObservatory() {
           ...climber,
           agentSignal,
           enduranceHalo,
-          actionMarkers,
-          actionMarkerGeometry,
-          actionMarkerMaterial,
-          actionMarkerDummy,
-          actionMarkerSizeM: 0.24,
           actionSignal,
           smoothedGroundY: Number.NaN,
           lastGroundUpdateAt: performance.now(),
@@ -3868,8 +3821,11 @@ export default function EverestObservatory() {
           }
         }
         const patchDriftM =
-          desiredDetailCenter.distanceTo(detailPatchCenter) /
-          WORLD_UNITS_PER_METER;
+          canonicalDistanceM(
+            detailWorldScale,
+            desiredDetailCenter.x - detailPatchCenter.x,
+            desiredDetailCenter.y - detailPatchCenter.y,
+          );
         const detailWorldChanged =
           detailClipmap.worldHash !==
             sceneDataRef.current.feed.worldHash ||
@@ -4823,32 +4779,6 @@ export default function EverestObservatory() {
             : handlingMatter || carryingMatter
               ? -0.82 - handlingReach * 0.34
               : 0;
-          trace.actionMarkers.visible =
-            isActive &&
-            !humanWorkView &&
-            cameraDistanceM < 1_600;
-          trace.actionMarkerMaterial.opacity = isActive ? 0.5 : 0.08;
-          if (
-            Math.abs(
-              trace.actionMarkerSizeM - visualLod.actionMarkerM,
-            ) >
-            Math.max(0.04, trace.actionMarkerSizeM * 0.12)
-          ) {
-            trace.actionMarkerSizeM = visualLod.actionMarkerM;
-            const markerWorld =
-              visualLod.actionMarkerM * WORLD_UNITS_PER_METER;
-            trace.releasePoints.forEach((point, pointIndex) => {
-              trace.actionMarkerDummy.position.copy(point);
-              trace.actionMarkerDummy.position.y += markerWorld * 1.5;
-              trace.actionMarkerDummy.scale.setScalar(markerWorld);
-              trace.actionMarkerDummy.updateMatrix();
-              trace.actionMarkers.setMatrixAt(
-                pointIndex,
-                trace.actionMarkerDummy.matrix,
-              );
-            });
-            trace.actionMarkers.instanceMatrix.needsUpdate = true;
-          }
           if (
             actionState &&
             trace.releasePoints[actionState.index]
@@ -5133,8 +5063,6 @@ export default function EverestObservatory() {
             materials,
             agentSignal,
             enduranceHalo,
-            actionMarkerGeometry,
-            actionMarkerMaterial,
             actionSignal,
             matterReplay,
           }) => {
@@ -5152,8 +5080,6 @@ export default function EverestObservatory() {
             agentSignal.materials.forEach((item) => item.dispose());
             enduranceHalo.geometry.dispose();
             enduranceHalo.materials.forEach((item) => item.dispose());
-            actionMarkerGeometry.dispose();
-            actionMarkerMaterial.dispose();
             actionSignal.group.traverse((object) => {
               if (object instanceof THREE.Mesh) object.geometry.dispose();
             });
@@ -5216,17 +5142,20 @@ export default function EverestObservatory() {
   const activeDetailLod = DETAIL_LODS.find(
     ({ label }) => label === terrainResolution,
   );
-  const selectReplay = (index: number) => {
-    if (manualReplayStarted.current > 0) {
-      leaveExpeditionWatch();
-    }
-    activeExpeditionRef.current = index;
-    overviewReplayRef.current = {
-      expeditionIndex: index,
-      startedAt: performance.now(),
-    };
-    setActiveExpedition(index);
-  };
+  const selectReplay = useCallback(
+    (index: number) => {
+      if (manualReplayStarted.current > 0) {
+        leaveExpeditionWatch();
+      }
+      activeExpeditionRef.current = index;
+      overviewReplayRef.current = {
+        expeditionIndex: index,
+        startedAt: performance.now(),
+      };
+      setActiveExpedition(index);
+    },
+    [leaveExpeditionWatch],
+  );
   const navigate = (command: NavigationCommand) => {
     navigationCommandRef.current = command;
   };
