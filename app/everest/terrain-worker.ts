@@ -2,6 +2,7 @@
 
 import {
   buildTerrainMesh,
+  type TerrainElevationSource,
   type TerrainMesherContext,
   type TerrainMeshRequest,
 } from "./terrain-mesher";
@@ -9,8 +10,16 @@ import {
 type WorkerRequest =
   | {
       type: "initialize";
-      context: Omit<TerrainMesherContext, "elevations">;
+      context: Omit<
+        TerrainMesherContext,
+        "elevations" | "elevationSources"
+      >;
       elevations: ArrayBuffer;
+      elevationSources: Array<
+        Omit<TerrainElevationSource, "elevations"> & {
+          elevations: ArrayBuffer;
+        }
+      >;
     }
   | {
       type: "build";
@@ -26,6 +35,10 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
     context = {
       ...message.context,
       elevations: new Int16Array(message.elevations),
+      elevationSources: message.elevationSources.map((source) => ({
+        ...source,
+        elevations: new Int16Array(source.elevations),
+      })),
     };
     self.postMessage({ type: "ready" });
     return;

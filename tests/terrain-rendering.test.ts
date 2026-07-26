@@ -9,12 +9,16 @@ import {
   focusAnchoredTerrainCenter,
   ScreenSpaceLodSelector,
 } from "../app/everest/terrain-runtime";
-import { buildTerrainMesh } from "../app/everest/terrain-mesher";
+import {
+  buildTerrainMesh,
+  sampleTerrainElevation,
+} from "../app/everest/terrain-mesher";
 import {
   clipTerrainRectangleToHole,
   fillTerrainRectangleEdgeIntervals,
   clipTerrainCellToRing,
   subdivideTerrainSeam,
+  terrainCellRectangularRingGeometry,
   terrainEdgeIntervals,
   terrainSeamNormalSign,
 } from "../app/everest/terrain-clipmap-topology";
@@ -35,6 +39,12 @@ import {
   canonicalWorldScale,
   worldToCanonical,
 } from "../app/everest/canonical-world";
+import {
+  planTerrainClipmap,
+  snapCanonicalClipmapCoordinate,
+  terrainClipmapLevelIndex,
+  TERRAIN_CLIPMAP_LEVELS,
+} from "../app/everest/terrain-lod-plan";
 
 test("screen-space terrain LOD follows projected voxel density", () => {
   const levels = [
@@ -70,6 +80,98 @@ test("orbiting a camera cannot move the terrain detail anchor", () => {
   assert.equal(northView, focus);
   assert.equal(eastView, focus);
   assert.deepEqual(northView, eastView);
+});
+
+test("one clipmap plan spans selectable detail and macro terrain", () => {
+  const activeIndex = terrainClipmapLevelIndex("1.6 M");
+  const rings = planTerrainClipmap(
+    TERRAIN_CLIPMAP_LEVELS,
+    activeIndex,
+  );
+  assert.equal(rings[0].cellM, 1.6);
+  assert.equal(rings[0].innerHoleM, 0);
+  assert.deepEqual(
+    rings.map(({ cellM }) => cellM),
+    [1.6, 3.2, 6.4, 15, 30, 90, 180, 300],
+  );
+  assert.equal(rings.at(-1)?.sealOuterBoundary, true);
+  rings.slice(1).forEach((ring, index) => {
+    assert.equal(ring.innerHoleM, rings[index].windowM);
+    assert.equal(ring.innerCellM, rings[index].cellM);
+  });
+});
+
+test("each clipmap level recenters only by whole native cells", () => {
+  for (const level of TERRAIN_CLIPMAP_LEVELS) {
+    const first = snapCanonicalClipmapCoordinate(12_345.67, level.cellM);
+    const next = snapCanonicalClipmapCoordinate(
+      12_345.67 + level.cellM,
+      level.cellM,
+    );
+    assert.ok(Math.abs(next - first - level.cellM) < 1e-9);
+    const phase = first / level.cellM - 0.5;
+    assert.ok(Math.abs(phase - Math.round(phase)) < 1e-9);
+  }
+});
+
+test("DEM pyramid selects by cell size and falls back by coverage", () => {
+  const constantSource = (
+    minimumCellM: number,
+    value: number,
+    extent: number,
+  ) => {
+    const dimension = extent * 40;
+    return {
+      minimumCellM,
+      metadata: {
+        sampleSpacingArcSeconds: 180,
+        width: dimension,
+        height: dimension,
+        bounds: {
+          north: extent,
+          south: -extent,
+          west: -extent,
+          east: extent,
+        },
+      },
+      elevations: new Int16Array(dimension * dimension).fill(value),
+    };
+  };
+  const authority = constantSource(0, 100, 2);
+  const context = {
+    metadata: authority.metadata,
+    elevations: authority.elevations,
+    elevationSources: [
+      constantSource(90, 200, 4),
+      constantSource(300, 300, 6),
+    ],
+    terrain: {
+      blockSize: 1,
+      xOrigin: 0,
+      zOrigin: 0,
+    },
+    canonicalOriginLatitude: 0,
+    canonicalOriginLongitude: 0,
+    metersPerDegreeLatitude: 100,
+    worldUnitsPerMeter: 1,
+  };
+  assert.equal(sampleTerrainElevation(context, 0, 0, 30), 100);
+  assert.equal(sampleTerrainElevation(context, 0, 0, 90), 200);
+  assert.equal(sampleTerrainElevation(context, 0, 0, 300), 300);
+  assert.equal(sampleTerrainElevation(context, 450, 0, 90), 300);
+  const justInsideAuthority = sampleTerrainElevation(
+    context,
+    199,
+    0,
+    30,
+  );
+  const justOutsideAuthority = sampleTerrainElevation(
+    context,
+    201,
+    0,
+    30,
+  );
+  assert.ok(Math.abs(justInsideAuthority - justOutsideAuthority) < 1);
 });
 
 test("a stone belongs to only one nested clipmap ring", () => {
@@ -159,6 +261,36 @@ test("clipmap rings assign every horizontal point to one LOD", () => {
     clipTerrainCellToRing(0, 0, 2, 4),
     { tops: [], seams: [] },
   );
+});
+
+test("offset clipmap holes preserve exact single ownership", () => {
+  const hole = {
+    minimumX: -0.25,
+    maximumX: 2.75,
+    minimumZ: -1.75,
+    maximumZ: 1.25,
+  };
+  const geometry = terrainCellRectangularRingGeometry(
+    2,
+    0,
+    4,
+    hole,
+    1,
+    1.25,
+    -0.25,
+  );
+  assert.ok(geometry);
+  const visibleArea = geometry.tops.reduce(
+    (area, rectangle) =>
+      area +
+      (rectangle.maximumX - rectangle.minimumX) *
+        (rectangle.maximumZ - rectangle.minimumZ),
+    0,
+  );
+  const overlapWidth = 2.75 - 0;
+  const overlapHeight = 1.25 - -1.75;
+  assert.equal(visibleArea + overlapWidth * overlapHeight, 16);
+  assert.ok(geometry.seams.length > 0);
 });
 
 test("ring side walls cannot cross the finer LOD footprint", () => {
@@ -371,25 +503,12 @@ test("overview transition shares exact bounds and morphs only its edge", () => {
 });
 
 test("every production LOD seam is continuous at fine-cell precision", () => {
-  const detailLods = [
-    { cellM: 15, gridCells: 257 },
-    { cellM: 6.4, gridCells: 161 },
-    { cellM: 3.2, gridCells: 129 },
-    { cellM: 1.6, gridCells: 129 },
-    { cellM: 0.8, gridCells: 129 },
-    { cellM: 0.4, gridCells: 129 },
-    { cellM: 0.2, gridCells: 129 },
-  ];
-  const pairs = [
-    {
-      coarse: { cellM: 30, gridCells: 257 },
-      fine: detailLods[0],
-    },
-    ...detailLods.slice(0, -1).map((coarse, index) => ({
+  const pairs = TERRAIN_CLIPMAP_LEVELS.slice(0, -1).map(
+    (coarse, index) => ({
       coarse,
-      fine: detailLods[index + 1],
-    })),
-  ];
+      fine: TERRAIN_CLIPMAP_LEVELS[index + 1],
+    }),
+  );
   pairs.forEach(({ coarse, fine }) => {
     const innerHoleM = fine.cellM * fine.gridCells;
     const halfHole = innerHoleM / 2;
@@ -473,7 +592,9 @@ test("streamed stone instances do not move when a patch recenters", async () => 
       height,
       bounds: {
         north: 27.94236111111111,
+        south: 27.93347222222222,
         west: 86.89486111111111,
+        east: 86.90375,
       },
     },
     elevations: new Int16Array(width * height).fill(5_260),
@@ -590,7 +711,12 @@ test("terrain mesher emits a single-owner sealed clipmap ring", () => {
         sampleSpacingArcSeconds: 1,
         width,
         height,
-        bounds: { north: 28, west: 86.9 },
+        bounds: {
+          north: 28,
+          south: 27.996666666666666,
+          west: 86.9,
+          east: 86.903333333333336,
+        },
       },
       elevations,
       terrain: {
@@ -606,6 +732,8 @@ test("terrain mesher emits a single-owner sealed clipmap ring", () => {
     {
       centerWorldX: blockSize * 6,
       centerWorldZ: blockSize * 6,
+      innerCenterWorldX: blockSize * 6 + 0.002,
+      innerCenterWorldZ: blockSize * 6 - 0.001,
       cellM: 0.8,
       gridCells: 17,
       innerHoleM: 4,

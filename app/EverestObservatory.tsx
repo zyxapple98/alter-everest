@@ -27,6 +27,10 @@ import {
 } from "./everest/terrain-runtime";
 import { TerrainStreamingEngine } from "./everest/terrain-streaming";
 import {
+  sampleTerrainElevation,
+  type TerrainMesherContext,
+} from "./everest/terrain-mesher";
+import {
   expeditionReplayWorldState,
   FINAL_WORLD_REPLAY_STATE,
   type ExpeditionReplayWorldState,
@@ -55,6 +59,13 @@ import {
   terrainOverviewMorphWeight,
   terrainOverviewTargetPoint,
 } from "./everest/terrain-overview-transition";
+import {
+  planTerrainClipmap,
+  snapCanonicalClipmapCoordinate,
+  terrainClipmapCellM,
+  terrainClipmapLevelIndex,
+  TERRAIN_CLIPMAP_LEVELS,
+} from "./everest/terrain-lod-plan";
 
 interface DemMetadata {
   id: string;
@@ -121,19 +132,20 @@ interface TerrainGridRegistration {
   zOrigin: number;
 }
 
-interface DetailPatch {
+interface TerrainClipmapPatch {
   key: string;
   group: THREE.Group;
   cellM: number;
   windowM: number;
   voxelCount: number;
+  bufferBytes?: number;
   setOpacity(opacity: number): void;
   setHiddenStoneIds?(hiddenStoneIds: ReadonlySet<string>): void;
   dispose(): void;
 }
 
-interface DetailClipmapSet {
-  patches: DetailPatch[];
+interface TerrainClipmapSet {
+  patches: TerrainClipmapPatch[];
   activeIndex: number;
   worldHash: string;
   replayTerrainKey: string;
@@ -175,6 +187,7 @@ interface TerrainOptions {
   yOffset?: number;
   detailedSides?: boolean;
   edgeFeatherCells?: number;
+  renderGeometry?: boolean;
 }
 
 const BASE_ELEVATION_M = 0;
@@ -189,47 +202,6 @@ const METERS_PER_DEGREE_LATITUDE = 111_320;
 const WORLD_UNITS_PER_METER = CORE_BLOCK_SIZE / 30;
 const ENDURANCE_SEGMENTS = 28;
 const MAX_RENDER_PIXEL_RATIO = 1.2;
-const DETAIL_LODS = [
-  {
-    cellM: 15,
-    gridCells: 257,
-    label: "15 M",
-  },
-  {
-    cellM: 6.4,
-    gridCells: 161,
-    label: "6.4 M",
-  },
-  {
-    cellM: 3.2,
-    gridCells: 129,
-    label: "3.2 M",
-  },
-  {
-    cellM: 1.6,
-    gridCells: 129,
-    label: "1.6 M",
-  },
-  {
-    cellM: 0.8,
-    gridCells: 129,
-    label: "80 CM",
-  },
-  {
-    cellM: 0.4,
-    gridCells: 129,
-    label: "40 CM",
-  },
-  {
-    cellM: 0.2,
-    gridCells: 129,
-    label: "20 CM",
-  },
-] as const;
-const OUTER_CLIPMAP_LOD = {
-  cellM: 30,
-  gridCells: 257,
-} as const;
 const EMPTY_MEMORIAL_CLUSTERS: MemorialCluster[] = [];
 interface SurfaceDeltaLookup {
   chunks: Map<string, ObservatorySurfaceDeltaChunk>;
@@ -308,7 +280,13 @@ type SkyPhase = "night" | "dawn" | "day" | "dusk";
 type TerrainResolution =
   | "90 M"
   | "30 M"
-  | (typeof DETAIL_LODS)[number]["label"];
+  | "15 M"
+  | "6.4 M"
+  | "3.2 M"
+  | "1.6 M"
+  | "80 CM"
+  | "40 CM"
+  | "20 CM";
 
 type NavigationCommand =
   | {
@@ -331,17 +309,14 @@ type NavigationCommand =
       type: "restore-watch-view";
     };
 
-const TERRAIN_SCREEN_LODS = [
-  { value: "20 CM", cellM: 0.2 },
-  { value: "40 CM", cellM: 0.4 },
-  { value: "80 CM", cellM: 0.8 },
-  { value: "1.6 M", cellM: 1.6 },
-  { value: "3.2 M", cellM: 3.2 },
-  { value: "6.4 M", cellM: 6.4 },
-  { value: "15 M", cellM: 15 },
-  { value: "30 M", cellM: 30 },
-  { value: "90 M", cellM: 90 },
-] as const satisfies ReadonlyArray<{
+const TERRAIN_SCREEN_LODS = TERRAIN_CLIPMAP_LEVELS.filter(
+  ({ selectable }) => selectable,
+)
+  .map(({ label, cellM }) => ({
+    value: label as TerrainResolution,
+    cellM,
+  }))
+  .reverse() satisfies ReadonlyArray<{
   value: TerrainResolution;
   cellM: number;
 }>;
@@ -523,6 +498,7 @@ function createVoxelTerrain(
     yOffset = 0,
     detailedSides = true,
     edgeFeatherCells = 0,
+    renderGeometry = true,
   } = options;
   const blockSize =
     metadata.sampleSpacingArcSeconds * WORLD_PER_ARC_SECOND;
@@ -644,6 +620,26 @@ function createVoxelTerrain(
       topHeights[index] = nativeTopY;
     }
     if (elevations[index] > elevations[peakIndex]) peakIndex = index;
+  }
+
+  if (!renderGeometry) {
+    return {
+      mesh: new THREE.Mesh(
+        new THREE.BufferGeometry(),
+        new THREE.MeshBasicMaterial(),
+      ),
+      levels,
+      topHeights,
+      width,
+      height,
+      blockSize,
+      baseElevationM: BASE_ELEVATION_M,
+      verticalStepM,
+      peakColumn: peakIndex % width,
+      peakRow: Math.floor(peakIndex / width),
+      xOrigin,
+      zOrigin,
+    };
   }
 
   let faceCount = 0;
@@ -1100,7 +1096,7 @@ async function createDetailPatch(
   innerHoleM: number,
   terrainTint: string,
   feed: ObservatoryFeed,
-): Promise<DetailPatch> {
+): Promise<TerrainClipmapPatch> {
   const { metadata, elevations } = core;
   const degreesPerSample = metadata.sampleSpacingArcSeconds / 3600;
   const centerColumn = THREE.MathUtils.clamp(
@@ -1701,12 +1697,7 @@ async function createDetailPatch(
 }
 
 function cellSizeForResolution(resolution: TerrainResolution) {
-  if (resolution === "90 M") return 90;
-  if (resolution === "30 M") return 30;
-  return (
-    DETAIL_LODS.find((lod) => lod.label === resolution)?.cellM ??
-    30
-  );
+  return terrainClipmapCellM(resolution) ?? 30;
 }
 
 function snapDetailCenterToCanonicalGrid(
@@ -1730,9 +1721,9 @@ function snapDetailCenterToCanonicalGrid(
     worldZ,
   );
   const snappedCanonicalX =
-    (Math.floor(canonical.x / cellM) + 0.5) * cellM;
+    snapCanonicalClipmapCoordinate(canonical.x, cellM);
   const snappedCanonicalZ =
-    (Math.floor(canonical.z / cellM) + 0.5) * cellM;
+    snapCanonicalClipmapCoordinate(canonical.z, cellM);
   const snappedWorld = canonicalToWorld(
     registration,
     snappedCanonicalX,
@@ -1748,6 +1739,7 @@ function detailedSurfaceY(
   worldZ: number,
   renderedCellM = 0,
   surfaceEdits?: SurfaceEditSource,
+  elevationContext?: TerrainMesherContext,
 ) {
   const { metadata, elevations } = core;
   const degreesPerSample = metadata.sampleSpacingArcSeconds / 3600;
@@ -1776,24 +1768,31 @@ function detailedSurfaceY(
   const canonicalZ =
     (CANONICAL_ORIGIN_LATITUDE - latitude) *
     METERS_PER_DEGREE_LATITUDE;
-  const elevationM = sampleDemElevation(
-    elevations,
-    metadata.width,
-    metadata.height,
-    column,
-    row,
-  );
+  const elevationM = elevationContext
+    ? sampleTerrainElevation(
+        elevationContext,
+        canonicalX,
+        canonicalZ,
+        Math.max(0.2, renderedCellM),
+      )
+    : sampleDemElevation(
+        elevations,
+        metadata.width,
+        metadata.height,
+        column,
+        row,
+      );
   const naturalizedElevationM =
     elevationM + syntheticReliefM(canonicalX, canonicalZ);
   // Detail patches render the top of floor(height / cell) + 1. Collision
   // must use that same quantized authority; the continuous DEM surface can
   // otherwise sit almost one full voxel below what is actually visible.
   let renderedElevationM = naturalizedElevationM;
-  if (renderedCellM > 0 && renderedCellM <= 15) {
+  if (renderedCellM > 0) {
     let topVoxel = Math.floor(
       naturalizedElevationM / renderedCellM,
     );
-    if (surfaceEdits) {
+    if (surfaceEdits && renderedCellM <= 1.6) {
       const delta = surfaceEdits.definition;
       const columnX = Math.floor(
         canonicalX / delta.voxelEdgeM,
@@ -1984,8 +1983,8 @@ function createRoute(
 }
 
 function canonicalCoordinatePoint(
-  activity: DemLayer,
-  activityTerrain: VoxelTerrain,
+  focusData: DemLayer,
+  focusTerrain: VoxelTerrain,
   x: number,
   z: number,
 ) {
@@ -1998,14 +1997,14 @@ function canonicalCoordinatePoint(
     CANONICAL_ORIGIN_LONGITUDE + x / metersPerDegreeLongitude;
   if (
     containsCoordinate(
-      activity.metadata.bounds,
+      focusData.metadata.bounds,
       latitude,
       longitude,
     )
   ) {
     return coordinatePoint(
-      activityTerrain,
-      activity.metadata,
+      focusTerrain,
+      focusData.metadata,
       latitude,
       longitude,
     );
@@ -2827,7 +2826,7 @@ export default function EverestObservatory() {
     target: THREE.Vector3;
   } | null>(null);
   const terrainResolutionRef =
-    useRef<TerrainResolution>("30 M");
+    useRef<TerrainResolution>("90 M");
   const navigationCommandRef = useRef<NavigationCommand | null>(
     null,
   );
@@ -2842,7 +2841,7 @@ export default function EverestObservatory() {
     "idle" | "queued" | "focused" | "invalid" | "outside"
   >("idle");
   const [terrainResolution, setTerrainResolution] =
-    useState<TerrainResolution>("30 M");
+    useState<TerrainResolution>("90 M");
   const [terrainPerformance, setTerrainPerformance] =
     useState<TerrainPerformanceSnapshot>({
       fps: 0,
@@ -3028,70 +3027,33 @@ export default function EverestObservatory() {
       );
       host.appendChild(renderer.domElement);
 
-      // One 90 m-aligned footprint is shared by the 30 m foreground, 90 m
-      // overview, and the hole cut into the 180 m context ring. Independent
-      // bounds leave a one-cell overlap strip that flashes while orbiting.
-      const activityBounds = alignedActivityTerrainBounds(
+      // Keep navigation and all focus presets inside one canonical movement
+      // envelope. Rendered terrain never uses this rectangle as a
+      // 30 m/90 m mode boundary; every visible scale is owned by the unified
+      // focus-anchored clipmap below.
+      const focusGeographicBounds = alignedActivityTerrainBounds(
         core.metadata.bounds,
         sites,
         0.04,
         3,
       );
-      const activity = createActivityDem(
+      const focusTerrainData = createActivityDem(
         core,
         mid,
-        activityBounds,
-      );
-      const activityOverview = createActivityDem(
-        core,
-        mid,
-        activityBounds,
-        3,
-      );
-      // A lightweight 180 m context ring separates the detailed activity
-      // footprint from the 300 m regional backdrop. It keeps the functional
-      // area visually dominant without exposing one abrupt 90 m -> 300 m
-      // resolution step around it.
-      const regionalContext = createActivityDem(
-        core,
-        mid,
-        mid.metadata.bounds,
-        6,
+        focusGeographicBounds,
       );
       const farTerrain = createVoxelTerrain(
         far.elevations,
         far.metadata,
         {
-          holeBounds: regionalContext.metadata.bounds,
-          detailedSides: false,
-        },
-      );
-      const regionalContextTerrain = createVoxelTerrain(
-        regionalContext.elevations,
-        regionalContext.metadata,
-        {
-          holeBounds: activityBounds,
-          detailedSides: false,
-          edgeMorphTarget: farTerrain,
-          edgeMorphCells: 4,
-        },
-      );
-      const activityOverviewTerrain = createVoxelTerrain(
-        activityOverview.elevations,
-        activityOverview.metadata,
-        {
-          detailedSides: false,
-          edgeMorphTarget: regionalContextTerrain,
-          edgeMorphCells: 8,
+          renderGeometry: false,
         },
       );
       const terrain = createVoxelTerrain(
-        activity.elevations,
-        activity.metadata,
+        focusTerrainData.elevations,
+        focusTerrainData.metadata,
         {
-          detailedSides: false,
-          edgeMorphTarget: regionalContextTerrain,
-          edgeMorphCells: 24,
+          renderGeometry: false,
         },
       );
       const authorityTerrain = terrainGridRegistration(
@@ -3100,6 +3062,18 @@ export default function EverestObservatory() {
       const terrainStreamingContext = {
         metadata: authority.metadata,
         elevations: authority.elevations,
+        elevationSources: [
+          {
+            minimumCellM: 90,
+            metadata: mid.metadata,
+            elevations: mid.elevations,
+          },
+          {
+            minimumCellM: 300,
+            metadata: far.metadata,
+            elevations: far.elevations,
+          },
+        ],
         terrain: authorityTerrain,
         canonicalOriginLatitude: CANONICAL_ORIGIN_LATITUDE,
         canonicalOriginLongitude: CANONICAL_ORIGIN_LONGITUDE,
@@ -3113,22 +3087,6 @@ export default function EverestObservatory() {
         terrainStreamingContext,
         sceneFeed,
       );
-      const terrainLayers = [
-        farTerrain,
-        regionalContextTerrain,
-        activityOverviewTerrain,
-        terrain,
-      ];
-      terrainLayers.forEach((layer) => {
-        (layer.mesh.material as THREE.MeshBasicMaterial).color.set(
-          alpinePalette.terrainTint,
-        );
-        scene.add(layer.mesh);
-      });
-      const coreTerrainMaterial =
-        terrain.mesh.material as THREE.MeshBasicMaterial;
-      coreTerrainMaterial.transparent = true;
-      activityOverviewTerrain.mesh.visible = false;
       const detailAmbientLight = new THREE.HemisphereLight(
         skyPhase === "night" ? "#b3d5e7" : "#e2f1f2",
         "#1c292e",
@@ -3149,11 +3107,11 @@ export default function EverestObservatory() {
         .map((site) => {
           const layer =
             containsCoordinate(
-              activity.metadata.bounds,
+              focusTerrainData.metadata.bounds,
               site.latitude,
               site.longitude,
             )
-              ? { terrain, metadata: activity.metadata }
+              ? { terrain, metadata: focusTerrainData.metadata }
               : { terrain: farTerrain, metadata: far.metadata };
           // Keep the canonical site coordinates for gameplay, but focus the
           // visual summit preset on the apex of the rendered DEM. The public
@@ -3273,7 +3231,7 @@ export default function EverestObservatory() {
       camera.position.y += 42;
       const target = basePoint.clone().lerp(summitPoint, 0.3);
       target.y = detailedSurfaceY(
-        activity,
+        focusTerrainData,
         terrain,
         target.x,
         target.z,
@@ -3295,7 +3253,7 @@ export default function EverestObservatory() {
         camera.position.copy(cameraViewRef.current.position);
         controls.target.copy(cameraViewRef.current.target);
       }
-      const activityWorldBounds = {
+      const focusNavigationBounds = {
         minX: terrain.xOrigin + terrain.blockSize,
         maxX:
           terrain.xOrigin +
@@ -3310,7 +3268,7 @@ export default function EverestObservatory() {
         camera,
         controls,
         domElement: renderer.domElement,
-        bounds: activityWorldBounds,
+        bounds: focusNavigationBounds,
         worldUnitsPerMeter: WORLD_UNITS_PER_METER,
         sampleSurfaceY: (worldX, worldZ) =>
           detailedSurfaceY(
@@ -3320,6 +3278,7 @@ export default function EverestObservatory() {
             worldZ,
             navigationSurfaceCellM,
             terrainStreaming,
+            terrainStreamingContext,
           ),
       });
       const lodSelector = new ScreenSpaceLodSelector<TerrainResolution>(
@@ -3327,12 +3286,13 @@ export default function EverestObservatory() {
         "90 M",
       );
 
-      let detailPatchCenter = new THREE.Vector2(
+      let terrainClipmapCenter = new THREE.Vector2(
         controls.target.x,
         controls.target.z,
       );
-      const detailPatchKey = (
+      const terrainPatchKey = (
         center: THREE.Vector2,
+        innerCenter: THREE.Vector2,
         cellM: number,
         gridCells: number,
         innerHoleM: number,
@@ -3345,6 +3305,8 @@ export default function EverestObservatory() {
           worldHash,
           center.x.toFixed(6),
           center.y.toFixed(6),
+          innerCenter.x.toFixed(6),
+          innerCenter.y.toFixed(6),
           cellM,
           gridCells,
           innerHoleM.toFixed(3),
@@ -3352,8 +3314,9 @@ export default function EverestObservatory() {
           sealOuterBoundary ? "sealed" : "open",
           replayTerrainKey,
         ].join(":");
-      const registerDetailPatch = async (
+      const registerTerrainPatch = async (
         center: THREE.Vector2,
+        innerCenter: THREE.Vector2,
         cellM: number,
         gridCells: number,
         innerHoleM: number,
@@ -3361,17 +3324,22 @@ export default function EverestObservatory() {
         sealOuterBoundary: boolean,
         feedSnapshot: ObservatoryFeed,
         replayWorldState: ExpeditionReplayWorldState,
-        reusablePatches: ReadonlyMap<string, DetailPatch>,
+        reusablePatches: ReadonlyMap<string, TerrainClipmapPatch>,
       ) => {
-        const key = detailPatchKey(
+        const matterStateKey =
+          cellM <= 1.6
+            ? replayWorldState.terrainKey
+            : "macro-static";
+        const key = terrainPatchKey(
           center,
+          innerCenter,
           cellM,
           gridCells,
           innerHoleM,
           innerCellM,
           sealOuterBoundary,
           feedSnapshot.worldHash,
-          replayWorldState.terrainKey,
+          matterStateKey,
         );
         const reusablePatch = reusablePatches.get(key);
         if (reusablePatch) return reusablePatch;
@@ -3380,6 +3348,8 @@ export default function EverestObservatory() {
           key,
           centerWorldX: center.x,
           centerWorldZ: center.y,
+          innerCenterWorldX: innerCenter.x,
+          innerCenterWorldZ: innerCenter.y,
           cellM,
           gridCells,
           innerHoleM,
@@ -3391,13 +3361,13 @@ export default function EverestObservatory() {
         patch.setOpacity(1);
         return patch;
       };
-      const createDetailClipmap = async (
+      const createTerrainClipmap = async (
         activeIndex: number,
-        center: THREE.Vector2,
+        focusCenter: THREE.Vector2,
         feedSnapshot: ObservatoryFeed,
         replayWorldState: ExpeditionReplayWorldState,
-        reusablePatches: ReadonlyMap<string, DetailPatch>,
-      ): Promise<DetailClipmapSet> => {
+        reusablePatches: ReadonlyMap<string, TerrainClipmapPatch>,
+      ): Promise<TerrainClipmapSet> => {
         if (activeIndex < 0) {
           return {
             patches: [],
@@ -3406,54 +3376,40 @@ export default function EverestObservatory() {
             replayTerrainKey: replayWorldState.terrainKey,
           };
         }
-        const activeLod = DETAIL_LODS[activeIndex];
-        const patches = [
-          await registerDetailPatch(
-            center,
-            activeLod.cellM,
-            activeLod.gridCells,
-            0,
-            0,
-            false,
-            feedSnapshot,
-            replayWorldState,
-            reusablePatches,
+        const ringPlan = planTerrainClipmap(
+          TERRAIN_CLIPMAP_LEVELS,
+          activeIndex,
+        );
+        const levelCenters = ringPlan.map((ring) =>
+          snapDetailCenterToCanonicalGrid(
+            focusTerrainData,
+            terrain,
+            focusCenter.x,
+            focusCenter.y,
+            ring.cellM,
           ),
-        ];
-        for (let index = activeIndex - 1; index >= 0; index -= 1) {
-          const coarseLod = DETAIL_LODS[index];
-          const finerLod = DETAIL_LODS[index + 1];
-          const finerWindowM =
-            finerLod.cellM * finerLod.gridCells;
+        );
+        const patches: TerrainClipmapPatch[] = [];
+        for (let ringIndex = 0; ringIndex < ringPlan.length; ringIndex += 1) {
+          const ring = ringPlan[ringIndex];
+          const center = levelCenters[ringIndex];
+          const innerCenter =
+            ringIndex === 0 ? center : levelCenters[ringIndex - 1];
           patches.push(
-            await registerDetailPatch(
+            await registerTerrainPatch(
               center,
-              coarseLod.cellM,
-              coarseLod.gridCells,
-              finerWindowM,
-              finerLod.cellM,
-              false,
+              innerCenter,
+              ring.cellM,
+              ring.gridCells,
+              ring.innerHoleM,
+              ring.innerCellM,
+              ring.sealOuterBoundary,
               feedSnapshot,
               replayWorldState,
               reusablePatches,
             ),
           );
         }
-        const coarsestWindowM =
-          DETAIL_LODS[0].cellM * DETAIL_LODS[0].gridCells;
-        patches.push(
-          await registerDetailPatch(
-            center,
-            OUTER_CLIPMAP_LOD.cellM,
-            OUTER_CLIPMAP_LOD.gridCells,
-            coarsestWindowM,
-            DETAIL_LODS[0].cellM,
-            true,
-            feedSnapshot,
-            replayWorldState,
-            reusablePatches,
-          ),
-        );
         return {
           patches,
           activeIndex,
@@ -3461,9 +3417,9 @@ export default function EverestObservatory() {
           replayTerrainKey: replayWorldState.terrainKey,
         };
       };
-      const disposeDetailClipmap = (
-        clipmap: DetailClipmapSet,
-        retainedPatches: ReadonlySet<DetailPatch> = new Set(),
+      const disposeTerrainClipmap = (
+        clipmap: TerrainClipmapSet,
+        retainedPatches: ReadonlySet<TerrainClipmapPatch> = new Set(),
       ) => {
         clipmap.patches.forEach((patch) => {
           if (retainedPatches.has(patch)) return;
@@ -3471,21 +3427,14 @@ export default function EverestObservatory() {
           patch.dispose();
         });
       };
-      let detailClipmap: DetailClipmapSet = {
+      let terrainClipmap: TerrainClipmapSet = {
         patches: [],
         activeIndex: -1,
         worldHash: sceneFeed.worldHash,
         replayTerrainKey: FINAL_WORLD_REPLAY_STATE.terrainKey,
       };
       let lastClipmapBuildAt = 0;
-      const snappedDetailCenter = (activeIndex: number) => {
-        // Use one canonical alignment at every detail level so unchanged
-        // coarser rings can be transferred between adjacent LODs instead of
-        // regenerated only because their centers rounded differently.
-        const snapCellM =
-          activeIndex >= 0
-            ? DETAIL_LODS[DETAIL_LODS.length - 1].cellM
-            : OUTER_CLIPMAP_LOD.cellM;
+      const snappedTerrainFocus = () => {
         // The observed place owns the detail anchor. Orbiting changes only the
         // camera pose; it must never slide LOD rings across stationary terrain.
         // Translation still moves controls.target and recenters normally.
@@ -3494,22 +3443,24 @@ export default function EverestObservatory() {
           camera.position,
         );
         const canonicalCenter = snapDetailCenterToCanonicalGrid(
-          activity,
+          focusTerrainData,
           terrain,
           focusAnchor.x,
           focusAnchor.z,
-          snapCellM,
+          TERRAIN_CLIPMAP_LEVELS[
+            TERRAIN_CLIPMAP_LEVELS.length - 1
+          ].cellM,
         );
         return new THREE.Vector2(
           THREE.MathUtils.clamp(
             canonicalCenter.x,
-            activityWorldBounds.minX,
-            activityWorldBounds.maxX,
+            focusNavigationBounds.minX,
+            focusNavigationBounds.maxX,
           ),
           THREE.MathUtils.clamp(
             canonicalCenter.y,
-            activityWorldBounds.minZ,
-            activityWorldBounds.maxZ,
+            focusNavigationBounds.minZ,
+            focusNavigationBounds.maxZ,
           ),
         );
       };
@@ -3534,12 +3485,12 @@ export default function EverestObservatory() {
           runningClipmapBuild = job;
           pendingClipmapKey = job.key;
           const reusablePatches = new Map(
-            detailClipmap.patches.map((patch) => [
+            terrainClipmap.patches.map((patch) => [
               patch.key,
               patch,
             ]),
           );
-          const nextClipmap = await createDetailClipmap(
+          const nextClipmap = await createTerrainClipmap(
             job.activeIndex,
             job.center,
             job.feed,
@@ -3555,20 +3506,20 @@ export default function EverestObservatory() {
               queuedAfterBuild.key !== job.key)
           ) {
             runningClipmapBuild = null;
-            disposeDetailClipmap(
+            disposeTerrainClipmap(
               nextClipmap,
-              new Set(detailClipmap.patches),
+              new Set(terrainClipmap.patches),
             );
             continue;
           }
           nextClipmap.patches.forEach((patch) =>
             scene.add(patch.group),
           );
-          const previousClipmap = detailClipmap;
-          detailClipmap = nextClipmap;
-          detailPatchCenter = job.center;
+          const previousClipmap = terrainClipmap;
+          terrainClipmap = nextClipmap;
+          terrainClipmapCenter = job.center;
           lastClipmapBuildAt = performance.now();
-          disposeDetailClipmap(
+          disposeTerrainClipmap(
             previousClipmap,
             new Set(nextClipmap.patches),
           );
@@ -3581,13 +3532,15 @@ export default function EverestObservatory() {
         clipmapBuildRunning = false;
       };
       let desiredReplayWorldState = FINAL_WORLD_REPLAY_STATE;
-      const requestDetailPatches = (activeIndex: number) => {
-        const nextCenter = snappedDetailCenter(activeIndex);
+      const requestTerrainClipmap = (activeIndex: number) => {
+        const nextCenter = snappedTerrainFocus();
         const feedSnapshot = sceneDataRef.current.feed;
         const inFlightBuild =
           queuedClipmapBuild ?? runningClipmapBuild;
         const activeLod =
-          activeIndex >= 0 ? DETAIL_LODS[activeIndex] : null;
+          activeIndex >= 0
+            ? TERRAIN_CLIPMAP_LEVELS[activeIndex]
+            : null;
         const inFlightDriftM = inFlightBuild
           ? canonicalDistanceM(
               detailWorldScale,
@@ -3615,11 +3568,11 @@ export default function EverestObservatory() {
           5,
         )}:${nextCenter.y.toFixed(5)}`;
         const currentMatches =
-          detailClipmap.activeIndex === activeIndex &&
-          detailClipmap.worldHash === feedSnapshot.worldHash &&
-          detailClipmap.replayTerrainKey ===
+          terrainClipmap.activeIndex === activeIndex &&
+          terrainClipmap.worldHash === feedSnapshot.worldHash &&
+          terrainClipmap.replayTerrainKey ===
             desiredReplayWorldState.terrainKey &&
-          detailPatchCenter.distanceTo(nextCenter) < 0.00001;
+          terrainClipmapCenter.distanceTo(nextCenter) < 0.00001;
         if (currentMatches) return;
         if (pendingClipmapKey === key) {
           queuedClipmapBuild = null;
@@ -3644,21 +3597,17 @@ export default function EverestObservatory() {
       };
       const renderedResolutionFor = (
         desiredResolution: TerrainResolution,
-        desiredDetailIndex: number,
+        desiredClipmapIndex: number,
       ): TerrainResolution => {
         if (
-          desiredDetailIndex === detailClipmap.activeIndex
+          desiredClipmapIndex === terrainClipmap.activeIndex
         ) {
           return desiredResolution;
         }
-        if (detailClipmap.activeIndex >= 0) {
-          return DETAIL_LODS[detailClipmap.activeIndex].label;
-        }
-        if (
-          desiredResolution !== "90 M" &&
-          desiredResolution !== "30 M"
-        ) {
-          return "30 M";
+        if (terrainClipmap.activeIndex >= 0) {
+          return TERRAIN_CLIPMAP_LEVELS[
+            terrainClipmap.activeIndex
+          ].label as TerrainResolution;
         }
         return desiredResolution;
       };
@@ -3683,18 +3632,15 @@ export default function EverestObservatory() {
         );
         focusRaycaster.setFromCamera(focusPointer, camera);
         const detailMeshes: THREE.Object3D[] = [];
-        detailClipmap.patches.forEach((patch) => {
+        terrainClipmap.patches.forEach((patch) => {
           patch.group.traverse((object) => {
             if (object instanceof THREE.Mesh && object.visible) {
               detailMeshes.push(object);
             }
           });
         });
-        const terrainMeshes = terrainLayers
-          .map((layer) => layer.mesh)
-          .filter((mesh) => mesh.visible);
         const intersection = focusRaycaster.intersectObjects(
-          [...detailMeshes, ...terrainMeshes],
+          detailMeshes,
           false,
         )[0];
         if (!intersection) return;
@@ -3723,7 +3669,7 @@ export default function EverestObservatory() {
         if (!expedition.trace || expedition.trace.length < 2) return [];
         const route = createRoute(
           terrain,
-          activity.metadata,
+          focusTerrainData.metadata,
           expedition.trace,
           core.metadata,
         );
@@ -3837,7 +3783,7 @@ export default function EverestObservatory() {
             cell,
             point:
               canonicalCoordinatePoint(
-                activity,
+                focusTerrainData,
                 terrain,
                 canonicalX,
                 canonicalZ,
@@ -3908,11 +3854,11 @@ export default function EverestObservatory() {
       const memorialPoints = sceneMemorialClusters.map((cluster) => {
         const layer =
           containsCoordinate(
-            activity.metadata.bounds,
+            focusTerrainData.metadata.bounds,
             cluster.latitude,
             cluster.longitude,
           )
-            ? { terrain, metadata: activity.metadata }
+            ? { terrain, metadata: focusTerrainData.metadata }
             : { terrain: farTerrain, metadata: far.metadata };
         return coordinatePoint(
           layer.terrain,
@@ -4041,7 +3987,7 @@ export default function EverestObservatory() {
               };
             }
             const point = canonicalCoordinatePoint(
-              activity,
+              focusTerrainData,
               terrain,
               navigationCommand.x,
               navigationCommand.z,
@@ -4085,26 +4031,30 @@ export default function EverestObservatory() {
           time,
           navigationSnapshot.inputActive,
         );
-        const activeDetailIndex = DETAIL_LODS.findIndex(
-          (lod) => lod.label === nextResolution,
-        );
-        const desiredDetailCenter =
-          snappedDetailCenter(activeDetailIndex);
+        const activeClipmapIndex =
+          terrainClipmapLevelIndex(nextResolution);
+        const desiredTerrainCenter =
+          snappedTerrainFocus();
+        const desiredClipmapLod =
+          activeClipmapIndex >= 0
+            ? TERRAIN_CLIPMAP_LEVELS[activeClipmapIndex]
+            : null;
         if (
-          activeDetailIndex >= 0 &&
+          desiredClipmapLod &&
+          desiredClipmapLod.cellM <= 1.6 &&
           time - lastPrefetchAt > 240
         ) {
-          const lod = DETAIL_LODS[activeDetailIndex];
-          const prefetchKey = `${activeDetailIndex}:${(
-            desiredDetailCenter.x / Math.max(0.001, lod.cellM * 24)
+          const lod = desiredClipmapLod;
+          const prefetchKey = `${activeClipmapIndex}:${(
+            desiredTerrainCenter.x / Math.max(0.001, lod.cellM * 24)
           ).toFixed(0)}:${(
-            desiredDetailCenter.y / Math.max(0.001, lod.cellM * 24)
+            desiredTerrainCenter.y / Math.max(0.001, lod.cellM * 24)
           ).toFixed(0)}:${sceneDataRef.current.feed.worldHash}`;
           if (prefetchKey !== lastPrefetchKey) {
             terrainStreaming.setFeed(sceneDataRef.current.feed);
             terrainStreaming.prefetch(
-              desiredDetailCenter.x,
-              desiredDetailCenter.y,
+              desiredTerrainCenter.x,
+              desiredTerrainCenter.y,
               lod.cellM * lod.gridCells * 1.18,
             );
             lastPrefetchKey = prefetchKey;
@@ -4114,68 +4064,57 @@ export default function EverestObservatory() {
         const patchDriftM =
           canonicalDistanceM(
             detailWorldScale,
-            desiredDetailCenter.x - detailPatchCenter.x,
-            desiredDetailCenter.y - detailPatchCenter.y,
+            desiredTerrainCenter.x - terrainClipmapCenter.x,
+            desiredTerrainCenter.y - terrainClipmapCenter.y,
           );
         const detailWorldChanged =
-          detailClipmap.worldHash !==
+          terrainClipmap.worldHash !==
             sceneDataRef.current.feed.worldHash ||
-          detailClipmap.replayTerrainKey !==
+          terrainClipmap.replayTerrainKey !==
             desiredReplayWorldState.terrainKey;
         if (
-          (activeDetailIndex !== detailClipmap.activeIndex ||
+          (activeClipmapIndex !== terrainClipmap.activeIndex ||
             detailWorldChanged) &&
           !navigationSnapshot.inputActive &&
           navigationSnapshot.inputIdleMs > 110
         ) {
-          requestDetailPatches(activeDetailIndex);
+          requestTerrainClipmap(activeClipmapIndex);
         } else if (
-          activeDetailIndex >= 0 &&
+          activeClipmapIndex >= 0 &&
           navigationSnapshot.inputIdleMs > 140 &&
           time - lastClipmapBuildAt > 220
         ) {
-          const activeLod = DETAIL_LODS[activeDetailIndex];
+          const activeLod =
+            TERRAIN_CLIPMAP_LEVELS[activeClipmapIndex];
           const recenterThresholdM = Math.max(
             activeLod.cellM * 12,
             activeLod.cellM * activeLod.gridCells * 0.18,
           );
           if (patchDriftM > recenterThresholdM) {
-            requestDetailPatches(activeDetailIndex);
+            requestTerrainClipmap(activeClipmapIndex);
           }
         }
         const renderedResolution = renderedResolutionFor(
           nextResolution,
-          activeDetailIndex,
+          activeClipmapIndex,
         );
-        const detailSurfaceReady =
-          activeDetailIndex >= 0 &&
-          detailClipmap.activeIndex === activeDetailIndex;
+        const terrainSurfaceReady =
+          activeClipmapIndex >= 0 &&
+          terrainClipmap.activeIndex === activeClipmapIndex;
         if (
           suppressOverviewUntilDetailReady &&
-          (detailSurfaceReady ||
+          (terrainSurfaceReady ||
             (time - overviewSuppressedAt > 1_200 &&
               cameraDistanceM >= 8_000))
         ) {
           suppressOverviewUntilDetailReady = false;
         }
-        const coreOpacity =
-          renderedResolution === "30 M" ? 1 : 0;
-        coreTerrainMaterial.opacity = coreOpacity;
-        coreTerrainMaterial.depthWrite = coreOpacity > 0.72;
-        terrain.mesh.visible = coreOpacity > 0.01;
-        activityOverviewTerrain.mesh.visible =
-          renderedResolution === "90 M";
-        // Keep the previous terrain visible while the next clipmap is built,
-        // but hide overview-only markers as soon as the camera requests a
-        // detail LOD. Otherwise their world-scale pillars briefly fill the
-        // camera during focus/zoom transitions.
+        // Terrain now has one clipmap lifecycle at every scale. World-scale
+        // annotations remain an overview presentation concern, so hide them
+        // as soon as the requested cell size is finer than 30 m.
         const overviewContextVisible =
           !suppressOverviewUntilDetailReady &&
-          (nextResolution === "90 M" ||
-            nextResolution === "30 M");
-        farTerrain.mesh.visible = overviewContextVisible;
-        regionalContextTerrain.mesh.visible =
-          overviewContextVisible;
+          cellSizeForResolution(nextResolution) >= 30;
         siteObjects.forEach(({ siteGroup }) => {
           siteGroup.visible = overviewContextVisible;
         });
@@ -4334,6 +4273,7 @@ export default function EverestObservatory() {
               routeSample.point.z,
               currentCellM,
               terrainStreaming,
+              terrainStreamingContext,
             ) +
             0.08 * WORLD_UNITS_PER_METER;
           // The construction surface stays exactly quantized, but a walking
@@ -4395,8 +4335,8 @@ export default function EverestObservatory() {
               source.point.copy(
                 terrainStreaming.cellWorldPosition(
                   source.cell,
-                  detailPatchCenter.x,
-                  detailPatchCenter.y,
+                  terrainClipmapCenter.x,
+                  terrainClipmapCenter.y,
                 ),
               );
             }
@@ -4404,8 +4344,8 @@ export default function EverestObservatory() {
               destination.point.copy(
                 terrainStreaming.cellWorldPosition(
                   destination.cell,
-                  detailPatchCenter.x,
-                  detailPatchCenter.y,
+                  terrainClipmapCenter.x,
+                  terrainClipmapCenter.y,
                 ),
               );
             }
@@ -4570,6 +4510,7 @@ export default function EverestObservatory() {
                 worldZ,
                 currentCellM,
                 terrainStreaming,
+                terrainStreamingContext,
               );
               const structureTopY =
                 terrainStreaming.cameraObstacleTopY(
@@ -4865,7 +4806,7 @@ export default function EverestObservatory() {
               ? matterStates[activeMatterIndex]
               : null;
           const replayTerrainReady =
-            detailClipmap.replayTerrainKey ===
+            terrainClipmap.replayTerrainKey ===
             frameReplayWorldState.terrainKey;
           const transferVisible =
             humanWorkView &&
@@ -5141,7 +5082,7 @@ export default function EverestObservatory() {
           }
         });
 
-        detailClipmap.patches.forEach((patch) => {
+        terrainClipmap.patches.forEach((patch) => {
           patch.setHiddenStoneIds?.(
             frameReplayWorldState.hiddenStoneIds,
           );
@@ -5151,8 +5092,8 @@ export default function EverestObservatory() {
           frameReplayWorldState.terrainKey
         ) {
           desiredReplayWorldState = frameReplayWorldState;
-          if (activeDetailIndex >= 0) {
-            requestDetailPatches(activeDetailIndex);
+          if (activeClipmapIndex >= 0) {
+            requestTerrainClipmap(activeClipmapIndex);
           }
         }
 
@@ -5185,6 +5126,20 @@ export default function EverestObservatory() {
           bottom: number;
         }> = [];
         prioritizedSiteObjects.forEach((siteObject) => {
+          siteObject.siteGroup.position.y =
+            detailedSurfaceY(
+              authority,
+              authorityTerrain,
+              siteObject.siteGroup.position.x,
+              siteObject.siteGroup.position.z,
+              currentCellM,
+              undefined,
+              terrainStreamingContext,
+            ) +
+            15 * WORLD_UNITS_PER_METER;
+          siteObject.labelPoint.y =
+            siteObject.siteGroup.position.y +
+            (siteObject.site.kind === "SUMMIT" ? 3.2 : 2.05);
           if (manualReplayStarted.current > 0) {
             siteObject.label.style.opacity = "0";
             siteObject.label.style.visibility = "hidden";
@@ -5280,6 +5235,11 @@ export default function EverestObservatory() {
         const performanceElapsed = time - performanceWindowStartedAt;
         if (performanceElapsed >= 850) {
           const streamStats = terrainStreaming.stats();
+          const activeTerrainBufferBytes =
+            terrainClipmap.patches.reduce(
+              (bytes, patch) => bytes + (patch.bufferBytes ?? 0),
+              0,
+            );
           const totalMeshCacheRequests =
             streamStats.meshCacheHits + streamStats.meshCacheMisses;
           setTerrainPerformance({
@@ -5292,7 +5252,10 @@ export default function EverestObservatory() {
             workerBuildMs: streamStats.workerBuildMs,
             meshCacheEntries: streamStats.meshCacheEntries,
             residentBufferMB: Math.round(
-              (streamStats.meshCacheBytes +
+              (Math.max(
+                streamStats.meshCacheBytes,
+                activeTerrainBufferBytes,
+              ) +
                 streamStats.residentTileBytes) /
                 (1024 * 1024),
             ),
@@ -5385,10 +5348,10 @@ export default function EverestObservatory() {
           mesh.geometry.dispose();
           (mesh.material as THREE.Material).dispose();
         });
-        disposeDetailClipmap(detailClipmap);
-        terrainLayers.forEach((layer) => {
-          layer.mesh.geometry.dispose();
-          (layer.mesh.material as THREE.Material).dispose();
+        disposeTerrainClipmap(terrainClipmap);
+        [terrain, farTerrain].forEach((surface) => {
+          surface.mesh.geometry.dispose();
+          (surface.mesh.material as THREE.Material).dispose();
         });
         ground.geometry.dispose();
         (ground.material as THREE.Material).dispose();
@@ -5432,9 +5395,19 @@ export default function EverestObservatory() {
     expeditions.length > 0
       ? expeditions[activeExpedition % expeditions.length]
       : null;
-  const activeDetailLod = DETAIL_LODS.find(
-    ({ label }) => label === terrainResolution,
+  const activeTerrainIndex = terrainClipmapLevelIndex(
+    terrainResolution,
   );
+  const activeTerrainLod =
+    activeTerrainIndex >= 0
+      ? TERRAIN_CLIPMAP_LEVELS[activeTerrainIndex]
+      : null;
+  const activeTerrainPlan = planTerrainClipmap(
+    TERRAIN_CLIPMAP_LEVELS,
+    activeTerrainIndex,
+  );
+  const terrainCoverageM =
+    activeTerrainPlan.at(-1)?.windowM ?? 0;
   const selectReplay = useCallback(
     (index: number) => {
       if (manualReplayStarted.current > 0) {
@@ -5589,28 +5562,28 @@ export default function EverestObservatory() {
         </section>
       ) : null}
 
-      {activeDetailLod ? (
+      {activeTerrainLod ? (
         <section className="inspection-readout" aria-label="Live terrain detail">
           <small>STREAMED VOXEL FIELD</small>
           <strong>{terrainResolution} CELLS</strong>
           <span>
             FOCUS-ANCHORED{" "}
             <b>
-              {activeDetailLod.gridCells} ×{" "}
-              {activeDetailLod.gridCells} COLUMNS
+              {activeTerrainPlan.length} RINGS
             </b>
           </span>
           <span>
-            WINDOW{" "}
+            CENTER{" "}
             <b>
-              {(activeDetailLod.cellM * activeDetailLod.gridCells).toFixed(
-                activeDetailLod.cellM < 1 ? 1 : 0,
-              )}{" "}
-              ×{" "}
-              {(activeDetailLod.cellM * activeDetailLod.gridCells).toFixed(
-                activeDetailLod.cellM < 1 ? 1 : 0,
-              )}{" "}
-              M
+              {activeTerrainLod.gridCells} ×{" "}
+              {activeTerrainLod.gridCells} COLUMNS
+            </b>
+          </span>
+          <span>
+            COVERAGE{" "}
+            <b>
+              {(terrainCoverageM / 1_000).toFixed(1)} ×{" "}
+              {(terrainCoverageM / 1_000).toFixed(1)} KM
             </b>
           </span>
           <span>

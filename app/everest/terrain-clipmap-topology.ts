@@ -201,6 +201,7 @@ export function subdivideTerrainSeam(
   minimum: number,
   maximum: number,
   finerCellM: number,
+  finerGridOffset = 0,
 ): TerrainInterval[] {
   if (
     maximum - minimum <= GEOMETRY_EPSILON ||
@@ -213,15 +214,19 @@ export function subdivideTerrainSeam(
   const result: TerrainInterval[] = [];
   let cursor = minimum;
   let boundaryIndex =
-    Math.floor(minimum / finerCellM - 0.5) + 1;
-  let boundary = (boundaryIndex + 0.5) * finerCellM;
+    Math.floor(
+      (minimum - finerGridOffset) / finerCellM - 0.5,
+    ) + 1;
+  let boundary =
+    finerGridOffset + (boundaryIndex + 0.5) * finerCellM;
   while (boundary < maximum - GEOMETRY_EPSILON) {
     if (boundary - cursor > GEOMETRY_EPSILON) {
       result.push({ minimum: cursor, maximum: boundary });
     }
     cursor = boundary;
     boundaryIndex += 1;
-    boundary = (boundaryIndex + 0.5) * finerCellM;
+    boundary =
+      finerGridOffset + (boundaryIndex + 0.5) * finerCellM;
   }
   if (maximum - cursor > GEOMETRY_EPSILON) {
     result.push({ minimum: cursor, maximum });
@@ -347,6 +352,7 @@ function splitRectangleAtSeam(
   rectangle: TerrainTopRectangle,
   seam: TerrainInnerSeam,
   finerCellM: number,
+  finerGridOffset: number,
 ) {
   const parallelMinimum =
     seam.axis === "x" ? rectangle.minimumZ : rectangle.minimumX;
@@ -364,6 +370,7 @@ function splitRectangleAtSeam(
       Math.max(parallelMinimum, seam.minimum),
       Math.min(parallelMaximum, seam.maximum),
       finerCellM,
+      finerGridOffset,
     ),
   );
   if (parallelMaximum > seam.maximum + GEOMETRY_EPSILON) {
@@ -414,19 +421,29 @@ function rectangleTouchesSeam(
 function alignTerrainCellSeamVertices(
   geometry: TerrainCellRingGeometry,
   finerCellM: number,
+  finerCenterOffsetX = 0,
+  finerCenterOffsetZ = 0,
 ): TerrainCellRingGeometry {
   if (geometry.seams.length === 0 || finerCellM <= 0) {
     return geometry;
   }
   return {
-    tops: geometry.tops.flatMap((rectangle) => {
-      const seam = geometry.seams.find((candidate) =>
-        rectangleTouchesSeam(rectangle, candidate),
-      );
-      return seam
-        ? splitRectangleAtSeam(rectangle, seam, finerCellM)
-        : [rectangle];
-    }),
+    tops: geometry.seams.reduce<TerrainTopRectangle[]>(
+      (rectangles, seam) =>
+        rectangles.flatMap((rectangle) =>
+          rectangleTouchesSeam(rectangle, seam)
+            ? splitRectangleAtSeam(
+                rectangle,
+                seam,
+                finerCellM,
+                seam.axis === "x"
+                  ? finerCenterOffsetZ
+                  : finerCenterOffsetX,
+              )
+            : [rectangle],
+        ),
+      geometry.tops,
+    ),
     seams: geometry.seams,
   };
 }
@@ -475,6 +492,46 @@ export function terrainCellRingGeometry(
       innerHoleM,
     ),
     finerCellM,
+  );
+}
+
+/**
+ * The same exact ring ownership as `terrainCellRingGeometry`, but the finer
+ * window may have a different grid-snapped center. Independent per-level
+ * snapping keeps every LOD on a stationary canonical grid while the focus
+ * moves, instead of sliding coarse blocks by fractions of their cell size.
+ */
+export function terrainCellRectangularRingGeometry(
+  localCenterX: number,
+  localCenterZ: number,
+  cellM: number,
+  innerHole: TerrainHoleRectangle | null,
+  finerCellM: number,
+  finerCenterOffsetX = 0,
+  finerCenterOffsetZ = 0,
+): TerrainCellRingGeometry | null {
+  if (!innerHole) return null;
+  const minimumX = localCenterX - cellM / 2;
+  const maximumX = localCenterX + cellM / 2;
+  const minimumZ = localCenterZ - cellM / 2;
+  const maximumZ = localCenterZ + cellM / 2;
+  const overlapsOrTouches =
+    maximumX >= innerHole.minimumX - GEOMETRY_EPSILON &&
+    minimumX <= innerHole.maximumX + GEOMETRY_EPSILON &&
+    maximumZ >= innerHole.minimumZ - GEOMETRY_EPSILON &&
+    minimumZ <= innerHole.maximumZ + GEOMETRY_EPSILON;
+  if (!overlapsOrTouches) return null;
+  return alignTerrainCellSeamVertices(
+    clipTerrainRectangleToHole(
+      minimumX,
+      maximumX,
+      minimumZ,
+      maximumZ,
+      innerHole,
+    ),
+    finerCellM,
+    finerCenterOffsetX,
+    finerCenterOffsetZ,
   );
 }
 
