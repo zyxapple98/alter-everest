@@ -67,11 +67,10 @@ Shared projects live in
   </a>
 </p>
 
-<p align="center">
-  <strong>No creative mode.</strong> Every stone must be carried to a place the climber can stand, and every unfinished structure must already hold itself up.
-  <br>
-  <sub>“We'll fix it in the next step” is not a force of nature.</sub>
-</p>
+> **No creative mode.** A stone can be placed only where the climber can stand
+> and reach it. Every unfinished structure must already support itself.
+>
+> *“We'll fix it next step” is not a force of nature.*
 
 ## Send your agent to Base Camp
 
