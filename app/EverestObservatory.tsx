@@ -73,8 +73,12 @@ import {
   createCameraAtmosphere,
   disposeCameraAtmosphere,
   updateCameraAtmosphere,
-  type AtmospherePalette,
 } from "./everest/atmosphere";
+import {
+  kathmanduSkyPhase,
+  SKY_PHASES,
+  type SkyPhase,
+} from "./everest/sky-cycle";
 
 interface DemMetadata {
   id: string;
@@ -272,7 +276,6 @@ function surfaceDeltaChunksInBounds(
   return chunks;
 }
 
-type SkyPhase = "night" | "dawn" | "day" | "dusk";
 type TerrainResolution =
   | "90 M"
   | "30 M"
@@ -312,77 +315,6 @@ const TERRAIN_SCREEN_LODS = TERRAIN_CLIPMAP_LEVELS.filter(
   cellM: number;
 }>;
 
-const SKY_PHASES: Record<
-  SkyPhase,
-  {
-    fog: string;
-    exposure: number;
-    terrainTint: string;
-    atmosphere: AtmospherePalette;
-  }
-> = {
-  night: {
-    fog: "#294454",
-    exposure: 1.16,
-    terrainTint: "#e6eeee",
-    atmosphere: {
-      top: "#02070e",
-      middle: "#071827",
-      horizon: "#294454",
-      nadir: "#111a1f",
-      celestial: "#d9edf5",
-      celestialGlow: "#8cc7e4",
-      celestialRadiusRadians: 0.011,
-      starOpacity: 0.52,
-    },
-  },
-  dawn: {
-    fog: "#2c4050",
-    exposure: 1,
-    terrainTint: "#eedfd2",
-    atmosphere: {
-      top: "#08111e",
-      middle: "#24334a",
-      horizon: "#2c4050",
-      nadir: "#151b1f",
-      celestial: "#ffd294",
-      celestialGlow: "#e99a6b",
-      celestialRadiusRadians: 0.013,
-      starOpacity: 0.08,
-    },
-  },
-  day: {
-    fog: "#66869a",
-    exposure: 0.98,
-    terrainTint: "#fff4e7",
-    atmosphere: {
-      top: "#31586f",
-      middle: "#6c91a4",
-      horizon: "#66869a",
-      nadir: "#273033",
-      celestial: "#fff3c9",
-      celestialGlow: "#ffe5a1",
-      celestialRadiusRadians: 0.013,
-      starOpacity: 0,
-    },
-  },
-  dusk: {
-    fog: "#243a4a",
-    exposure: 0.98,
-    terrainTint: "#dfcfc5",
-    atmosphere: {
-      top: "#050c15",
-      middle: "#14243a",
-      horizon: "#243a4a",
-      nadir: "#171c20",
-      celestial: "#ffc86b",
-      celestialGlow: "#d97d53",
-      celestialRadiusRadians: 0.013,
-      starOpacity: 0.12,
-    },
-  },
-};
-
 const MOUNTAIN_MATERIALS = {
   valleyRock: new THREE.Color("#343a3a"),
   weatheredGranite: new THREE.Color("#57534e"),
@@ -406,15 +338,6 @@ const ENDURANCE_COLORS = {
   warning: new THREE.Color("#ffc86b"),
   critical: new THREE.Color("#ff794d"),
 } as const;
-
-function kathmanduSkyPhase(date = new Date()): SkyPhase {
-  const utcMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
-  const kathmanduHour = ((utcMinutes + 5 * 60 + 45) % (24 * 60)) / 60;
-  if (kathmanduHour < 5.5 || kathmanduHour >= 19.25) return "night";
-  if (kathmanduHour < 7.25) return "dawn";
-  if (kathmanduHour < 16.75) return "day";
-  return "dusk";
-}
 
 function hashNoise(x: number, z: number, seed = 0) {
   let value = Math.imul(x + seed * 1013, 374761393);
