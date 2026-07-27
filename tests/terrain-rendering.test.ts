@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
-import type {
-  ObservatoryFeed,
-  ObservatorySurfaceTile,
+import {
+  fallbackObservatoryFeed,
+  type ObservatoryFeed,
+  type ObservatorySurfaceTile,
 } from "../lib/world";
 import {
   focusAnchoredTerrainCenter,
@@ -746,7 +747,8 @@ test("streamed stone instances do not move when a patch recenters", async () => 
     ],
   };
   const feed = {
-    schemaVersion: "1.4.0",
+    ...fallbackObservatoryFeed(),
+    schemaVersion: "1.5.0",
     sequence: 1,
     worldHash: "stable-stone-world",
     summitHeightM: 8_848.86,
@@ -770,7 +772,7 @@ test("streamed stone instances do not move when a patch recenters", async () => 
       ],
     },
     recentExpeditions: [],
-    leaderboard: [],
+    footprints: [],
   } satisfies ObservatoryFeed;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) =>
@@ -968,7 +970,8 @@ test("surface tile eviction releases its collision index", async () => {
     };
   });
   const feed = {
-    schemaVersion: "1.4.0",
+    ...fallbackObservatoryFeed(),
+    schemaVersion: "1.5.0",
     sequence: 1,
     worldHash: "tile-eviction-test",
     summitHeightM: 8_848.86,
@@ -980,7 +983,7 @@ test("surface tile eviction releases its collision index", async () => {
       tiles,
     },
     recentExpeditions: [],
-    leaderboard: [],
+    footprints: [],
   } satisfies ObservatoryFeed;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {

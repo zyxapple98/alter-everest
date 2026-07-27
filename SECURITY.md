@@ -18,7 +18,7 @@ Do not test against the production world or other contributors' identities.
 ## Supported version
 
 Only the protocol release described by `protocol/release.json` on the protected
-default branch is supported. Historical event records remain immutable.
+default branch is supported. Canonical event records are append-only.
 
 ## Public threat model
 

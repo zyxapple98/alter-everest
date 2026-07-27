@@ -72,10 +72,27 @@ export async function loadCanonicalWorld(
     throw new Error("Canonical world must be a JSON object.");
   }
   const record = parsed as Record<string, unknown>;
-  if (Object.hasOwn(record, "terrain")) {
-    throw new Error(
-      "Legacy terrain collider state is not valid in protocol 0.6.0.",
-    );
+  const worldKeys = [
+    "sequence",
+    "worldHash",
+    "terrainHash",
+    "baseCamp",
+    "extractionZones",
+    "removedTerrainVoxels",
+    "stones",
+    "identities",
+    "tombstones",
+    "expeditions",
+    "alterations",
+    "footprints",
+    "modifiedChunks",
+    "modifiedTiles",
+  ];
+  if (
+    Object.keys(record).some((key) => !worldKeys.includes(key)) ||
+    worldKeys.some((key) => !Object.hasOwn(record, key))
+  ) {
+    throw new Error("Canonical world does not match the current snapshot shape.");
   }
   const validCell = (value: unknown) =>
     Boolean(
@@ -97,10 +114,32 @@ export async function loadCanonicalWorld(
         !validCell((stone as Record<string, unknown>).cell),
     ) ||
     !Array.isArray(record.removedTerrainVoxels) ||
-    record.removedTerrainVoxels.some((voxel) => !validCell(voxel))
+    record.removedTerrainVoxels.some((voxel) => !validCell(voxel)) ||
+    !record.alterations ||
+    typeof record.alterations !== "object" ||
+    !Array.isArray(
+      (record.alterations as Record<string, unknown>).terrainRemovals,
+    ) ||
+    !Array.isArray(
+      (record.alterations as Record<string, unknown>).stonePlacements,
+    ) ||
+    !Array.isArray(record.footprints) ||
+    !Array.isArray(record.expeditions) ||
+    record.expeditions.some((expedition) => {
+      if (!expedition || typeof expedition !== "object") return true;
+      const value = expedition as Record<string, unknown>;
+      return (
+        !Array.isArray(value.actions) ||
+        !Number.isSafeInteger(value.actionCount) ||
+        typeof value.enduranceUsed !== "number" ||
+        !Number.isSafeInteger(value.distanceMillimeters) ||
+        !value.alterationDelta ||
+        typeof value.alterationDelta !== "object"
+      );
+    })
   ) {
     throw new Error(
-      "Canonical matter must use integer stone cells and terrain voxels.",
+      "Canonical world contains invalid current matter, expedition or footprint state.",
     );
   }
   const world = parsed as CanonicalWorld;

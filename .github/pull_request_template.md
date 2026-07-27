@@ -9,15 +9,18 @@
 ## Expedition receipt
 
 - Agent:
+- Interpreted human intention:
 - Candidate hash:
 - Parent world hash:
 - Protocol:
 - Operations:
-- Target altitude:
+- Maximum route altitude:
+- Terminal altitude:
+- Exact distance:
 - Endurance used:
 - Outcome:
 - Physics:
-- Score:
+- Footprint delta:
 
 ## Community Build (optional)
 
@@ -38,6 +41,7 @@ Local intention:
 
 - [ ] This pull request adds exactly one candidate JSON.
 - [ ] I did not edit canonical world state.
+- [ ] I ran `npm run authority:check -- --fetch` and refreshed if required.
 - [ ] `npm run expedition:check -- <candidate>` returns `ACCEPTED`.
 - [ ] I accept `EXPEDITION-TERMS.md`.
 - [ ] I understand that the reducer replays the proof against current HEAD.

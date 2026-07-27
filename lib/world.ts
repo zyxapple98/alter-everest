@@ -1,16 +1,12 @@
 export interface ObservatoryTracePoint {
   column: number;
   row: number;
-  /**
-   * Canonical route coordinates. Older feeds only have column/row, so the
-   * observatory keeps these optional and falls back to the DEM projection.
-   */
-  x?: number;
-  y?: number;
-  z?: number;
-  altitudeM?: number;
+  x: number;
+  y: number;
+  z: number;
+  altitudeM: number;
   /** Normalized index in the submitted route, from 0 to 1. */
-  progress?: number;
+  progress: number;
 }
 
 export interface ObservatoryExpeditionAction {
@@ -56,12 +52,28 @@ export interface ObservatoryExpedition {
   returned: boolean;
   outcome: "ACTIVE" | "DEAD";
   enduranceUsed: number;
-  score: number;
+  distanceMillimeters: number;
+  alterationDelta: {
+    terrainRemovalsCreated: number;
+    stonePlacementsCreated: number;
+    stonePlacementsRemoved: number;
+  };
   releaseFraction: number;
-  actionFractions?: number[];
-  actions?: ObservatoryExpeditionAction[];
-  totalScore: number;
-  trace?: ObservatoryTracePoint[] | null;
+  actionFractions: number[];
+  actions: ObservatoryExpeditionAction[];
+  footprint: ObservatoryFootprint;
+  trace: ObservatoryTracePoint[] | null;
+}
+
+export interface ObservatoryFootprint {
+  agent: string;
+  agentId: string;
+  acceptedExpeditions: number;
+  totalDistanceMillimeters: number;
+  activeTerrainRemovals: number;
+  activeStonePlacements: number;
+  activeAlterations: number;
+  outcome: "ACTIVE" | "DEAD";
 }
 
 export interface ObservatoryMemorialCluster {
@@ -115,27 +127,27 @@ export interface ObservatorySurfaceTile {
 }
 
 export interface ObservatoryFeed {
-  schemaVersion: "1.4.0";
+  schemaVersion: "1.5.0";
   sequence: number;
   worldHash: string;
   summitHeightM: number;
-  historicalSummit?: {
+  everestSummit: {
     name: string;
     latitude: number;
     longitude: number;
     officialHeightM: number;
   };
-  currentHighestPoint?: {
+  currentHighestPoint: {
     kind: "TERRAIN" | "STONE";
     id: string;
-    x?: number;
-    y?: number;
-    z?: number;
+    x: number;
+    y: number;
+    z: number;
     latitude: number;
     longitude: number;
     altitudeM: number;
   };
-  worldSummary?: {
+  worldSummary: {
     stoneCount: number;
     removedTerrainVoxelCount: number;
     identityCount: number;
@@ -145,13 +157,7 @@ export interface ObservatoryFeed {
     expeditionCount: number;
     modifiedTileCount: number;
   };
-  surfaceDelta?: {
-    voxelEdgeM: number;
-    physicsChunkEdgeM: number;
-    verticalDatumM: number;
-    chunks: ObservatorySurfaceDeltaChunk[];
-  };
-  surfaceTiles?: {
+  surfaceTiles: {
     voxelEdgeM: number;
     physicsChunkEdgeM: number;
     tileEdgeM: number;
@@ -165,34 +171,40 @@ export interface ObservatoryFeed {
    */
   assetBaseUrl?: string;
   recentExpeditions: ObservatoryExpedition[];
-  memorialClusters?: ObservatoryMemorialCluster[];
-  leaderboard: Array<{
-    agent: string;
-    totalScore: number;
-    outcome: "ACTIVE" | "DEAD";
-  }>;
+  memorialClusters: ObservatoryMemorialCluster[];
+  footprints: ObservatoryFootprint[];
 }
 
 export function recentExpeditions(): ObservatoryExpedition[] {
   return [];
 }
 
-export function observatoryLeaderboard() {
-  return recentExpeditions()
-    .map(({ agent, totalScore, outcome }) => ({
-      agent,
-      totalScore,
-      outcome,
-    }))
-    .sort((left, right) => right.totalScore - left.totalScore);
+export function observatoryFootprints(): ObservatoryFootprint[] {
+  return [];
 }
 
 export function fallbackObservatoryFeed(): ObservatoryFeed {
   return {
-    schemaVersion: "1.4.0",
+    schemaVersion: "1.5.0",
     sequence: 0,
     worldHash: "offline-empty-world",
     summitHeightM: 8848.86,
+    everestSummit: {
+      name: "Everest Summit",
+      latitude: 27.9881,
+      longitude: 86.925,
+      officialHeightM: 8848.86,
+    },
+    currentHighestPoint: {
+      kind: "TERRAIN",
+      id: "terrain",
+      x: 3031.5,
+      y: 3479,
+      z: -5194.9,
+      latitude: 27.98902747834072,
+      longitude: 86.92568712916965,
+      altitudeM: 8738,
+    },
     worldSummary: {
       stoneCount: 0,
       removedTerrainVoxelCount: 0,
@@ -203,9 +215,16 @@ export function fallbackObservatoryFeed(): ObservatoryFeed {
       expeditionCount: 0,
       modifiedTileCount: 0,
     },
+    surfaceTiles: {
+      voxelEdgeM: 0.2,
+      physicsChunkEdgeM: 32,
+      tileEdgeM: 256,
+      verticalDatumM: 5259,
+      tiles: [],
+    },
     recentExpeditions: recentExpeditions(),
     memorialClusters: [],
-    leaderboard: observatoryLeaderboard(),
+    footprints: observatoryFootprints(),
   };
 }
 
@@ -260,11 +279,17 @@ export async function loadObservatoryFeed(signal: AbortSignal) {
   }
   const feed = (await response.json()) as ObservatoryFeed;
   if (
-    feed.schemaVersion !== "1.4.0" ||
+    feed.schemaVersion !== "1.5.0" ||
     !Number.isSafeInteger(feed.sequence) ||
     typeof feed.worldHash !== "string" ||
+    !feed.everestSummit ||
+    !feed.currentHighestPoint ||
+    !feed.worldSummary ||
+    !feed.surfaceTiles ||
+    !Array.isArray(feed.surfaceTiles.tiles) ||
     !Array.isArray(feed.recentExpeditions) ||
-    !Array.isArray(feed.leaderboard)
+    !Array.isArray(feed.memorialClusters) ||
+    !Array.isArray(feed.footprints)
   ) {
     throw new Error("World feed is not a supported observatory document.");
   }

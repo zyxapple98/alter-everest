@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import {
-  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -12,11 +11,14 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
+import { verifyCandidateFile } from "../scripts/verification";
 
 const execute = promisify(execFile);
 const projectRoot = resolve(".");
 const exampleCandidate =
   "examples/example-agent/first-marker-roundtrip.json";
+const examplePlan =
+  "examples/example-agent/first-marker-plan.json";
 
 function runScript(script: string, argumentsList: string[] = []) {
   return execute(
@@ -26,475 +28,512 @@ function runScript(script: string, argumentsList: string[] = []) {
   );
 }
 
-test("agent entrypoints expose gameplay before collaboration", async () => {
-  const inspected = await runScript("scripts/inspect-world.ts");
-  const inspection = JSON.parse(inspected.stdout);
-  assert.equal(
-    inspection.onboarding.verifiedExample,
-    exampleCandidate,
+test("onboarding exposes the exact-route player loop", async () => {
+  const doctor = JSON.parse(
+    (await execute(process.execPath, ["scripts/agent-doctor.mjs"], {
+      cwd: projectRoot,
+    })).stdout,
   );
-  assert.match(inspection.onboarding.authority, /full local verdict/i);
-  assert.equal(
-    inspection.onboarding.gameplayChoices[0].operation,
-    "ADD",
-  );
+  assert.equal(doctor.repositoryComplete, true);
+  assert.equal(doctor.readyForInspect, true);
 
-  const queried = await runScript(
-    "scripts/query-site.ts",
-    [
-      "--site",
-      "south-col",
-      "--world",
-      "world/snapshot.json",
-    ],
+  const inspected = JSON.parse(
+    (await runScript("scripts/inspect-world.ts", [
+      "--agent",
+      "new-climber",
+    ])).stdout,
   );
-  const site = JSON.parse(queried.stdout);
-  assert.equal(site.site.id, "south-col");
-  assert.ok(Number.isFinite(site.localAnchor.x));
-  assert.ok(Number.isSafeInteger(site.candidateGroundedCell.cell.y));
-  assert.match(site.candidateGroundedCell.note, /planning hint/i);
-  assert.ok(site.nearbySafeStops.samples.length > 0);
+  assert.equal(inspected.protocol, "0.7.0");
+  assert.equal(inspected.player.status, "NEW");
+  assert.deepEqual(inspected.player.footprint, {
+    agentId: "new-climber",
+    acceptedExpeditions: 0,
+    totalDistanceMillimeters: 0,
+    activeTerrainRemovals: 0,
+    activeStonePlacements: 0,
+    activeAlterations: 0,
+  });
   assert.ok(
-    site.nearbySafeStops.samples.every(
-      (sample: { slopeDegrees: number }) =>
-        sample.slopeDegrees <=
-        site.nearbySafeStops.maximumWalkSlopeDegrees,
+    inspected.onboarding.nextCommands.some((command: string) =>
+      command.includes("route:encode"),
     ),
   );
-  assert.doesNotMatch(site.next[0], /undefined/);
-  assert.match(site.next[0], /--radius 110/);
-  assert.match(site.next[0], /--world/);
-
-  const sharedInspection = await runScript(
-    "scripts/inspect-world.ts",
-    ["--world", "world/snapshot.json"],
-  );
-  const sharedNext = JSON.parse(sharedInspection.stdout).onboarding
-    .nextCommands;
   assert.ok(
-    sharedNext
-      .filter((command: string) => command !== sharedNext[3])
-      .every((command: string) => /--world/.test(command)),
+    inspected.onboarding.nextCommands.some((command: string) =>
+      command.includes("authority:check -- --fetch"),
+    ),
+  );
+  assert.match(inspected.onboarding.authority, /full local verdict/i);
+  assert.equal(
+    inspected.onboarding.intentInterview.requiredAfterLocalRehearsal,
+    true,
+  );
+  assert.equal(
+    inspected.onboarding.intentInterview.skipWhenHumanAlreadyProvidedIntent,
+    true,
+  );
+  assert.ok(
+    inspected.onboarding.intentInterview.exampleIntents.length >= 7,
+  );
+  assert.ok(
+    inspected.onboarding.starterMissions.some(
+      (mission: { id: string }) =>
+        mission.id === "newcomer-village-foundation",
+    ),
+  );
+  assert.deepEqual(inspected.onboarding.sequence.slice(0, 2), [
+    "COMPLETE_LOCAL_REHEARSAL",
+    "OBTAIN_HUMAN_INTENT",
+  ]);
+  assert.equal(
+    inspected.playerInterface.docs.intentions,
+    "docs/player/INTENTIONS.md",
   );
 
-  const playerInspection = await runScript(
-    "scripts/inspect-world.ts",
-    ["--agent", "new-climber"],
+  const site = JSON.parse(
+    (await runScript("scripts/query-site.ts", [
+      "--site",
+      "south-col",
+    ])).stdout,
   );
-  const player = JSON.parse(playerInspection.stdout).player;
-  assert.equal(player.status, "NEW");
-  assert.equal(player.expeditionCount, 0);
-  assert.equal(player.totalScore, 0);
-  assert.equal(player.tombstones.length, 0);
+  assert.equal(site.site.id, "south-col");
+  assert.ok(Number.isSafeInteger(site.candidateGroundedCell.cell.y));
+  assert.ok(site.nearbySafeStops.samples.length > 0);
+  assert.ok(
+    Number.isSafeInteger(site.nearbySafeStops.samples[0].exactStance.y),
+  );
 
-  const terrainHelp = await runScript(
+  for (const script of [
     "scripts/query-terrain.ts",
-    ["--help"],
-  );
-  assert.match(terrainHelp.stdout, /Usage: npm run terrain:query/);
-  const siteHelp = await runScript("scripts/query-site.ts", ["--help"]);
-  assert.match(siteHelp.stdout, /--world <snapshot\.json>/);
+    "scripts/query-world.ts",
+    "scripts/query-site.ts",
+    "scripts/encode-route.ts",
+    "scripts/decode-route.ts",
+    "scripts/check-move.ts",
+    "scripts/check-matter.ts",
+    "scripts/check-authority.ts",
+    "scripts/evaluate-route.ts",
+    "scripts/validate-expedition.ts",
+    "scripts/compile-expedition.ts",
+  ]) {
+    const result = await runScript(script, ["--help"]);
+    assert.match(result.stdout, /Usage:/i, script);
+  }
 
-  const onboarding = await readFile(
-    resolve("docs/AGENT-ONBOARDING.md"),
+  const entry = await readFile(resolve("AGENTS.md"), "utf8");
+  assert.match(entry, /complete exact trace/i);
+  assert.match(entry, /20 cm grid/i);
+  assert.match(entry, /authority:check -- --fetch/);
+  assert.match(entry, /human intent handoff/i);
+  assert.match(entry, /what would you like this climber/i);
+
+  const intentions = await readFile(
+    resolve("docs/player/INTENTIONS.md"),
     "utf8",
   );
-  assert.match(onboarding, /FIRST-EXPEDITION\.md/);
-  assert.match(onboarding, /First choose a physical play/);
+  assert.match(intentions, /Newcomer Village foundation/i);
+  assert.match(intentions, /villa district/i);
+  assert.match(intentions, /toll passage/i);
+  assert.match(intentions, /dismantle/i);
+
+  const docsCheck = JSON.parse(
+    (await runScript("scripts/check-player-docs.mjs")).stdout,
+  );
+  assert.equal(docsCheck.valid, true);
 });
 
-test("route annotation fills terrain without choosing the path", async () => {
-  const outputDirectory = await mkdtemp(
-    join(tmpdir(), "alter-everest-route-annotation-"),
-  );
-  const waypointsPath = join(outputDirectory, "waypoints.json");
-  const routePath = join(outputDirectory, "route.json");
+test("route codec CLI losslessly round-trips exact stances", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ae-route-codec-"));
+  const routePath = join(directory, "route.json");
+  const encodedPath = join(directory, "encoded.json");
+  const decodedPath = join(directory, "decoded.json");
+  const authoringRoute = {
+    stances: [
+      {
+        label: "start",
+        cell: { x: 10, y: 20, z: 30 },
+        mode: "WALK",
+        protected: false,
+      },
+      {
+        label: "finish",
+        cell: { x: 11, y: 21, z: 30 },
+        mode: "SCRAMBLE",
+        protected: false,
+      },
+    ],
+    safeStop: true,
+  };
 
   try {
-    await writeFile(
-      waypointsPath,
-      JSON.stringify([
-        {
-          x: -4136.384339074745,
-          z: -6705.793111111192,
-          mode: "SCRAMBLE",
-        },
-        {
-          x: -4096.384339074745,
-          z: -6705.793111111192,
-          mode: "SCRAMBLE",
-          safeStop: true,
-        },
-      ]),
+    await writeFile(routePath, JSON.stringify(authoringRoute));
+    const encoded = JSON.parse(
+      (await runScript("scripts/encode-route.ts", [
+        routePath,
+        "--out",
+        encodedPath,
+      ])).stdout,
     );
-    await runScript(
-      "scripts/annotate-route.ts",
-      [waypointsPath, "--out", routePath],
-    );
-    const route = JSON.parse(await readFile(routePath, "utf8"));
-    assert.equal(route.length, 2);
-    assert.equal(route[0].surface, "ROCK");
-    assert.ok(Number.isFinite(route[0].altitudeM));
-    assert.equal(route[1].safeStop, true);
-  } finally {
-    await rm(outputDirectory, { recursive: true, force: true });
-  }
-});
+    assert.equal(encoded.route.codec, "ae-microtrace-v1");
+    assert.equal(encoded.route.stepCount, 1);
+    assert.deepEqual(encoded.labelSteps, { start: 0, finish: 1 });
 
-test("terrain queries accept a labelled point batch", async () => {
-  const outputDirectory = await mkdtemp(
-    join(tmpdir(), "alter-everest-terrain-batch-"),
-  );
-  const pointsPath = join(outputDirectory, "points.json");
-
-  try {
-    await writeFile(
-      pointsPath,
-      JSON.stringify([
-        { label: "camp", x: -4136.38, z: -6705.79 },
-        { label: "west", x: -4296.38, z: -6705.79 },
-      ]),
-    );
-    const queried = await runScript(
-      "scripts/query-terrain.ts",
-      ["--points", pointsPath, "--summary"],
-    );
-    const batch = JSON.parse(queried.stdout);
-    assert.equal(batch.count, 2);
+    const decodeReceipt = JSON.parse((await runScript("scripts/decode-route.ts", [
+      encodedPath,
+      "--out",
+      decodedPath,
+    ])).stdout);
+    assert.equal(decodeReceipt.writtenStances, 2);
+    assert.equal(Object.hasOwn(decodeReceipt, "stances"), false);
+    const decoded = JSON.parse(await readFile(decodedPath, "utf8"));
+    assert.equal(decoded.stepCount, 1);
     assert.deepEqual(
-      batch.results.map(
-        (result: { label: string }) => result.label,
+      decoded.stances.map(
+        (stance: { cell: unknown; mode: string; protected: boolean }) => ({
+          cell: stance.cell,
+          mode: stance.mode,
+          protected: stance.protected,
+        }),
       ),
-      ["camp", "west"],
+      authoringRoute.stances.map(({
+        cell,
+        mode,
+        protected: protectedState,
+      }) => ({
+        cell,
+        mode,
+        protected: protectedState,
+      })),
     );
-    assert.ok(
-      batch.results.every(
-        (result: { candidateGroundedCell: { cell: unknown } }) =>
-          result.candidateGroundedCell.cell,
-      ),
-    );
-    assert.equal(batch.results[0].measured, undefined);
-    assert.ok(Number.isFinite(batch.results[0].terrain.altitudeM));
   } finally {
-    await rm(outputDirectory, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("the first local expedition passes route, verifier and apply", async () => {
-  const outputDirectory = await mkdtemp(
-    join(tmpdir(), "alter-everest-first-expedition-"),
-  );
-  const outputWorld = join(
-    outputDirectory,
-    "nested-output",
-    "world-after.json",
-  );
+test("labelled exact plans compile without route generation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ae-compile-"));
+  const candidateDirectory = join(directory, "example-agent");
+  const candidatePath = join(candidateDirectory, "candidate.json");
+
+  try {
+    await mkdir(candidateDirectory);
+    const summary = JSON.parse(
+      (await runScript("scripts/compile-expedition.ts", [
+        examplePlan,
+        "--out",
+        candidatePath,
+      ])).stdout,
+    );
+    assert.equal(summary.compiled, true);
+    assert.equal(summary.routeCodec, "ae-microtrace-v1");
+    assert.equal(summary.routeSteps, 1410);
+    assert.deepEqual(summary.bindings[0], {
+      action: 1,
+      matterId: "stone-example-first-marker-exact",
+      pickupAt: "base-pickup",
+      pickupStep: 0,
+      releaseAt: "marker-release",
+      releaseStep: 705,
+    });
+
+    const candidate = JSON.parse(await readFile(candidatePath, "utf8"));
+    assert.equal(candidate.proof.route.stepCount, 1410);
+    assert.equal(candidate.proof.actions[0].releaseStep, 705);
+    assert.equal(
+      candidate.proof.route.program,
+      JSON.parse(await readFile(resolve(exampleCandidate), "utf8"))
+        .proof.route.program,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("the first exact expedition passes preflight, verifier and apply", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ae-first-expedition-"));
+  const outputWorld = join(directory, "nested", "world.json");
 
   try {
     const currentWorld = JSON.parse(
       await readFile(resolve("world/snapshot.json"), "utf8"),
     );
-    const routeResult = await runScript(
-      "scripts/evaluate-route.ts",
-      [exampleCandidate, "--summary"],
+    const preflight = JSON.parse(
+      (await runScript("scripts/evaluate-route.ts", [
+        exampleCandidate,
+        "--summary",
+      ])).stdout,
     );
-    const route = JSON.parse(routeResult.stdout);
-    assert.equal(route.scope, "ROUTE_PREFLIGHT_ONLY");
-    assert.equal(route.preflightAccepted, true);
-    assert.equal(route.fullCandidateAccepted, null);
-    assert.equal(route.endurance.segments, undefined);
-    assert.equal(route.endurance.segmentCount, 8);
-    assert.equal(route.route.outcome, "ACTIVE");
+    assert.equal(preflight.scope, "ROUTE_PREFLIGHT_ONLY");
+    assert.equal(preflight.preflightAccepted, true);
+    assert.equal(Object.hasOwn(preflight, "accepted"), false);
+    assert.equal(preflight.decodedSteps, 1410);
+    assert.equal(preflight.endurance.segmentCount, 1410);
+    assert.equal(preflight.route.distanceMillimeters, 295_586);
+    assert.equal(preflight.route.outcome, "ACTIVE");
 
-    const checked = await runScript(
-      "scripts/validate-expedition.ts",
-      [exampleCandidate, "--diagnose"],
+    const verdict = JSON.parse(
+      (await runScript("scripts/validate-expedition.ts", [
+        exampleCandidate,
+        "--diagnose",
+      ])).stdout,
     );
-    const verdict = JSON.parse(checked.stdout);
     assert.equal(verdict.accepted, true);
     assert.equal(verdict.code, "ACCEPTED");
-    assert.equal(verdict.actionableCode, "ACCEPTED");
-    assert.equal(verdict.operation, "ADD");
     assert.equal(verdict.physics.code, "STABLE");
-    assert.equal(verdict.scoreBreakdown.survival, 120);
-    assert.equal(verdict.scoreBreakdown.repeatPenalty, 0);
-    assert.equal(verdict.scoreBreakdown.total, verdict.score);
-    assert.equal(verdict.diagnostics.valid, true);
-    assert.equal(verdict.diagnostics.stage, "ALL_PHASES_CLEAR");
+    assert.deepEqual(verdict.footprintDelta, {
+      terrainRemovalsCreated: 0,
+      stonePlacementsCreated: 1,
+      stonePlacementsRemoved: 0,
+    });
+    assert.equal(verdict.distanceMillimeters, 295_586);
 
-    await runScript(
-      "scripts/apply-expedition.ts",
-      [exampleCandidate, "--out", outputWorld],
-    );
+    await runScript("scripts/apply-expedition.ts", [
+      exampleCandidate,
+      "--out",
+      outputWorld,
+    ]);
     const applied = JSON.parse(await readFile(outputWorld, "utf8"));
     assert.equal(applied.sequence, currentWorld.sequence + 1);
     assert.equal(applied.stones.length, currentWorld.stones.length + 1);
     assert.deepEqual(
-      applied.identities.find(
-        (identity: { id: string }) =>
-          identity.id === "example-agent",
-      ),
-      { id: "example-agent", status: "ACTIVE" },
-    );
-    assert.equal(
-      applied.tombstones.some(
+      applied.footprints.find(
         (entry: { agentId: string }) =>
           entry.agentId === "example-agent",
       ),
-      false,
+      {
+        agentId: "example-agent",
+        acceptedExpeditions: 1,
+        totalDistanceMillimeters: 295_586,
+        activeTerrainRemovals: 0,
+        activeStonePlacements: 1,
+        activeAlterations: 1,
+      },
     );
 
-    const queried = await runScript(
-      "scripts/query-world.ts",
-      [
-        "--x",
-        "-3976.3",
-        "--z",
-        "-6705.7",
-        "--radius",
-        "5",
+    const caseInsensitiveProfile = JSON.parse(
+      (await runScript("scripts/inspect-world.ts", [
+        "--agent",
+        "EXAMPLE-AGENT",
         "--world",
         outputWorld,
-      ],
+      ])).stdout,
     );
-    const neighborhood = JSON.parse(queried.stdout);
-    assert.equal(neighborhood.counts.stones, 1);
-    assert.ok(Array.isArray(neighborhood.faceConnectedStoneGroups));
+    assert.equal(caseInsensitiveProfile.player.status, "ACTIVE");
     assert.equal(
-      neighborhood.stones[0].id,
-      "stone-example-first-marker-roundtrip",
+      caseInsensitiveProfile.player.footprint.acceptedExpeditions,
+      1,
     );
   } finally {
-    await rm(outputDirectory, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("route preflight and diagnostics honor world state and phase indices", async () => {
-  const outputDirectory = await mkdtemp(
-    join(tmpdir(), "alter-everest-route-diagnostics-"),
-  );
-  const changedWorldPath = join(outputDirectory, "changed-world.json");
-  const changedCandidatePath = join(
-    outputDirectory,
-    "example-agent",
-    "changed-candidate.json",
-  );
-
+test("local candidate paths and malformed JSON objects fail safely", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ae-local-candidate-"));
+  const localCandidate = join(directory, "candidate.json");
+  const malformedCandidate = join(directory, "malformed.json");
   try {
-    const [world, candidate] = await Promise.all([
-      readFile(resolve("world/snapshot.json"), "utf8").then(JSON.parse),
-      readFile(resolve(exampleCandidate), "utf8").then(JSON.parse),
-    ]);
-    const first = candidate.proof.route[0];
-    const terrainQuery = await runScript("scripts/query-terrain.ts", [
-      "--x",
-      String(first.x),
-      "--z",
-      String(first.z),
-    ]);
-    const exposed = JSON.parse(terrainQuery.stdout).exposedVoxel;
-    world.removedTerrainVoxels.push(
-      ...Array.from({ length: 6 }, (_, offset) => ({
-        x: exposed.x,
-        y: exposed.y - offset,
-        z: exposed.z,
-      })),
-    );
-    await writeFile(changedWorldPath, JSON.stringify(world));
-
-    const preflight = await runScript("scripts/evaluate-route.ts", [
-      exampleCandidate,
-      "--world",
-      changedWorldPath,
-      "--summary",
-    ]);
-    assert.equal(JSON.parse(preflight.stdout).terrain.valid, false);
-
-    candidate.proof.route[2] = {
-      ...candidate.proof.route[2],
-      y: candidate.proof.route[2].y + 5,
-      altitudeM: candidate.proof.route[2].altitudeM + 5,
-    };
-    await mkdir(join(outputDirectory, "example-agent"));
-    await writeFile(changedCandidatePath, JSON.stringify(candidate));
-    const diagnosed = await runScript("scripts/validate-expedition.ts", [
-      changedCandidatePath,
-      "--diagnose",
-    ]).catch((error: { stderr: string }) => ({
-      stdout: error.stderr,
-    }));
-    const diagnosticVerdict = JSON.parse(diagnosed.stdout);
-    assert.ok(
-      diagnosticVerdict.diagnostics,
-      JSON.stringify(diagnosticVerdict),
-    );
-    assert.equal(
-      diagnosticVerdict.diagnostics.terrain.globalSampleIndex,
-      2,
-    );
-    assert.deepEqual(
-      diagnosticVerdict.diagnostics.terrain.sample,
-      candidate.proof.route[2],
-    );
-
-    const oneWayPath = join(
-      outputDirectory,
-      "example-agent",
-      "one-way.json",
-    );
-    const oneWayCandidate = JSON.parse(
+    await writeFile(
+      localCandidate,
       await readFile(resolve(exampleCandidate), "utf8"),
     );
-    const finalReleaseIndex =
-      oneWayCandidate.proof.actions[0].releaseIndex;
-    oneWayCandidate.id = "example-first-marker-one-way";
-    oneWayCandidate.proof.route = oneWayCandidate.proof.route.slice(
-      0,
-      finalReleaseIndex + 1,
+    await writeFile(malformedCandidate, JSON.stringify({}));
+    const local = await verifyCandidateFile(localCandidate);
+    assert.equal(local.accepted, true);
+    const malformed = await verifyCandidateFile(malformedCandidate);
+    assert.equal(malformed.accepted, false);
+    assert.equal(malformed.stage, "SCHEMA");
+    assert.match(malformed.errors.join(" "), /agentId|protocol|proof/i);
+    const missing = await verifyCandidateFile(
+      join(directory, "missing.json"),
     );
-    await writeFile(oneWayPath, JSON.stringify(oneWayCandidate));
-    const oneWay = await runScript(
-      "scripts/validate-expedition.ts",
-      [oneWayPath, "--diagnose"],
-    ).catch((error: { stderr: string }) => ({
-      stdout: error.stderr,
-    }));
-    const oneWayVerdict = JSON.parse(oneWay.stdout);
-    assert.equal(oneWayVerdict.diagnostics.valid, true);
+    assert.equal(missing.accepted, false);
+    assert.equal(missing.stage, "INPUT");
   } finally {
-    await rm(outputDirectory, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("world query completes connected groups beyond its radius", async () => {
-  const outputDirectory = await mkdtemp(
-    join(tmpdir(), "alter-everest-world-groups-"),
-  );
-  const worldPath = join(outputDirectory, "world.json");
+test("diagnostics identify the failing physical action and phase", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ae-diagnose-"));
+  const candidatePath = join(directory, "occupied-destination.json");
+  try {
+    const candidate = JSON.parse(
+      await readFile(resolve(exampleCandidate), "utf8"),
+    );
+    candidate.proof.actions[0].destination.cell.y -= 1;
+    await writeFile(candidatePath, JSON.stringify(candidate));
+    await assert.rejects(
+      runScript("scripts/validate-expedition.ts", [
+        candidatePath,
+        "--diagnose",
+      ]),
+      (error: Error & { stderr?: string }) => {
+        const output = JSON.parse(error.stderr ?? "{}");
+        assert.equal(output.accepted, false);
+        assert.equal(output.physics.code, "DESTINATION_OCCUPIED");
+        assert.deepEqual(output.failureContext, {
+          stage: "RELEASE_PHYSICS",
+          actionIndex: 1,
+          step: 705,
+        });
+        assert.equal(output.diagnostics.actionIndex, 1);
+        assert.equal(
+          output.diagnostics.actionContext.matterId,
+          candidate.proof.actions[0].matterId,
+        );
+        return true;
+      },
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("batch movement, compact terrain and matter transition tools compose", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ae-primitives-"));
+  const decodedPath = join(directory, "decoded.json");
+  const movesPath = join(directory, "moves.json");
+  const mutationPath = join(directory, "mutation.json");
+  const chunkPath = join(directory, "chunk.json");
+  try {
+    await runScript("scripts/decode-route.ts", [
+      exampleCandidate,
+      "--range",
+      "0:1",
+      "--out",
+      decodedPath,
+    ]);
+    const decoded = JSON.parse(await readFile(decodedPath, "utf8"));
+    const [from, to] = decoded.stances;
+    const movement = {
+      dx: to.cell.x - from.cell.x,
+      dy: to.cell.y - from.cell.y,
+      dz: to.cell.z - from.cell.z,
+      mode: to.mode,
+      protected: to.protected,
+      carrying: true,
+    };
+    await writeFile(
+      movesPath,
+      JSON.stringify([
+        { label: "first", from: from.cell, movement },
+        { label: "same-check", from: from.cell, movement },
+      ]),
+    );
+    const moves = JSON.parse(
+      (await runScript("scripts/check-move.ts", [
+        "--moves",
+        movesPath,
+      ])).stdout,
+    );
+    assert.equal(moves.valid, true);
+    assert.equal(moves.count, 2);
+    assert.equal(moves.validCount, 2);
+
+    const candidate = JSON.parse(
+      await readFile(resolve(exampleCandidate), "utf8"),
+    );
+    const { pickupStep, releaseStep, ...mutation } =
+      candidate.proof.actions[0];
+    void pickupStep;
+    void releaseStep;
+    await writeFile(mutationPath, JSON.stringify(mutation));
+    const matter = JSON.parse(
+      (await runScript("scripts/check-matter.ts", [
+        mutationPath,
+      ])).stdout,
+    );
+    assert.equal(matter.valid, true);
+    assert.equal(
+      matter.scope,
+      "ONE_MATTER_TRANSITION_PHYSICS_ONLY",
+    );
+
+    const chunkReceipt = JSON.parse(
+      (await runScript("scripts/query-terrain.ts", [
+        "--chunk",
+        "-130:-210",
+        "--compact",
+        "--out",
+        chunkPath,
+      ])).stdout,
+    );
+    assert.equal(chunkReceipt.count, 25_600);
+    const chunk = JSON.parse(await readFile(chunkPath, "utf8"));
+    assert.equal(chunk.payload.encoding, "ae-surface-columns-v1");
+    assert.equal(chunk.payload.topTerrainVoxelY.length, 25_600);
+    assert.equal(Object.hasOwn(chunk.payload, "columns"), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("terrain observations expose exact cells and provenance", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ae-terrain-query-"));
+  const cellsPath = join(directory, "cells.json");
+  const worldPath = join(directory, "world.json");
+
   try {
     const world = JSON.parse(
       await readFile(resolve("world/snapshot.json"), "utf8"),
     );
-    world.stones.push(
-      {
-        id: "boundary-group-a",
-        cell: { x: 5000, y: 0, z: -6000 },
-      },
-      {
-        id: "boundary-group-b",
-        cell: { x: 5001, y: 0, z: -6000 },
-      },
-    );
+    const removedCell = { x: -20684, y: 43, z: -32729 };
+    world.removedTerrainVoxels = [removedCell];
+    world.alterations.terrainRemovals = [{
+      cell: removedCell,
+      agentId: "observation-agent",
+      expeditionId: "observation-expedition",
+    }];
     await writeFile(worldPath, JSON.stringify(world));
-    const queried = await runScript("scripts/query-world.ts", [
-      "--x",
-      "1000.1",
-      "--z",
-      "-1199.9",
-      "--radius",
-      "0.15",
-      "--world",
-      worldPath,
-    ]);
-    const result = JSON.parse(queried.stdout);
-    assert.equal(result.counts.stones, 1);
-    assert.equal(result.faceConnectedStoneGroups[0].stoneCount, 2);
-    assert.equal(result.faceConnectedStoneGroups[0].localStoneCount, 1);
-    assert.equal(result.faceConnectedStoneGroups[0].extendsBeyondQuery, true);
-    assert.equal(result.faceConnectedStoneGroups[0].complete, true);
+    await writeFile(
+      cellsPath,
+      JSON.stringify([
+        { label: "removed", ...removedCell },
+        { label: "plain", x: 0, y: 0, z: 0 },
+      ]),
+    );
+    const result = JSON.parse(
+      (await runScript("scripts/query-terrain.ts", [
+        "--cells",
+        cellsPath,
+        "--world",
+        worldPath,
+      ])).stdout,
+    );
+    assert.equal(result.count, 2);
+    assert.equal(result.payload.cells[0].solidTerrain, false);
+    assert.equal(
+      result.payload.cells[0].removedTerrain.agentId,
+      "observation-agent",
+    );
+    assert.equal(result.payload.cells[1].removedTerrain, null);
   } finally {
-    await rm(outputDirectory, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("a local applied world can become an isolated observatory feed", async () => {
-  const outputDirectory = await mkdtemp(
-    join(tmpdir(), "alter-everest-playtest-feed-"),
-  );
-  const inputWorld = join(outputDirectory, "world.json");
-  const feedDirectory = join(outputDirectory, "feed");
+test("observatory feed publishes the canonical footprint model", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ae-feed-"));
+  const feedDirectory = join(directory, "feed");
 
   try {
-    await copyFile(resolve("world/snapshot.json"), inputWorld);
-    const source = JSON.parse(await readFile(inputWorld, "utf8"));
-    const generated = await runScript(
-      "scripts/build-world-feed.ts",
-      [
-        "--world",
-        inputWorld,
-        "--output-dir",
-        feedDirectory,
-      ],
-    );
-    assert.match(generated.stdout, /from .*world\.json/);
-
+    await runScript("scripts/build-world-feed.ts", [
+      "--world",
+      "world/snapshot.json",
+      "--output-dir",
+      feedDirectory,
+    ]);
     const feed = JSON.parse(
       await readFile(join(feedDirectory, "latest.json"), "utf8"),
     );
-    assert.equal(feed.sequence, source.sequence);
-    assert.deepEqual(
-      feed.recentExpeditions.map(
-        (expedition: { id: string }) => expedition.id,
-      ),
-      source.expeditions
-        .slice(-3)
-        .reverse()
-        .map((expedition: { id: string }) => expedition.id),
-    );
-    assert.ok(Array.isArray(feed.surfaceTiles.tiles));
-    assert.deepEqual(feed.worldSummary, {
-      stoneCount: source.stones.length,
-      removedTerrainVoxelCount: source.removedTerrainVoxels.length,
-      identityCount: source.identities.length,
-      activeIdentityCount: source.identities.filter(
-        (identity: { status: string }) => identity.status === "ACTIVE",
-      ).length,
-      deadIdentityCount: source.identities.filter(
-        (identity: { status: string }) => identity.status === "DEAD",
-      ).length,
-      tombstoneCount: source.tombstones.length,
-      expeditionCount: source.expeditions.length,
-      modifiedTileCount: feed.surfaceTiles.tiles.length,
-    });
-    assert.ok(
-      feed.recentExpeditions.every(
-        (expedition: { trace: unknown }) => expedition.trace === null,
-      ),
-    );
-    const badges = JSON.parse(
-      await readFile(join(feedDirectory, "badges.json"), "utf8"),
-    );
-    assert.equal(badges.worldSequence, source.sequence);
-    assert.equal(
-      badges.highestExpeditionAltitudeM,
-      badges.highestAltitudeM,
-    );
-    assert.equal(
-      badges.currentHighestAltitudeM,
-      Math.round(feed.currentHighestPoint.altitudeM),
-    );
-
-    const emptyWorld = {
-      ...source,
-      identities: [],
-      tombstones: [],
-      expeditions: [],
-    };
-    const emptyWorldPath = join(outputDirectory, "empty-world.json");
-    const emptyFeedDirectory = join(outputDirectory, "empty-feed");
-    await writeFile(emptyWorldPath, JSON.stringify(emptyWorld));
-    await runScript("scripts/build-world-feed.ts", [
-      "--world",
-      emptyWorldPath,
-      "--output-dir",
-      emptyFeedDirectory,
-    ]);
-    const emptyFeed = JSON.parse(
-      await readFile(join(emptyFeedDirectory, "latest.json"), "utf8"),
-    );
-    assert.deepEqual(emptyFeed.recentExpeditions, []);
-    assert.equal(emptyFeed.worldSummary.expeditionCount, 0);
+    assert.equal(feed.schemaVersion, "1.5.0");
+    assert.deepEqual(feed.footprints, []);
+    assert.deepEqual(feed.recentExpeditions, []);
+    assert.equal(feed.worldSummary.expeditionCount, 0);
+    assert.equal(feed.worldSummary.removedTerrainVoxelCount, 0);
+    assert.equal(feed.worldSummary.stoneCount, 0);
   } finally {
-    await rm(outputDirectory, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 });

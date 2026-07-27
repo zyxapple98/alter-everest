@@ -3,22 +3,45 @@ import { resolve } from "node:path";
 import { CLIMBER, TERRAIN } from "../engine/constants";
 import { voxelCenter } from "../engine/mutation";
 import { currentTopVoxel } from "../engine/surface";
+import { formatPlayerHelp, PLAYER_DOCS } from "../lib/player-rules";
 import { loadCanonicalWorld, loadDemBundle } from "./expedition-kit";
 
 const METERS_PER_DEGREE_LATITUDE = 111_320;
 
 function usage() {
-  return "Usage: npm run site:query -- --site <site-id-or-name> [--world <snapshot.json>]";
+  return "npm run site:query -- --site <site-id-or-name> [--world <snapshot.json>]";
 }
+
+const help = formatPlayerHelp({
+  command: "site:query",
+  purpose:
+    "Resolve a named Everest site into local coordinates, exact 20 cm surface cells, zone status, and safe-stop observations.",
+  usage: usage(),
+  sections: [
+    {
+      heading: "Authority",
+      lines: [
+        "Grounded cells and safe stops are planning hints, not placement or route approval.",
+      ],
+    },
+  ],
+  output:
+    "JSON site anchor, terrain, zones, candidate cell, safe stops, and exact follow-up queries.",
+  next: [
+    "Run world:query around the anchor.",
+    "Run terrain:query for exact cells or a planning chunk.",
+  ],
+  docs: [PLAYER_DOCS.route, PLAYER_DOCS.matter],
+});
 
 function siteArgument() {
   if (process.argv.includes("--help")) {
-    console.log(usage());
+    console.log(help);
     process.exit(0);
   }
   const index = process.argv.indexOf("--site");
   const value = index < 0 ? "" : (process.argv[index + 1] ?? "").trim();
-  if (!value) throw new Error(usage());
+  if (!value) throw new Error(`Usage: ${usage()}`);
   return value;
 }
 
@@ -85,6 +108,19 @@ for (let radialStep = 0; radialStep <= radialSteps; radialStep += 1) {
     ) {
       continue;
     }
+    const candidateColumnX = Math.floor(
+      candidateX / TERRAIN.voxelEdgeM,
+    );
+    const candidateColumnZ = Math.floor(
+      candidateZ / TERRAIN.voxelEdgeM,
+    );
+    const candidateTop = currentTopVoxel(
+      terrain.oracle,
+      world.removedTerrainVoxels,
+      candidateColumnX,
+      candidateColumnZ,
+    );
+    if (candidateTop === null) continue;
     safeStopCandidates.push({
       x: candidateX,
       y: candidateTruth.y,
@@ -94,6 +130,11 @@ for (let radialStep = 0; radialStep <= radialSteps; radialStep += 1) {
       slopeDegrees: candidateTruth.slopeDegrees,
       surface: candidateTruth.surface,
       safeStop: true,
+      exactStance: {
+        x: candidateColumnX,
+        y: candidateTop + 1,
+        z: candidateColumnZ,
+      },
       distanceFromAnchorM: radiusM,
     });
   }

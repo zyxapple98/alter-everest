@@ -17,9 +17,7 @@ export function mutationDestinationCell(
 }
 
 export function mutationStoneId(mutation: MatterMutation) {
-  return mutation.source.kind === "STONE"
-    ? mutation.source.stoneId
-    : mutation.matterId;
+  return mutation.matterId;
 }
 
 export function voxelKey(voxel: VoxelCoordinate) {

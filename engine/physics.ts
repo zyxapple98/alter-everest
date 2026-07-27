@@ -596,7 +596,7 @@ export async function simulateMutation(
     return rejectedVerdict(snapshot, "TERRAIN_CONTEXT_MISSING");
   }
   const sourceStoneId =
-    mutation.source.kind === "STONE" ? mutation.source.stoneId : null;
+    mutation.source.kind === "STONE" ? mutation.matterId : null;
   const sourceStone = sourceStoneId
     ? snapshot.stones.find((stone) => stone.id === sourceStoneId)
     : null;
@@ -642,7 +642,7 @@ export async function simulateMutation(
     .filter(
       (stone) =>
         mutation.source.kind !== "STONE" ||
-        stone.id !== mutation.source.stoneId,
+        stone.id !== mutation.matterId,
     )
     .map((stone) => ({ id: stone.id, cell: { ...stone.cell } }));
   const candidateRemoved = new Set(

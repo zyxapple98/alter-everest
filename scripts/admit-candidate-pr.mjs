@@ -23,9 +23,9 @@ if (!eventPath || !outputPath || !token) {
   );
 }
 
-const [event, protocolManifest, canonicalWorld] = await Promise.all([
+const [event, playerRules, canonicalWorld] = await Promise.all([
   readFile(resolve(eventPath), "utf8").then(JSON.parse),
-  readFile(new URL("../protocol/manifest.json", import.meta.url), "utf8").then(
+  readFile(new URL("../protocol/player-rules.json", import.meta.url), "utf8").then(
     JSON.parse,
   ),
   readFile(new URL("../world/snapshot.json", import.meta.url), "utf8").then(
@@ -222,9 +222,9 @@ const content = await github(
 if (content.type !== "file" || content.encoding !== "base64") {
   throw new Error("Candidate must be a regular Git blob.");
 }
-if (content.size > protocolManifest.candidate.maximumBytes) {
+if (content.size > playerRules.candidate.maximumBytes) {
   throw new Error(
-    `Candidate exceeds ${protocolManifest.candidate.maximumBytes} bytes.`,
+    `Candidate exceeds ${playerRules.candidate.maximumBytes} bytes.`,
   );
 }
 

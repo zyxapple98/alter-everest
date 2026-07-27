@@ -9,7 +9,13 @@ import type {
   StoneState,
   VoxelCoordinate,
 } from "./types";
-import { TERRAIN } from "./constants";
+import { CANDIDATE_LIMITS, TERRAIN } from "./constants";
+import {
+  applyAlterationFacts,
+  buildFootprints,
+} from "./footprint";
+import { stancePoint } from "./movement";
+import { iterateRouteTransitions } from "./route-codec";
 import { chunkForVoxel } from "./surface";
 import {
   operationLabel,
@@ -31,6 +37,8 @@ export async function computeWorldHash(world: CanonicalWorld) {
     identities: world.identities,
     tombstones: world.tombstones,
     expeditions: world.expeditions,
+    alterations: world.alterations,
+    footprints: world.footprints,
     removedTerrainVoxels: world.removedTerrainVoxels,
     modifiedChunks: world.modifiedChunks,
     modifiedTiles: world.modifiedTiles,
@@ -150,17 +158,37 @@ export async function applyAcceptedCandidate(
     !verdict.route ||
     !verdict.physics ||
     !verdict.nextIdentityStatus ||
-    verdict.score === null
+    !verdict.footprintDelta
   ) {
     throw new Error("Only an accepted, fully evaluated candidate can be applied.");
   }
 
-  const terminal = candidate.proof.route.at(-1)!;
+  let terminalCell = { ...candidate.proof.route.start };
+  for (const transition of iterateRouteTransitions(
+    candidate.proof.route,
+    {
+      maximumSteps: CANDIDATE_LIMITS.maximumDecodedRouteSteps,
+      requireCanonical: true,
+    },
+  )) {
+    terminalCell = transition.to.cell;
+  }
+  const terminal = stancePoint(terminalCell);
+  const existingIdentity = currentWorld.identities.find(
+    (identity) =>
+      identity.id.toLowerCase() === candidate.agentId.toLowerCase(),
+  );
+  const canonicalAgentId = existingIdentity?.id ?? candidate.agentId;
+  const canonicalCandidate = {
+    ...candidate,
+    agentId: canonicalAgentId,
+  };
   const identities = currentWorld.identities.filter(
-    (identity) => identity.id !== candidate.agentId,
+    (identity) =>
+      identity.id.toLowerCase() !== canonicalAgentId.toLowerCase(),
   );
   identities.push({
-    id: candidate.agentId,
+    id: canonicalAgentId,
     status: verdict.nextIdentityStatus,
   });
   identities.sort((a, b) => a.id.localeCompare(b.id));
@@ -169,36 +197,28 @@ export async function applyAcceptedCandidate(
   if (verdict.nextIdentityStatus === "DEAD") {
     const tombstone: TombstoneState = {
       id: `tombstone-${candidate.id}`,
-      agentId: candidate.agentId,
+      agentId: canonicalAgentId,
       expeditionId: candidate.id,
       position: { x: terminal.x, y: terminal.y, z: terminal.z },
-      altitudeM: terminal.altitudeM,
+      altitudeM: verdict.route.terminalAltitudeM,
       enduranceUsed: verdict.route.enduranceUsed,
     };
     tombstones.push(tombstone);
   }
 
   const operations = candidate.proof.actions.map(operationLabel);
-  const altitudeM = Math.max(
-    ...candidate.proof.actions.map((action) => {
-      const actionIndex =
-        action.destination.kind === "BASE"
-          ? action.pickupIndex
-          : action.releaseIndex;
-      return candidate.proof.route[actionIndex].altitudeM;
-    }),
-  );
   const record: ExpeditionRecord = {
     id: candidate.id,
-    agentId: candidate.agentId,
+    agentId: canonicalAgentId,
     action: operationSummary(candidate.proof.actions),
     actions: operations,
     actionCount: operations.length,
     outcome: verdict.nextIdentityStatus,
-    altitudeM,
+    altitudeM: verdict.route.maximumAltitudeM,
     enduranceUsed: verdict.route.enduranceUsed,
     energyKj: verdict.route.energyKj,
-    score: verdict.score,
+    distanceMillimeters: verdict.route.distanceMillimeters,
+    alterationDelta: verdict.footprintDelta,
   };
 
   const removedTerrainVoxels = [
@@ -211,6 +231,10 @@ export async function applyAcceptedCandidate(
     verdict.physics.finalStones,
     removedTerrainVoxels,
   );
+  const alterations = applyAlterationFacts(
+    currentWorld,
+    canonicalCandidate,
+  );
   const next: CanonicalWorld = {
     ...currentWorld,
     sequence: currentWorld.sequence + 1,
@@ -219,9 +243,12 @@ export async function applyAcceptedCandidate(
     tombstones,
     expeditions: [...currentWorld.expeditions, record],
     removedTerrainVoxels,
+    alterations,
+    footprints: [],
     ...spatial,
     worldHash: "",
   };
+  next.footprints = buildFootprints(next);
   next.worldHash = await computeWorldHash(next);
   return next;
 }

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 
@@ -25,7 +25,10 @@ Write:
 Authentication:
   Set GH_TOKEN or GITHUB_TOKEN, or sign in with "gh auth login".
 
-Build writes are social GitHub actions. They never mutate the canonical world.`;
+Build writes are social GitHub actions. They never mutate the canonical world.
+
+Player docs:
+  docs/player/COMMUNITY.md`;
 }
 
 export function parseArguments(argv) {
@@ -350,11 +353,26 @@ export function deriveBuildContext(discussion) {
       String(comment.body).includes("alter-everest-build-intent") ||
       containsHeading(comment.body, "INTENT"),
   );
+  const contributionStatus = acceptedContributions.map((comment) => {
+    const match = String(comment.body).match(
+      /alter-everest-build-contribution:([a-f0-9]{64})/i,
+    );
+    return {
+      comment,
+      eventHash: match?.[1]?.toLowerCase() ?? null,
+      canonicalNow: null,
+    };
+  });
+  const retiredScoreComments = comments.filter((comment) =>
+    /\bscore\s*:/i.test(String(comment.body)),
+  );
   return {
     physicalTruthWarning:
-      "Discussion is social context. Re-inspect the latest canonical world in world/snapshot.json before planning.",
+      "Discussion is historical social context. Re-inspect the latest canonical world in world/snapshot.json; old protocol fields and contribution links may no longer exist in the current canonical history.",
     currentVibe: currentVibe ?? null,
     acceptedContributions,
+    contributionStatus,
+    retiredScoreComments,
     intentions,
     recentComments: comments.slice(-20),
     commentsReturned: comments.length,
@@ -362,6 +380,27 @@ export function deriveBuildContext(discussion) {
     commentsTruncated:
       (discussion.comments?.totalCount ?? comments.length) > comments.length,
   };
+}
+
+async function canonicalEventHashes() {
+  try {
+    const names = await readdir(new URL("../world/events/", import.meta.url));
+    const hashes = new Set();
+    for (const name of names.filter((entry) => entry.endsWith(".json"))) {
+      const event = JSON.parse(
+        await readFile(
+          new URL(`../world/events/${name}`, import.meta.url),
+          "utf8",
+        ),
+      );
+      if (/^[a-f0-9]{64}$/.test(String(event.eventHash ?? ""))) {
+        hashes.add(String(event.eventHash).toLowerCase());
+      }
+    }
+    return hashes;
+  } catch {
+    return new Set();
+  }
 }
 
 async function inspectBuild(client, context, discussionNumber) {
@@ -413,11 +452,20 @@ async function inspectBuild(client, context, discussionNumber) {
       `Discussion #${discussionNumber} is not in the Builds category.`,
     );
   }
+  const contextResult = deriveBuildContext(discussion);
+  const currentEventHashes = await canonicalEventHashes();
+  contextResult.contributionStatus =
+    contextResult.contributionStatus.map((entry) => ({
+      ...entry,
+      canonicalNow:
+        entry.eventHash !== null &&
+        currentEventHashes.has(entry.eventHash),
+    }));
   return {
     repository: context.repository,
     viewer: context.viewer,
     discussion,
-    context: deriveBuildContext(discussion),
+    context: contextResult,
   };
 }
 
@@ -522,9 +570,18 @@ function printInspection(result) {
       : "No later CURRENT VIBE summary; use the opening and recent comments.",
   );
   console.log("");
+  const canonicalContributionCount =
+    buildContext.contributionStatus.filter(
+      (entry) => entry.canonicalNow === true,
+    ).length;
   console.log(
-    `ACCEPTED CONTRIBUTIONS ${buildContext.acceptedContributions.length} · DECLARED INTENTIONS ${buildContext.intentions.length}`,
+    `HISTORICAL CONTRIBUTION COMMENTS ${buildContext.acceptedContributions.length} · CANONICAL NOW ${canonicalContributionCount} · DECLARED INTENTIONS ${buildContext.intentions.length}`,
   );
+  if (buildContext.retiredScoreComments.length > 0) {
+    console.log(
+      `LEGACY NOTICE: ${buildContext.retiredScoreComments.length} comment(s) use retired Score-era language; ignore those fields.`,
+    );
+  }
   console.log("");
   console.log("RECENT COMMENTS");
   if (buildContext.recentComments.length === 0) {

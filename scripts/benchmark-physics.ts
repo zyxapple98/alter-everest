@@ -5,10 +5,11 @@ import { syntheticReliefM } from "../engine/surface";
 import type { TerrainOracle } from "../engine/terrain";
 import type { PhysicsSnapshot, StoneState } from "../engine/types";
 
-const count = Number(
-  process.argv[process.argv.indexOf("--stones") + 1] ??
-    PHYSICS.maximumAffectedStoneCells,
-);
+const stonesIndex = process.argv.indexOf("--stones");
+const count =
+  stonesIndex === -1
+    ? PHYSICS.maximumAffectedStoneCells
+    : Number(process.argv[stonesIndex + 1]);
 if (
   !Number.isSafeInteger(count) ||
   count < 1 ||
@@ -49,7 +50,7 @@ const verdict = await simulateMutation(
   {
     kind: "RELOCATE",
     matterId: "benchmark-00000",
-    source: { kind: "STONE", stoneId: "benchmark-00000" },
+    source: { kind: "STONE" },
     destination: {
       kind: "WORLD",
       cell: { x: -1, y: 1, z: 0 },

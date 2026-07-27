@@ -277,67 +277,15 @@ button {
 }
 
 .wordmark {
-  display: inline-flex;
-  align-items: center;
   width: max-content;
-  gap: 15px;
   pointer-events: auto;
-  text-decoration: none;
 }
 
-.wordmark strong {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font: 400 18px/0.9 var(--brand);
-  letter-spacing: 0.19em;
-}
-
-.wordmark strong span:last-child {
-  color: rgba(228, 239, 239, 0.7);
-}
-
-.wordmark-symbol {
-  position: relative;
-  width: 36px;
-  height: 27px;
+.wordmark-logo {
+  width: 190px;
+  height: auto;
+  display: block;
   filter: drop-shadow(0 5px 12px rgba(1, 7, 12, 0.5));
-}
-
-.wordmark-symbol i {
-  position: absolute;
-  width: 5px;
-  height: 5px;
-  background: rgba(224, 235, 236, 0.92);
-}
-
-.wordmark-symbol i:first-child {
-  top: 20px;
-  left: 0;
-  box-shadow:
-    6px -6px rgba(224, 235, 236, 0.92),
-    12px -12px rgba(224, 235, 236, 0.92);
-}
-
-.wordmark-symbol i:nth-child(2) {
-  top: 8px;
-  left: 24px;
-  background: rgba(171, 192, 197, 0.72);
-  box-shadow:
-    6px 6px rgba(171, 192, 197, 0.72),
-    12px 12px rgba(171, 192, 197, 0.72);
-}
-
-.wordmark-symbol b {
-  position: absolute;
-  top: 2px;
-  left: 18px;
-  width: 5px;
-  height: 5px;
-  background: var(--amber);
-  box-shadow:
-    0 0 0 3px rgba(255, 200, 107, 0.08),
-    0 0 15px rgba(255, 200, 107, 0.58);
 }
 
 .scene-tools {
@@ -1205,20 +1153,8 @@ button {
       max(17px, env(safe-area-inset-left));
   }
 
-  .wordmark {
-    gap: 9px;
-  }
-
-  .wordmark strong {
-    gap: 5px;
-    font-size: 17px;
-    letter-spacing: 0.13em;
-  }
-
-  .wordmark-symbol {
-    width: 30px;
-    transform: scale(0.8);
-    transform-origin: left center;
+  .wordmark-logo {
+    width: 160px;
   }
 
   .scene-tools {

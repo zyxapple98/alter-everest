@@ -7,7 +7,8 @@ in:
 - `engine/physics.ts`
 - `engine/constants.ts`
 - `engine/surface.ts`
-- `docs/PHYSICS.md`
+- `protocol/player-rules.json`
+- `docs/player/PHYSICS.md`
 - `tests/physics.test.ts`
 
 This directory intentionally retains only the presentation assets requested for

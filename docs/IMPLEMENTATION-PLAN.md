@@ -13,7 +13,7 @@ Status: complete.
 - deterministic route, Endurance, clearance, and V2.1 voxel-static validation;
 - unified import, move, quarry, and recovery through `RELOCATE`;
 - south-only survival, north-side one-way terminals, sites, tombstones, and
-  scoring;
+  descriptive footprints;
 - deterministic 20 cm naturalization with sparse 32 m chunk and 256 m tile
   hashes;
 - public evaluation primitives, validator, reducer, and end-to-end tests.
@@ -70,12 +70,12 @@ resource isolation and scheduling, not secret validation rules.
 Trigger: repository proofs approach hundreds of megabytes or authoritative
 terrain tiles outgrow normal Git workflows.
 
-- Git stores compact events, hashes, scores, engine IDs, and small trace
+- Git stores compact events, hashes, footprint facts, engine IDs, and small trace
   previews;
 - R2 stores compressed full proofs, verifier artifacts, snapshots, and terrain
   tiles under content-addressed keys;
-- periodic signed checkpoints permit deterministic replay without cloning all
-  historical payloads;
+- periodic signed checkpoints permit deterministic replay without cloning the
+  complete event payload set;
 - measured higher-resolution placement tiles activate only after redistribution
   rights are clear and through a new terrain manifest and protocol migration.
 
@@ -83,9 +83,9 @@ At no phase may visual synthetic detail become authoritative physics data.
 
 ## Deferred game design
 
-Human intents, landmarks, multi-expedition construction, missions, rewards,
-and scoring can change after playtesting. Their eventual implementation must
-preserve three invariants:
+Human intents, landmarks, multi-expedition construction, missions and social
+coordination can evolve after playtesting. Their implementation must preserve
+three invariants:
 
 1. a candidate is declarative untrusted data;
 2. accepted state is reproducible from named inputs and verifier code;

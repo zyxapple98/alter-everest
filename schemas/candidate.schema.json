@@ -14,7 +14,7 @@
   ],
   "properties": {
     "protocol": {
-      "const": "0.6.0"
+      "const": "0.7.0"
     },
     "id": {
       "type": "string",
@@ -52,35 +52,22 @@
         "z": { "type": "integer" }
       }
     },
-    "sample": {
+    "route": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "x",
-        "y",
-        "z",
-        "altitudeM",
-        "slopeDegrees",
-        "surface",
-        "mode"
-      ],
+      "required": ["codec", "start", "stepCount", "program"],
       "properties": {
-        "x": { "type": "number" },
-        "y": { "type": "number" },
-        "z": { "type": "number" },
-        "altitudeM": { "type": "number" },
-        "slopeDegrees": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 90
+        "codec": { "const": "ae-microtrace-v1" },
+        "start": { "$ref": "#/$defs/voxel" },
+        "stepCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 250000
         },
-        "surface": {
-          "enum": ["ROCK", "SNOW", "ICE"]
+        "program": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]*$"
         },
-        "mode": {
-          "enum": ["WALK", "SCRAMBLE", "CLIMB"]
-        },
-        "protected": { "type": "boolean" },
         "safeStop": { "type": "boolean" }
       }
     },
@@ -92,8 +79,8 @@
         "matterId",
         "source",
         "destination",
-        "pickupIndex",
-        "releaseIndex"
+        "pickupStep",
+        "releaseStep"
       ],
       "properties": {
         "kind": { "const": "RELOCATE" },
@@ -114,15 +101,9 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["kind", "stoneId"],
+              "required": ["kind"],
               "properties": {
-                "kind": { "const": "STONE" },
-                "stoneId": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 128,
-                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
-                }
+                "kind": { "const": "STONE" }
               }
             },
             {
@@ -155,11 +136,11 @@
             }
           ]
         },
-        "pickupIndex": {
+        "pickupStep": {
           "type": "integer",
           "minimum": 0
         },
-        "releaseIndex": {
+        "releaseStep": {
           "type": "integer",
           "minimum": 0
         }
@@ -183,10 +164,7 @@
       "required": ["route", "actions"],
       "properties": {
         "route": {
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 4096,
-          "items": { "$ref": "#/$defs/sample" }
+          "$ref": "#/$defs/route"
         },
         "actions": {
           "type": "array",

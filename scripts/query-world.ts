@@ -1,8 +1,33 @@
 import { voxelCenter } from "../engine/mutation";
 import { TERRAIN } from "../engine/constants";
+import { alterationStateForWorld } from "../engine/footprint";
+import { formatPlayerHelp, PLAYER_DOCS } from "../lib/player-rules";
 import { loadCanonicalWorld } from "./expedition-kit";
 
 const MAXIMUM_RESULTS = 200;
+const usage =
+  "npm run world:query -- --x <metres> --z <metres> [--radius <metres>] [--world <snapshot.json>]";
+const help = formatPlayerHelp({
+  command: "world:query",
+  purpose:
+    "Inspect current stones, excavations, tombstones, and complete face-connected stone groups around a local anchor.",
+  usage,
+  sections: [
+    {
+      heading: "Authority",
+      lines: [
+        "Groups are geometric context only; they do not establish ownership, Build membership, or stability.",
+      ],
+    },
+  ],
+  output:
+    "JSON world hashes, nearby matter, tombstones, group bounds, truncation state, and distances.",
+  next: [
+    "Use terrain:query at exact pickup and placement points.",
+    "If changing visible shared work, inspect related Community Build context.",
+  ],
+  docs: [PLAYER_DOCS.matter, PLAYER_DOCS.physics, PLAYER_DOCS.community],
+});
 
 function argument(name: string) {
   const index = process.argv.indexOf(name);
@@ -14,16 +39,14 @@ function numericArgument(name: string, fallback?: number) {
   const value = raw === undefined ? fallback : Number(raw);
   if (!Number.isFinite(value)) {
     throw new Error(
-      "Usage: npm run world:query -- --x <metres> --z <metres> [--radius <metres>] [--world <snapshot.json>]",
+      `Usage: ${usage}`,
     );
   }
-  return value;
+  return value as number;
 }
 
 if (process.argv.includes("--help")) {
-  console.log(
-    "Usage: npm run world:query -- --x <metres> --z <metres> [--radius <metres>] [--world <snapshot.json>]",
-  );
+  console.log(help);
   process.exit(0);
 }
 
@@ -35,6 +58,16 @@ if (radiusM <= 0 || radiusM > 5_000) {
 }
 
 const world = await loadCanonicalWorld(argument("--world"));
+const alterations = alterationStateForWorld(world);
+const placementByStone = new Map(
+  alterations.stonePlacements.map((fact) => [fact.stoneId, fact]),
+);
+const removalByCell = new Map(
+  alterations.terrainRemovals.map((fact) => [
+    `${fact.cell.x}:${fact.cell.y}:${fact.cell.z}`,
+    fact,
+  ]),
+);
 const withinRadius = (point: { x: number; z: number }) =>
   Math.hypot(point.x - x, point.z - z) <= radiusM;
 const withDistance = <T extends { position: { x: number; z: number } }>(
@@ -57,6 +90,7 @@ const matchingStones = sortByDistance(
       withDistance({
         id: stone.id,
         cell: stone.cell,
+        provenance: placementByStone.get(stone.id) ?? null,
         position: voxelCenter(stone.cell),
       }),
     )
@@ -65,7 +99,12 @@ const matchingStones = sortByDistance(
 const matchingRemovedTerrain = sortByDistance(
   world.removedTerrainVoxels
     .map((cell) =>
-      withDistance({ cell, position: voxelCenter(cell) }),
+      withDistance({
+        cell,
+        provenance:
+          removalByCell.get(`${cell.x}:${cell.y}:${cell.z}`) ?? null,
+        position: voxelCenter(cell),
+      }),
     )
     .filter((voxel) => withinRadius(voxel.position)),
 );

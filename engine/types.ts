@@ -19,7 +19,7 @@ export interface PhysicsSnapshot {
 
 export type MatterSource =
   | { kind: "BASE" }
-  | { kind: "STONE"; stoneId: string }
+  | { kind: "STONE" }
   | { kind: "TERRAIN"; voxel: VoxelCoordinate };
 
 export type MatterDestination =
@@ -34,12 +34,12 @@ export interface MatterMutation {
 }
 
 export interface ExpeditionAction extends MatterMutation {
-  pickupIndex: number;
-  releaseIndex: number;
+  pickupStep: number;
+  releaseStep: number;
 }
 
-export type LegacyActionKind = "ADD" | "MOVE" | "RECOVER";
-export type MutationOperation = LegacyActionKind | "QUARRY";
+export type MatterOperation = "ADD" | "MOVE" | "RECOVER" | "QUARRY";
+export type MutationOperation = MatterOperation;
 export type ExpeditionOperation = MutationOperation | "MULTI";
 
 export type PhysicsFailureCode =
@@ -78,27 +78,52 @@ export interface PhysicsVerdict {
 export type LocomotionMode = "WALK" | "SCRAMBLE" | "CLIMB";
 export type SurfaceKind = "ROCK" | "SNOW" | "ICE";
 
+export interface MicroMovement {
+  dx: number;
+  dy: number;
+  dz: number;
+  mode: LocomotionMode;
+  protected: boolean;
+}
+
+export interface RouteStance {
+  step: number;
+  cell: VoxelCoordinate;
+  mode: LocomotionMode;
+  protected: boolean;
+}
+
+export interface ExactRoute {
+  codec: "ae-microtrace-v1";
+  start: VoxelCoordinate;
+  stepCount: number;
+  program: string;
+  safeStop?: boolean;
+}
+
+// Derived verifier state. These fields are never candidate-supplied claims.
 export interface RouteSample extends Vec3 {
+  step: number;
+  cell: VoxelCoordinate;
   altitudeM: number;
   slopeDegrees: number;
   surface: SurfaceKind;
   mode: LocomotionMode;
-  protected?: boolean;
-  safeStop?: boolean;
+  protected: boolean;
 }
 
 export interface ExpeditionProof {
-  route: RouteSample[];
+  route: ExactRoute;
   actions: ExpeditionAction[];
 }
 
 export type IdentityOutcome = "ACTIVE" | "DEAD";
 
 export type RouteFailureCode =
-  | "ROUTE_TOO_SHORT"
+  | "ROUTE_PROGRAM_INVALID"
+  | "ROUTE_UNSUPPORTED"
   | "START_OUTSIDE_BASE"
   | "ROUTE_OBSTRUCTED"
-  | "SEGMENT_TOO_LONG"
   | "VERTICAL_STEP_EXCEEDED"
   | "SLOPE_EXCEEDED"
   | "CLIMB_UNPROTECTED"
@@ -115,25 +140,56 @@ export type RouteFailureCode =
   | "BASE_RELEASE_OUTSIDE_CAMP"
   | "UNSAFE_TERMINAL"
   | "OUTSIDE_TERRAIN"
-  | "TERRAIN_MISMATCH"
   | "ENDURANCE_EXHAUSTED";
 
 export interface RouteVerdict {
   valid: boolean;
   code: "ROUTE_VALID" | RouteFailureCode;
+  failureStep: number | null;
+  obstacle: string | null;
   outcome: IdentityOutcome;
   enduranceUsed: number;
   enduranceRemaining: number;
   energyKj: number;
   elapsedSeconds: number;
   distanceM: number;
+  distanceMillimeters: number;
   loadedDistanceM: number;
   terminalDistanceFromBaseM: number;
+  maximumAltitudeM: number;
+  terminalAltitudeM: number;
 }
 
 export interface IdentityState {
   id: string;
   status: IdentityOutcome;
+}
+
+export interface TerrainRemovalFact {
+  cell: VoxelCoordinate;
+  agentId: string;
+  expeditionId: string;
+}
+
+export interface StonePlacementFact {
+  stoneId: string;
+  cell: VoxelCoordinate;
+  agentId: string;
+  expeditionId: string;
+}
+
+export interface IdentityFootprint {
+  agentId: string;
+  acceptedExpeditions: number;
+  totalDistanceMillimeters: number;
+  activeTerrainRemovals: number;
+  activeStonePlacements: number;
+  activeAlterations: number;
+}
+
+export interface AlterationState {
+  terrainRemovals: TerrainRemovalFact[];
+  stonePlacements: StonePlacementFact[];
 }
 
 export interface CandidateCommit {
@@ -158,14 +214,20 @@ export interface ExpeditionRecord {
   id: string;
   agentId: string;
   action: ExpeditionOperation;
-  actions?: MutationOperation[];
-  actionCount?: number;
+  actions: MutationOperation[];
+  actionCount: number;
   outcome: IdentityOutcome;
   altitudeM: number;
-  enduranceUsed?: number;
-  oxygenUsed?: number;
+  enduranceUsed: number;
   energyKj: number;
-  score: number;
+  distanceMillimeters: number;
+  alterationDelta: FootprintDelta;
+}
+
+export interface FootprintDelta {
+  terrainRemovalsCreated: number;
+  stonePlacementsCreated: number;
+  stonePlacementsRemoved: number;
 }
 
 export interface ModifiedChunkState {
@@ -195,10 +257,12 @@ export interface CanonicalWorld extends PhysicsSnapshot {
   identities: IdentityState[];
   tombstones: TombstoneState[];
   expeditions: ExpeditionRecord[];
+  alterations: AlterationState;
+  footprints: IdentityFootprint[];
 }
 
 export interface CanonicalExpeditionEvent {
-  eventVersion: "1.0.0" | "1.1.0";
+  eventVersion: "1.2.0";
   sequence: number;
   eventHash: string;
   candidateId: string;
@@ -209,16 +273,15 @@ export interface CanonicalExpeditionEvent {
   terrainHash: string;
   engineHash: string;
   action: ExpeditionOperation;
-  actions?: MutationOperation[];
-  actionCount?: number;
-  stoneId: string;
-  stoneIds?: string[];
+  actions: MutationOperation[];
+  actionCount: number;
+  stoneIds: string[];
   outcome: IdentityOutcome;
   altitudeM: number;
-  enduranceUsed?: number;
-  oxygenUsed?: number;
+  enduranceUsed: number;
   energyKj: number;
-  score: number;
+  distanceMillimeters: number;
+  alterationDelta: FootprintDelta;
   proofArtifact: string;
   traceArtifact: string | null;
   receiptKeyId: string | null;
@@ -238,5 +301,15 @@ export interface CommitVerdict {
   route: RouteVerdict | null;
   physics: PhysicsVerdict | null;
   nextIdentityStatus: IdentityOutcome | null;
-  score: number | null;
+  footprintDelta: FootprintDelta | null;
+  failureContext?: {
+    stage:
+      | "ROUTE"
+      | "PICKUP_PHYSICS"
+      | "RELEASE_PHYSICS"
+      | "SERVICE_LOAD"
+      | "FINAL_STATE";
+    actionIndex: number | null;
+    step: number | null;
+  } | null;
 }

@@ -28,7 +28,7 @@ export function replayVoxelKey(cell: {
 }
 
 /**
- * Produces one authoritative historical world state for a replay frame.
+ * Produces one authoritative expedition world state for a replay frame.
  * Static terrain and stones are rendered from this state by the terrain
  * streamer. The scene layer only needs to draw the one actively carried item.
  */

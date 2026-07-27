@@ -1,201 +1,127 @@
-import { validateRouteClearance } from "../engine/clearance";
-import { simulateMutation } from "../engine/physics";
-import { validateRouteTerrain, type TerrainOracle } from "../engine/terrain";
+import { decodeCandidateRoute } from "../engine/route";
+import { voxelKey } from "../engine/mutation";
+import {
+  isExposedTerrainVoxel,
+  isSolidTerrainVoxel,
+} from "../engine/surface";
+import type { TerrainOracle } from "../engine/terrain";
 import type {
   CandidateCommit,
-  ExpeditionAction,
-  MatterMutation,
+  CommitVerdict,
   PhysicsSnapshot,
 } from "../engine/types";
-
-function snapshotAfter(
-  parent: PhysicsSnapshot,
-  action: ExpeditionAction,
-  finalStones: PhysicsSnapshot["stones"],
-): PhysicsSnapshot {
-  return {
-    worldHash: parent.worldHash,
-    stones: finalStones,
-    removedTerrainVoxels:
-      action.source.kind === "TERRAIN"
-        ? [...parent.removedTerrainVoxels, action.source.voxel]
-        : parent.removedTerrainVoxels,
-  };
-}
-
-async function inspectPhase(
-  candidate: CandidateCommit,
-  terrain: TerrainOracle,
-  label: string,
-  actionIndex: number | null,
-  startIndex: number,
-  endIndex: number,
-  world: PhysicsSnapshot,
-  carrying: boolean,
-) {
-  const route = candidate.proof.route.slice(startIndex, endIndex + 1);
-  const terrainRoute = carrying ? route.slice(1) : route;
-  const terrainVerdict =
-    terrainRoute.length === 0
-      ? null
-      : validateRouteTerrain(terrainRoute, terrain, world);
-  const clearance =
-    route.length < 2
-      ? null
-      : await validateRouteClearance(world, route);
-  if (
-    terrainVerdict?.valid !== false &&
-    (clearance === null || clearance.clear)
-  ) {
-    return null;
-  }
-  const localSegment = clearance?.blockedSegmentIndex ?? null;
-  const globalSegment =
-    localSegment === null ? null : startIndex + localSegment;
-  const terrainGlobalSampleIndex =
-    terrainVerdict?.valid === false &&
-    terrainVerdict.sampleIndex !== null
-      ? startIndex +
-        (carrying ? 1 : 0) +
-        terrainVerdict.sampleIndex
-      : null;
-  return {
-    valid: false,
-    stage: "ROUTE_PHASE",
-    phase: label,
-    actionIndex,
-    carrying,
-    globalRange: [startIndex, endIndex],
-    terrain:
-      terrainVerdict?.valid === false
-        ? {
-            ...terrainVerdict,
-            globalSampleIndex: terrainGlobalSampleIndex,
-            sample:
-              terrainGlobalSampleIndex === null
-                ? null
-                : candidate.proof.route[terrainGlobalSampleIndex],
-          }
-        : terrainVerdict,
-    clearance:
-      clearance === null
-        ? null
-        : {
-            ...clearance,
-            globalBlockedSegment: globalSegment,
-            segmentSamples:
-              globalSegment === null
-                ? null
-                : candidate.proof.route.slice(
-                    globalSegment,
-                    globalSegment + 2,
-                  ),
-          },
-  };
-}
 
 export async function diagnoseExpedition(
   candidate: CandidateCommit,
   canonicalWorld: PhysicsSnapshot,
   terrain: TerrainOracle,
+  verdict?: CommitVerdict | null,
 ) {
-  let working = canonicalWorld;
-  let cursor = 0;
-
-  for (
-    let actionIndex = 0;
-    actionIndex < candidate.proof.actions.length;
-    actionIndex += 1
-  ) {
-    const action = candidate.proof.actions[actionIndex];
-    const before = await inspectPhase(
-      candidate,
-      terrain,
-      `before-action-${actionIndex + 1}`,
-      actionIndex + 1,
-      cursor,
-      action.pickupIndex,
-      working,
-      false,
-    );
-    if (before) return before;
-
-    let carried = working;
-    if (action.source.kind !== "BASE") {
-      const pickup: MatterMutation = {
-        kind: "RELOCATE",
-        matterId: action.matterId,
-        source: action.source,
-        destination: { kind: "BASE" },
-      };
-      const pickupPhysics = await simulateMutation(working, pickup, {
-        terrain,
-      });
-      if (!pickupPhysics.valid) {
-        return {
-          valid: false,
-          stage: "PICKUP_PHYSICS",
-          actionIndex: actionIndex + 1,
-          physics: pickupPhysics,
-        };
-      }
-      carried = snapshotAfter(
-        working,
-        action,
-        pickupPhysics.finalStones,
-      );
-    }
-
-    const carrying = await inspectPhase(
-      candidate,
-      terrain,
-      `carrying-action-${actionIndex + 1}`,
-      actionIndex + 1,
-      action.pickupIndex,
-      action.releaseIndex,
-      carried,
-      true,
-    );
-    if (carrying) return carrying;
-
-    let finalWorld = carried;
-    if (action.destination.kind === "WORLD") {
-      const placementPhysics = await simulateMutation(working, action, {
-        terrain,
-      });
-      if (!placementPhysics.valid) {
-        return {
-          valid: false,
-          stage: "PLACEMENT_PHYSICS",
-          actionIndex: actionIndex + 1,
-          physics: placementPhysics,
-        };
-      }
-      finalWorld = snapshotAfter(
-        working,
-        action,
-        placementPhysics.finalStones,
-      );
-    }
-    working = finalWorld;
-    cursor = action.releaseIndex;
+  let decoded;
+  try {
+    decoded = decodeCandidateRoute(candidate.proof);
+  } catch (error) {
+    return {
+      valid: false,
+      stage: "ROUTE_DECODE",
+      message: error instanceof Error ? error.message : String(error),
+    };
   }
-
-  const afterFinal = await inspectPhase(
-    candidate,
-    terrain,
-    "after-final-action",
-    null,
-    cursor,
-    candidate.proof.route.length - 1,
-    working,
-    false,
+  const routeVerdict = verdict?.route ?? null;
+  const failureStep =
+    verdict?.failureContext?.step ?? routeVerdict?.failureStep ?? null;
+  const inferredActionIndex =
+    failureStep === null
+      ? -1
+      : candidate.proof.actions.findIndex(
+          (action) =>
+            failureStep >= action.pickupStep &&
+            failureStep <= action.releaseStep,
+        );
+  const actionIndex =
+    verdict?.failureContext?.actionIndex !== null &&
+    verdict?.failureContext?.actionIndex !== undefined
+      ? verdict.failureContext.actionIndex - 1
+      : inferredActionIndex;
+  const activeAction =
+    actionIndex < 0
+      ? null
+      : candidate.proof.actions[actionIndex];
+  const from = failureStep === null ? 0 : Math.max(0, failureStep - 2);
+  const to =
+    failureStep === null
+      ? Math.min(decoded.stances.length - 1, 4)
+      : Math.min(decoded.stances.length - 1, failureStep + 2);
+  const removed = new Set(
+    canonicalWorld.removedTerrainVoxels.map(voxelKey),
   );
-  return (
-    afterFinal ?? {
-      valid: true,
-      stage: "ALL_PHASES_CLEAR",
-      phases: candidate.proof.actions.length * 2 + 1,
-    }
-  );
+  const destinationCell =
+    activeAction?.destination.kind === "WORLD"
+      ? activeAction.destination.cell
+      : null;
+  const actionContext = activeAction
+    ? {
+        actionNumber: actionIndex + 1,
+        matterId: activeAction.matterId,
+        source: activeAction.source,
+        destination: activeAction.destination,
+        pickupStep: activeAction.pickupStep,
+        releaseStep: activeAction.releaseStep,
+        startingWorldFacts: {
+          sourceStone:
+            activeAction.source.kind === "STONE"
+              ? canonicalWorld.stones.find(
+                  (stone) => stone.id === activeAction.matterId,
+                ) ?? null
+              : null,
+          sourceTerrainExposed:
+            activeAction.source.kind === "TERRAIN"
+              ? isExposedTerrainVoxel(
+                  terrain,
+                  canonicalWorld.removedTerrainVoxels,
+                  activeAction.source.voxel,
+                )
+              : null,
+          destinationOccupancy: destinationCell
+            ? {
+                stone:
+                  canonicalWorld.stones.find(
+                    (stone) =>
+                      voxelKey(stone.cell) ===
+                      voxelKey(destinationCell),
+                  ) ?? null,
+                solidTerrain: isSolidTerrainVoxel(
+                  terrain,
+                  removed,
+                  destinationCell,
+                ),
+              }
+            : null,
+        },
+      }
+    : null;
+  return {
+    valid: verdict?.accepted ?? routeVerdict?.valid ?? true,
+    stage:
+      verdict?.failureContext?.stage ??
+      (routeVerdict?.valid === false ? "ROUTE" : "TRACE_DECODED"),
+    routeCode: routeVerdict?.code ?? null,
+    physicsCode: verdict?.physics?.code ?? null,
+    failureStep,
+    obstacle: routeVerdict?.obstacle ?? null,
+    actionIndex: actionIndex < 0 ? null : actionIndex + 1,
+    actionContext,
+    carrying:
+      activeAction !== null &&
+      failureStep !== null &&
+      failureStep < activeAction.releaseStep,
+    localTrace: decoded.stances.slice(from, to + 1),
+    timeline: candidate.proof.actions.map((action, index) => ({
+      actionNumber: index + 1,
+      matterId: action.matterId,
+      flow: `${action.source.kind} -> ${action.destination.kind}`,
+      pickupStep: action.pickupStep,
+      releaseStep: action.releaseStep,
+    })),
+  };
 }

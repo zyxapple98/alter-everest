@@ -5,12 +5,35 @@ import {
 } from "./verification";
 import { diagnoseExpedition } from "./diagnose-expedition";
 import { loadDemBundle } from "./expedition-kit";
+import { formatPlayerHelp, PLAYER_DOCS } from "../lib/player-rules";
 
 const candidatePath = process.argv[2];
 const usage =
-  "Usage: npm run expedition:check -- <candidate.json> [--world <snapshot.json>] [--diagnose]";
+  "npm run expedition:check -- <candidate.json> [--world <snapshot.json>] [--diagnose]";
+const help = formatPlayerHelp({
+  command: "expedition:check",
+  purpose:
+    "Run the complete local candidate verifier: identity, exact route, ordered matter actions, clearance, static physics, outcome, distance, and footprint delta.",
+  usage,
+  sections: [
+    {
+      heading: "Options",
+      lines: [
+        "--world <snapshot.json>   verify an isolated local chain",
+        "--diagnose                replay phases and identify the first physical obstruction or failure",
+      ],
+    },
+  ],
+  output:
+    "JSON complete verdict, failing step guidance, Endurance, distance, outcome, footprint delta, and physics.",
+  next: [
+    "On rejection, follow rule.next and rerun.",
+    "On acceptance, optionally expedition:apply to a local world, then follow the submission boundary.",
+  ],
+  docs: [PLAYER_DOCS.errors, PLAYER_DOCS.submission],
+});
 if (!candidatePath || candidatePath === "--help") {
-  console.log(usage);
+  console.log(help);
   process.exit(0);
 }
 
@@ -36,18 +59,11 @@ const diagnostics =
         result.candidate,
         result.canonicalWorld,
         (await loadDemBundle()).oracle,
+        result.verdict,
       )
     : null;
 const summary = {
   ...verificationSummary(result),
-  actionableCode:
-    (result.accepted ? result.verdict?.code : null) ??
-    result.verdict?.physics?.code ??
-    (result.verdict?.route?.code === "ROUTE_VALID"
-      ? result.verdict.code
-      : result.verdict?.route?.code) ??
-    result.verdict?.code ??
-    null,
   engineHash,
   ...(diagnostics ? { diagnostics } : {}),
 };

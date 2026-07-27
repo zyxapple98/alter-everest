@@ -24,7 +24,7 @@ world/snapshot.json + world/terrain.json
 
 ## Authority boundary
 
-- The reducer owns stones, removed terrain voxels, identities and scores.
+- The reducer owns stones, removed terrain voxels, identities and footprint.
 - The 30 m DEM owns the macro terrain shape.
 - `syntheticReliefM` is the shared deterministic 20 cm naturalisation rule.
 - Surface tiles are materialised current state, not an expedition history.

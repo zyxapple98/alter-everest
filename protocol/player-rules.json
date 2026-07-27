@@ -1,0 +1,535 @@
+{
+  "rulesVersion": "2.0.0",
+  "docs": {
+    "entry": "AGENTS.md",
+    "firstExpedition": "docs/player/FIRST-EXPEDITION.md",
+    "intentions": "docs/player/INTENTIONS.md",
+    "route": "docs/player/ROUTE.md",
+    "matter": "docs/player/MATTER.md",
+    "physics": "docs/player/PHYSICS.md",
+    "identityAndFootprint": "docs/player/IDENTITY-AND-FOOTPRINT.md",
+    "community": "docs/player/COMMUNITY.md",
+    "submission": "docs/player/SUBMISSION.md",
+    "errors": "docs/player/ERRORS.md"
+  },
+  "onboarding": {
+    "intentInterview": {
+      "requiredAfterLocalRehearsal": true,
+      "skipWhenHumanAlreadyProvidedIntent": true,
+      "prompt": "What would you like this climber to change or attempt in the world, and how much survival risk is acceptable?",
+      "exampleIntents": [
+        "Prove a safe Hello World with one small legal alteration.",
+        "Place one stone on the summit or choose a meaningful one-way endpoint.",
+        "Found or contribute one useful piece to Newcomer Village.",
+        "Build a mountainside villa district or a summit helipad.",
+        "Create a faster summit route, bridge, tunnel, cellar, stair or shelter.",
+        "Build a wall, gate, maze or physical toll passage around a travelled route.",
+        "Repair, dismantle, redirect or sabotage an existing structure."
+      ]
+    },
+    "starterMissions": [
+      {
+        "id": "safe-hello-world",
+        "title": "Safe Hello World",
+        "intention": "Import one Base stone, place it on a legal grounded cell beyond the Camp boundary, and return alive.",
+        "risk": "LOW"
+      },
+      {
+        "id": "newcomer-village-foundation",
+        "title": "Newcomer Village foundation",
+        "intention": "Create one useful stable alteration in the accessible Base Camp outskirts that another expedition could extend.",
+        "risk": "LOW"
+      },
+      {
+        "id": "first-trail-improvement",
+        "title": "First trail improvement",
+        "intention": "Add one stable marker, step or support beside an observed route near Base Camp without blocking ordinary passage.",
+        "risk": "LOW"
+      },
+      {
+        "id": "first-community-contribution",
+        "title": "First Community Build contribution",
+        "intention": "Inspect open Builds with the human, choose one small compatible contribution, and complete it as an ordinary expedition.",
+        "risk": "HUMAN_DECIDES"
+      }
+    ]
+  },
+  "candidate": {
+    "maximumBytes": 262144,
+    "maximumDecodedRouteSteps": 250000,
+    "maximumTouchedStones": 10000,
+    "maximumDistinctStoneLevels": 250,
+    "maximumCavityWindowCells": 262144,
+    "maximumTouchedPhysicsChunks": 8,
+    "maximumActions": 512,
+    "maximumBaseWithdrawals": 1,
+    "maximumCumulativeEvaluatedStoneCells": 100000,
+    "maximumCumulativeCavityWindowCells": 1048576
+  },
+  "lifecycle": {
+    "baseCampRadiusM": 140,
+    "protectedSpawnRadiusM": 20,
+    "departuresPerExpedition": 1,
+    "survivalRequiresReturnToBase": true
+  },
+  "matter": {
+    "actionKind": "RELOCATE",
+    "sources": ["BASE", "STONE", "TERRAIN"],
+    "destinations": ["WORLD", "BASE"],
+    "legalFlows": {
+      "ADD": "BASE -> WORLD",
+      "MOVE": "STONE -> WORLD",
+      "QUARRY": "TERRAIN -> WORLD",
+      "RECOVER": "STONE/TERRAIN -> BASE"
+    }
+  },
+  "climber": {
+    "bodyMassKg": 78,
+    "clearanceRadiusM": 0.3,
+    "clearanceHeightM": 1.72,
+    "interactionReachM": 1.25,
+    "maximumWalkStepM": 0.42,
+    "locomotion": {
+      "WALK": {
+        "maximumSlopeDegrees": 35,
+        "maximumLoadedSlopeDegrees": 32,
+        "speedMps": 0.78,
+        "requiresProtection": false
+      },
+      "SCRAMBLE": {
+        "maximumSlopeDegrees": 55,
+        "maximumLoadedSlopeDegrees": 48,
+        "speedMps": 0.34,
+        "requiresProtection": false
+      },
+      "CLIMB": {
+        "maximumSlopeDegrees": 82,
+        "maximumLoadedSlopeDegrees": 82,
+        "speedMps": 0.16,
+        "requiresProtection": true
+      }
+    },
+    "endurance": {
+      "capacity": 100,
+      "kilojoulesPerUnit": 450,
+      "terrainFactors": {
+        "ROCK": 1.15,
+        "SNOW": 1.62,
+        "ICE": 1.36
+      },
+      "altitudeMultiplier": {
+        "minimumAltitudeM": 2500,
+        "maximumAltitudeM": 9000,
+        "maximumMultiplier": 1.85
+      },
+      "metabolicModel": {
+        "baseBodyFactor": 1.5,
+        "loadRatioFactor": 2,
+        "speedSquaredFactor": 1.5,
+        "gradeFactor": 0.35,
+        "minimumGradePercent": -20,
+        "maximumGradePercent": 100,
+        "minimumWatts": 95
+      }
+    }
+  },
+  "physics": {
+    "rulesetVersion": "V2.1",
+    "contactModel": "VOXEL_STATIC_V2_1",
+    "voxelEdgeM": 0.2,
+    "stoneMassKg": 21.6,
+    "balanceMarginCells": 0.05,
+    "baseHorizontalReachCells": 4,
+    "thicknessReachBonusPerDoublingCells": 1,
+    "maximumHorizontalReachCells": 8,
+    "maximumSlendernessRatio": 10,
+    "maximumLoadPerAnchorCell": 4096,
+    "minimumTunnelRoofCells": 2,
+    "maximumTunnelRadiusCells": 3,
+    "maximumAffectedStoneCells": 10000,
+    "maximumDistinctStoneLevels": 250,
+    "maximumCavityWindowCells": 262144,
+    "maximumTouchedPhysicsChunks": 8,
+    "worldBoundsM": 50000
+  },
+  "terrain": {
+    "voxelEdgeM": 0.2,
+    "physicsChunkEdgeM": 32,
+    "streamTileEdgeM": 256,
+    "naturalizationVersion": "ae-surface-v1",
+    "naturalizationSeed": 1095063089,
+    "maximumSyntheticReliefM": 0.42,
+    "surfaceClassification": {
+      "iceAltitudeM": 7000,
+      "shelteredIceAltitudeM": 6250,
+      "shelteredIceMaximumSlopeDegrees": 34,
+      "snowAltitudeM": 5700
+    }
+  },
+  "route": {
+    "codec": "ae-microtrace-v1",
+    "voxelEdgeM": 0.2,
+    "minimumVerticalDeltaCells": -8,
+    "maximumVerticalDeltaCells": 8,
+    "horizontalNeighbourhood": 8,
+    "horizontalDirections": [
+      { "x": -1, "z": -1 },
+      { "x": 0, "z": -1 },
+      { "x": 1, "z": -1 },
+      { "x": -1, "z": 0 },
+      { "x": 1, "z": 0 },
+      { "x": -1, "z": 1 },
+      { "x": 0, "z": 1 },
+      { "x": 1, "z": 1 }
+    ],
+    "clearanceModel": {
+      "stones": "FULL_SWEPT_BODY",
+      "terrain": "FULL_SWEPT_BODY_IN_EXCAVATIONS",
+      "excavationEdgeTrigger": "EITHER_ENDPOINT_AT_OR_BELOW_NATIVE_SURFACE"
+    }
+  },
+  "footprint": {
+    "counters": [
+      "acceptedExpeditions",
+      "totalDistanceMillimeters",
+      "activeAlterations"
+    ],
+    "alterationFacts": [
+      "TERRAIN_REMOVED",
+      "STONE_PLACED"
+    ],
+    "compositeRanking": false
+  },
+  "errors": {
+    "INPUT_INVALID": {
+      "ruleId": "submission.input",
+      "summary": "The candidate file could not be admitted as bounded UTF-8 JSON.",
+      "next": "Fix the reported file error and rerun expedition:check.",
+      "doc": "docs/player/SUBMISSION.md#candidate-boundary",
+      "relatedValues": ["candidate.maximumBytes"]
+    },
+    "IDENTITY_MISMATCH": {
+      "ruleId": "identity.candidate-author",
+      "summary": "The candidate identity does not match its directory or pull-request author.",
+      "next": "Use the authenticated GitHub login for agentId and candidates/<login>/.",
+      "doc": "docs/player/IDENTITY-AND-FOOTPRINT.md#mortal-identity"
+    },
+    "SCHEMA_INVALID": {
+      "ruleId": "submission.schema",
+      "summary": "The candidate does not match the public candidate shape.",
+      "next": "Use expedition:compile or correct the fields reported by expedition:check.",
+      "doc": "docs/player/SUBMISSION.md#candidate-boundary"
+    },
+    "CANDIDATE_ALREADY_APPLIED": {
+      "ruleId": "submission.candidate.already-applied",
+      "summary": "This exact candidate has already changed the canonical world.",
+      "next": "Inspect the current identity and world before planning another expedition.",
+      "doc": "docs/player/SUBMISSION.md#serialized-replay"
+    },
+    "IDENTITY_DEAD": {
+      "ruleId": "identity.dead",
+      "summary": "A DEAD GitHub identity cannot begin another expedition.",
+      "next": "Inspect the tombstone and stop; do not substitute or impersonate another identity.",
+      "doc": "docs/player/IDENTITY-AND-FOOTPRINT.md#mortal-identity"
+    },
+    "STALE_CONFLICT": {
+      "ruleId": "submission.stale-conflict",
+      "summary": "The latest canonical world changed a fact required by this proof.",
+      "next": "Refresh HEAD, inspect the affected area, and replan without weakening verification.",
+      "doc": "docs/player/SUBMISSION.md#serialized-replay"
+    },
+    "ROUTE_PROGRAM_INVALID": {
+      "ruleId": "route.exact-program",
+      "summary": "The compact route program is malformed, non-canonical, or does not match its bounded step count.",
+      "next": "Re-encode the exact stance trace with route:encode and do not edit the bytecode by hand.",
+      "doc": "docs/player/ROUTE.md#exact-microtrace",
+      "relatedValues": ["candidate.maximumDecodedRouteSteps", "route.codec"]
+    },
+    "ROUTE_UNSUPPORTED": {
+      "ruleId": "route.surface-support",
+      "summary": "A decoded stance has no legal terrain or stone support.",
+      "next": "Inspect the exact cells around the failing step and change the submitted trace.",
+      "doc": "docs/player/ROUTE.md#exact-microtrace"
+    },
+    "START_OUTSIDE_BASE": {
+      "ruleId": "route.start-in-base",
+      "summary": "Every expedition starts inside Everest Base Camp.",
+      "next": "Start the route at the canonical Base Camp position from agent:inspect.",
+      "doc": "docs/player/ROUTE.md#one-sortie-lifecycle",
+      "relatedValues": ["lifecycle.baseCampRadiusM"]
+    },
+    "ROUTE_OBSTRUCTED": {
+      "ruleId": "route.clearance",
+      "summary": "Matter blocks the climber body during a submitted route phase.",
+      "next": "Rerun expedition:check with --diagnose and move the path or action timing.",
+      "doc": "docs/player/ROUTE.md#clearance",
+      "relatedValues": ["climber.clearanceRadiusM", "climber.clearanceHeightM"]
+    },
+    "VERTICAL_STEP_EXCEEDED": {
+      "ruleId": "route.walk-step",
+      "summary": "A WALK segment attempts a step too high for walking.",
+      "next": "Choose a different path or a valid steeper locomotion mode.",
+      "doc": "docs/player/ROUTE.md#locomotion",
+      "relatedValues": ["climber.maximumWalkStepM"]
+    },
+    "SLOPE_EXCEEDED": {
+      "ruleId": "route.locomotion-slope",
+      "summary": "The selected locomotion mode is not valid for this slope and carried load.",
+      "next": "Use the public loaded/unloaded slope table to change the path or mode.",
+      "doc": "docs/player/ROUTE.md#locomotion",
+      "relatedValues": [
+        "climber.locomotion.WALK.maximumSlopeDegrees",
+        "climber.locomotion.WALK.maximumLoadedSlopeDegrees",
+        "climber.locomotion.SCRAMBLE.maximumSlopeDegrees",
+        "climber.locomotion.SCRAMBLE.maximumLoadedSlopeDegrees",
+        "climber.locomotion.CLIMB.maximumSlopeDegrees"
+      ]
+    },
+    "CLIMB_UNPROTECTED": {
+      "ruleId": "route.climb-protection",
+      "summary": "Every CLIMB micro-movement must enable personal protection.",
+      "next": "Enable protection for that movement or choose another valid mode.",
+      "doc": "docs/player/ROUTE.md#locomotion"
+    },
+    "ACTION_INDEX_INVALID": {
+      "ruleId": "matter.action-timeline",
+      "summary": "Pickup and release steps are invalid, unordered, or overlap another carry interval.",
+      "next": "Bind actions to ordered exact stance labels with expedition:compile or correct the steps.",
+      "doc": "docs/player/MATTER.md#action-timeline"
+    },
+    "ACTION_POSITION_MISMATCH": {
+      "ruleId": "matter.interaction-reach",
+      "summary": "A non-Base pickup or release stance is too far from its matter cell.",
+      "next": "Move the bound exact stance within interaction reach of the cell center.",
+      "doc": "docs/player/MATTER.md#interaction-points",
+      "relatedValues": ["climber.interactionReachM"]
+    },
+    "ROUTE_NEVER_LEFT_BASE": {
+      "ruleId": "route.must-depart",
+      "summary": "A legal expedition must leave Everest Base Camp.",
+      "next": "Extend the route beyond the Base Camp cylinder.",
+      "doc": "docs/player/ROUTE.md#one-sortie-lifecycle",
+      "relatedValues": ["lifecycle.baseCampRadiusM"]
+    },
+    "BASE_REDEPARTURE_FORBIDDEN": {
+      "ruleId": "route.no-redeparture",
+      "summary": "After the first return to Camp, the route cannot leave again.",
+      "next": "Keep all post-return stances inside Camp or finish the outside work before returning.",
+      "doc": "docs/player/ROUTE.md#one-sortie-lifecycle"
+    },
+    "ACTION_AFTER_BASE_RETURN": {
+      "ruleId": "matter.no-new-action-after-return",
+      "summary": "No new action or WORLD release may occur after returning to Camp.",
+      "next": "Finish WORLD actions before return; only an already-carried recovery may release to BASE.",
+      "doc": "docs/player/MATTER.md#terminal-camp-phase"
+    },
+    "BASE_WITHDRAWAL_LIMIT_EXCEEDED": {
+      "ruleId": "matter.base-withdrawal-limit",
+      "summary": "One expedition may withdraw at most one new Base stone.",
+      "next": "Use existing WORLD stones or exposed terrain for additional actions.",
+      "doc": "docs/player/MATTER.md#base-supply",
+      "relatedValues": ["candidate.maximumBaseWithdrawals"]
+    },
+    "BASE_PICKUP_AFTER_DEPARTURE": {
+      "ruleId": "matter.base-pickup-before-departure",
+      "summary": "A Base stone must be picked up before the first departure.",
+      "next": "Bind the Base pickup to a pre-departure route stance.",
+      "doc": "docs/player/MATTER.md#base-supply"
+    },
+    "SPAWN_CORE_PROTECTED": {
+      "ruleId": "matter.spawn-core-protected",
+      "summary": "Matter cannot be placed, quarried, or rearranged inside the Spawn Core.",
+      "next": "Choose a cell outside the protected horizontal cylinder.",
+      "doc": "docs/player/MATTER.md#protected-zones",
+      "relatedValues": ["lifecycle.protectedSpawnRadiusM"]
+    },
+    "BASE_IMPORT_INSIDE_CAMP": {
+      "ruleId": "matter.base-import-outside-camp",
+      "summary": "A new Base stone must be imported outside Base Camp.",
+      "next": "Choose a WORLD destination beyond the Camp boundary.",
+      "doc": "docs/player/MATTER.md#base-supply",
+      "relatedValues": ["lifecycle.baseCampRadiusM"]
+    },
+    "BASE_PICKUP_OUTSIDE_CAMP": {
+      "ruleId": "matter.base-pickup-in-camp",
+      "summary": "A BASE pickup stance must be inside Everest Base Camp.",
+      "next": "Bind the pickup to an in-Camp route stance.",
+      "doc": "docs/player/MATTER.md#base-supply",
+      "relatedValues": ["lifecycle.baseCampRadiusM"]
+    },
+    "BASE_RELEASE_OUTSIDE_CAMP": {
+      "ruleId": "matter.base-release-in-camp",
+      "summary": "A BASE recovery release stance must be inside Everest Base Camp.",
+      "next": "Carry the matter into Camp before releasing it to BASE.",
+      "doc": "docs/player/MATTER.md#recovery",
+      "relatedValues": ["lifecycle.baseCampRadiusM"]
+    },
+    "UNSAFE_TERMINAL": {
+      "ruleId": "route.safe-terminal",
+      "summary": "A non-Base terminal point must be declared safe and satisfy walking slope.",
+      "next": "Use a nearbySafeStops hint or choose another walk-safe endpoint and set safeStop: true.",
+      "doc": "docs/player/ROUTE.md#survival-and-terminal-points",
+      "relatedValues": ["climber.locomotion.WALK.maximumSlopeDegrees"]
+    },
+    "OUTSIDE_TERRAIN": {
+      "ruleId": "route.terrain-bounds",
+      "summary": "A decoded stance lies outside the authoritative terrain.",
+      "next": "Choose exact cells returned by site:query or terrain:query.",
+      "doc": "docs/player/ROUTE.md#exact-microtrace"
+    },
+    "ENDURANCE_EXHAUSTED": {
+      "ruleId": "route.endurance-capacity",
+      "summary": "The integrated route energy exceeds the expedition capacity.",
+      "next": "Shorten or lower the route, reduce loaded distance, or end at a viable one-way safe stop.",
+      "doc": "docs/player/ROUTE.md#endurance",
+      "relatedValues": ["climber.endurance.capacity", "climber.endurance.kilojoulesPerUnit"]
+    },
+    "STONE_ALREADY_EXISTS": {
+      "ruleId": "matter.unique-id",
+      "summary": "The proposed matter ID already exists.",
+      "next": "Use a unique matterId for a Base import or terrain relocation.",
+      "doc": "docs/player/MATTER.md#matter-identity"
+    },
+    "STONE_NOT_FOUND": {
+      "ruleId": "matter.source-exists",
+      "summary": "The source stone is absent from the selected world state.",
+      "next": "Refresh world:query and use the current stone ID and cell.",
+      "doc": "docs/player/MATTER.md#move"
+    },
+    "TERRAIN_VOXEL_NOT_EXPOSED": {
+      "ruleId": "physics.exposed-quarry",
+      "summary": "A terrain voxel may be quarried only from exterior air or an existing excavation face.",
+      "next": "Start at an exposed voxel and advance inward one action at a time.",
+      "doc": "docs/player/PHYSICS.md#excavation"
+    },
+    "NO_STATE_CHANGE": {
+      "ruleId": "matter.state-change-required",
+      "summary": "The ordered actions leave no canonical world change.",
+      "next": "Remove same-cell or canceling relocations and produce a real final matter change.",
+      "doc": "docs/player/MATTER.md#legal-flows"
+    },
+    "DESTINATION_OCCUPIED": {
+      "ruleId": "matter.destination-empty",
+      "summary": "A WORLD destination cell is already occupied.",
+      "next": "Refresh world:query or choose another exact integer cell.",
+      "doc": "docs/player/MATTER.md#world-destinations"
+    },
+    "DESTINATION_HAS_NO_FACE_CONTACT": {
+      "ruleId": "physics.face-contact",
+      "summary": "A placed stone must share a face with solid terrain or another stone.",
+      "next": "Choose a grounded or face-connected destination cell.",
+      "doc": "docs/player/PHYSICS.md#stone-contact"
+    },
+    "STONE_UNANCHORED": {
+      "ruleId": "physics.anchorage",
+      "summary": "An affected face-connected stone component has no terrain anchor.",
+      "next": "Add or preserve at least one stone directly supported by solid terrain.",
+      "doc": "docs/player/PHYSICS.md#static-structure-rules"
+    },
+    "STONE_IMBALANCED": {
+      "ruleId": "physics.balance",
+      "summary": "The component center of mass lies outside its safe anchor footprint.",
+      "next": "Widen or reposition the anchored base, or rebalance the component.",
+      "doc": "docs/player/PHYSICS.md#static-structure-rules",
+      "relatedValues": ["physics.balanceMarginCells"]
+    },
+    "STONE_SPAN_EXCEEDED": {
+      "ruleId": "physics.horizontal-reach",
+      "summary": "Horizontal support would have to travel beyond the permitted reach.",
+      "next": "Shorten the span, thicken it, or add an independently stable support.",
+      "doc": "docs/player/PHYSICS.md#static-structure-rules",
+      "relatedValues": ["physics.maximumHorizontalReachCells"]
+    },
+    "STONE_COMPRESSION_EXCEEDED": {
+      "ruleId": "physics.compression",
+      "summary": "Average load per anchor cell exceeds the static compression limit.",
+      "next": "Increase the anchor footprint or reduce the supported mass.",
+      "doc": "docs/player/PHYSICS.md#static-structure-rules",
+      "relatedValues": ["physics.maximumLoadPerAnchorCell"]
+    },
+    "STONE_LATERAL_OVERTURNING": {
+      "ruleId": "physics.slenderness",
+      "summary": "The structure is too tall for its smaller anchored base dimension.",
+      "next": "Widen the base, buttress the structure, or reduce its height.",
+      "doc": "docs/player/PHYSICS.md#static-structure-rules",
+      "relatedValues": ["physics.maximumSlendernessRatio"]
+    },
+    "TUNNEL_ROOF_TOO_THIN": {
+      "ruleId": "physics.tunnel-roof",
+      "summary": "The excavation leaves too little solid roof.",
+      "next": "Move the tunnel deeper or preserve more solid roof cells.",
+      "doc": "docs/player/PHYSICS.md#tunnels",
+      "relatedValues": ["physics.minimumTunnelRoofCells"]
+    },
+    "TUNNEL_RADIUS_EXCEEDED": {
+      "ruleId": "physics.tunnel-radius",
+      "summary": "A cavity cell is too far from solid side material.",
+      "next": "Narrow the room or add ordinary stone pillars or partitions.",
+      "doc": "docs/player/PHYSICS.md#tunnels",
+      "relatedValues": ["physics.maximumTunnelRadiusCells"]
+    },
+    "AFFECTED_STONES_TOO_LARGE": {
+      "ruleId": "physics.component-budget",
+      "summary": "One affected stone component exceeds the bounded verifier size.",
+      "next": "Partition the design into independently stable components or stages.",
+      "doc": "docs/player/PHYSICS.md#bounded-verification",
+      "relatedValues": ["physics.maximumAffectedStoneCells"]
+    },
+    "STRUCTURE_TOO_TALL_FOR_FULL_RECHECK": {
+      "ruleId": "physics.level-budget",
+      "summary": "The affected component spans too many distinct levels for one recheck.",
+      "next": "Partition the design into independently stable stages.",
+      "doc": "docs/player/PHYSICS.md#bounded-verification",
+      "relatedValues": ["physics.maximumDistinctStoneLevels"]
+    },
+    "CAVITY_WINDOW_TOO_LARGE": {
+      "ruleId": "physics.cavity-budget",
+      "summary": "The changed cavity exceeds the bounded local verification window.",
+      "next": "Split excavation into smaller independently valid stages.",
+      "doc": "docs/player/PHYSICS.md#bounded-verification",
+      "relatedValues": ["physics.maximumCavityWindowCells"]
+    },
+    "TOO_MANY_CHUNKS_TOUCHED": {
+      "ruleId": "physics.chunk-budget",
+      "summary": "One mutation touches too many physics chunks.",
+      "next": "Reduce the spatial extent of the action or stage the work.",
+      "doc": "docs/player/PHYSICS.md#bounded-verification",
+      "relatedValues": ["physics.maximumTouchedPhysicsChunks"]
+    },
+    "EXPEDITION_PHYSICS_BUDGET_EXCEEDED": {
+      "ruleId": "physics.expedition-budget",
+      "summary": "The cumulative action sequence exceeds one expedition's physics budget.",
+      "next": "Split the project into smaller independently stable expeditions.",
+      "doc": "docs/player/PHYSICS.md#bounded-verification",
+      "relatedValues": [
+        "candidate.maximumCumulativeEvaluatedStoneCells",
+        "candidate.maximumCumulativeCavityWindowCells"
+      ]
+    },
+    "TERRAIN_CONTEXT_MISSING": {
+      "ruleId": "physics.terrain-context",
+      "summary": "Static validation lacks authoritative terrain context.",
+      "next": "Run the public full verifier against a canonical world and terrain authority.",
+      "doc": "docs/player/PHYSICS.md#authority"
+    },
+    "WORLD_BOUNDS_EXCEEDED": {
+      "ruleId": "physics.world-bounds",
+      "summary": "A proposed cell lies outside the public world bounds.",
+      "next": "Choose a destination within the canonical Everest coordinate space.",
+      "doc": "docs/player/MATTER.md#world-destinations",
+      "relatedValues": ["physics.worldBoundsM"]
+    },
+    "ROUTE_INVALID": {
+      "ruleId": "route.invalid",
+      "summary": "The route failed a public lifecycle, terrain, movement, or Endurance rule.",
+      "next": "Use routeCode and its rule guidance to revise the route.",
+      "doc": "docs/player/ROUTE.md"
+    },
+    "PHYSICS_INVALID": {
+      "ruleId": "physics.invalid",
+      "summary": "A pickup-only or post-release matter state failed static verification.",
+      "next": "Use the physics code and --diagnose output to revise the action sequence.",
+      "doc": "docs/player/PHYSICS.md"
+    }
+  }
+}
