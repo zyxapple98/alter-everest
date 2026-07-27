@@ -1,0 +1,33 @@
+{
+  "eventVersion": "1.2.0",
+  "sequence": 2,
+  "candidateId": "zyxapple98-newcomer-pyramid-cornerstone-20260727",
+  "candidateHash": "131b62b1ef1776821ccb43703c848ece0dbc07e240bbd9af8a1f51cb99c5926a",
+  "agentId": "zyxapple98",
+  "parentWorldHash": "e15dfe26a1637b926a0e7bce2f13489724120ee555cd4a545fb4c7ec7c69246f",
+  "worldHash": "e69276026784f1ffdd2a2087722a187f483270b4429f62052df1a861c92757ed",
+  "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
+  "engineHash": "bb4f1c587e8b041333cd23782db23760ba2c109193339245cd80d1195e365f81",
+  "action": "ADD",
+  "actions": [
+    "ADD"
+  ],
+  "actionCount": 1,
+  "stoneIds": [
+    "stone-zyxapple98-newcomer-pyramid-cornerstone-20260727"
+  ],
+  "outcome": "ACTIVE",
+  "altitudeM": 5283,
+  "enduranceUsed": 0.7236513371426138,
+  "energyKj": 325.64310171417617,
+  "distanceMillimeters": 347488,
+  "alterationDelta": {
+    "terrainRemovalsCreated": 0,
+    "stonePlacementsCreated": 1,
+    "stonePlacementsRemoved": 0
+  },
+  "proofArtifact": "world/proofs/000000002-zyxapple98-newcomer-pyramid-cornerstone-20260727.json",
+  "traceArtifact": null,
+  "receiptKeyId": "1772ca8eef433a87317793c1",
+  "eventHash": "08240a01f5cc83110ff9f6e5c95414e50cb64999da409b2d9153acf4875ae865"
+}

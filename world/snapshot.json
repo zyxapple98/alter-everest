@@ -1,6 +1,6 @@
 {
-  "sequence": 1,
-  "worldHash": "e15dfe26a1637b926a0e7bce2f13489724120ee555cd4a545fb4c7ec7c69246f",
+  "sequence": 2,
+  "worldHash": "e69276026784f1ffdd2a2087722a187f483270b4429f62052df1a861c92757ed",
   "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
   "baseCamp": {
     "x": -4136.384339074745,
@@ -10,6 +10,14 @@
   "extractionZones": [],
   "removedTerrainVoxels": [],
   "stones": [
+    {
+      "id": "stone-zyxapple98-newcomer-pyramid-cornerstone-20260727",
+      "cell": {
+        "x": -21481,
+        "y": 44,
+        "z": -33602
+      }
+    },
     {
       "id": "stone-zyxapple98-safe-hello-world-20260727",
       "cell": {
@@ -45,11 +53,40 @@
         "stonePlacementsCreated": 1,
         "stonePlacementsRemoved": 0
       }
+    },
+    {
+      "id": "zyxapple98-newcomer-pyramid-cornerstone-20260727",
+      "agentId": "zyxapple98",
+      "action": "ADD",
+      "actions": [
+        "ADD"
+      ],
+      "actionCount": 1,
+      "outcome": "ACTIVE",
+      "altitudeM": 5283,
+      "enduranceUsed": 0.7236513371426138,
+      "energyKj": 325.64310171417617,
+      "distanceMillimeters": 347488,
+      "alterationDelta": {
+        "terrainRemovalsCreated": 0,
+        "stonePlacementsCreated": 1,
+        "stonePlacementsRemoved": 0
+      }
     }
   ],
   "alterations": {
     "terrainRemovals": [],
     "stonePlacements": [
+      {
+        "stoneId": "stone-zyxapple98-newcomer-pyramid-cornerstone-20260727",
+        "cell": {
+          "x": -21481,
+          "y": 44,
+          "z": -33602
+        },
+        "agentId": "zyxapple98",
+        "expeditionId": "zyxapple98-newcomer-pyramid-cornerstone-20260727"
+      },
       {
         "stoneId": "stone-zyxapple98-safe-hello-world-20260727",
         "cell": {
@@ -65,11 +102,11 @@
   "footprints": [
     {
       "agentId": "zyxapple98",
-      "acceptedExpeditions": 1,
-      "totalDistanceMillimeters": 295586,
+      "acceptedExpeditions": 2,
+      "totalDistanceMillimeters": 643074,
       "activeTerrainRemovals": 0,
-      "activeStonePlacements": 1,
-      "activeAlterations": 1
+      "activeStonePlacements": 2,
+      "activeAlterations": 2
     }
   ],
   "modifiedChunks": [
@@ -82,6 +119,16 @@
         "stone-zyxapple98-safe-hello-world-20260727"
       ],
       "hash": "86f9e9a550bc96be6964cb47361eaf99d33eb64485b3d2bee7cb1b587ce4c292"
+    },
+    {
+      "id": "-135:-211",
+      "x": -135,
+      "z": -211,
+      "removedTerrainVoxels": [],
+      "stoneIds": [
+        "stone-zyxapple98-newcomer-pyramid-cornerstone-20260727"
+      ],
+      "hash": "1c0c1ce82c3c3be7c1f9b110857bb6c6c3c5bd7892243667093ddfdc2b54d041"
     }
   ],
   "modifiedTiles": [
@@ -93,6 +140,15 @@
         "86f9e9a550bc96be6964cb47361eaf99d33eb64485b3d2bee7cb1b587ce4c292"
       ],
       "hash": "1142185cb69b690460cf612ff56fb9fed82f29b06f366d65f27b352b175dcf80"
+    },
+    {
+      "id": "-17:-27",
+      "x": -17,
+      "z": -27,
+      "chunkHashes": [
+        "1c0c1ce82c3c3be7c1f9b110857bb6c6c3c5bd7892243667093ddfdc2b54d041"
+      ],
+      "hash": "b1b059f2bd207e1e390b22ddb7cb6b23f74bda0602dd278e8fc591161333f17e"
     }
   ]
 }

@@ -1,0 +1,40 @@
+{
+  "receiptVersion": "1.3.0",
+  "candidateHash": "131b62b1ef1776821ccb43703c848ece0dbc07e240bbd9af8a1f51cb99c5926a",
+  "candidateId": "zyxapple98-newcomer-pyramid-cornerstone-20260727",
+  "agentId": "zyxapple98",
+  "canonicalParent": "e15dfe26a1637b926a0e7bce2f13489724120ee555cd4a545fb4c7ec7c69246f",
+  "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
+  "engineHash": "bb4f1c587e8b041333cd23782db23760ba2c109193339245cd80d1195e365f81",
+  "issuedAt": null,
+  "result": {
+    "accepted": true,
+    "code": "ACCEPTED",
+    "action": "ADD",
+    "actions": [
+      "ADD"
+    ],
+    "actionCount": 1,
+    "stoneIds": [
+      "stone-zyxapple98-newcomer-pyramid-cornerstone-20260727"
+    ],
+    "outcome": "ACTIVE",
+    "enduranceUsed": 0.723651,
+    "energyKj": 325.643102,
+    "distanceMillimeters": 347488,
+    "footprintDelta": {
+      "terrainRemovalsCreated": 0,
+      "stonePlacementsCreated": 1,
+      "stonePlacementsRemoved": 0
+    },
+    "physicsCode": "STABLE",
+    "affectedStoneIds": [
+      "stone-zyxapple98-newcomer-pyramid-cornerstone-20260727"
+    ]
+  },
+  "signature": {
+    "algorithm": "Ed25519",
+    "keyId": "1772ca8eef433a87317793c1",
+    "value": "xr4q1nDaCODqoA3Kgjm00olRH9H0wCHcwKthGFd3CHy6R3MXZ9LU+WzD0qLQLmRtVVkSptpehkFXCiXkScn8Bg=="
+  }
+}
