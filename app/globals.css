@@ -161,8 +161,9 @@ button {
   top: 0;
   left: 0;
   display: flex;
-  align-items: flex-end;
-  gap: 9px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   width: max-content;
   opacity: 0;
   visibility: hidden;
@@ -174,15 +175,15 @@ button {
 .site-marker-beacon {
   position: relative;
   flex: 0 0 auto;
-  width: 20px;
-  height: 12px;
+  width: 15px;
+  height: 15px;
   border: 1px solid color-mix(in srgb, var(--cyan) 80%, white);
-  border-radius: 50%;
-  background: rgba(3, 14, 22, 0.46);
+  border-radius: 50% 50% 50% 0;
+  background: rgba(3, 14, 22, 0.74);
   box-shadow:
-    0 0 0 5px rgba(114, 233, 255, 0.05),
-    0 0 17px rgba(114, 233, 255, 0.56);
-  transform: rotate(-10deg);
+    0 0 0 4px rgba(114, 233, 255, 0.045),
+    0 0 14px rgba(114, 233, 255, 0.48);
+  transform: rotate(-45deg);
 }
 
 .site-marker-beacon::before {
@@ -198,23 +199,13 @@ button {
   transform: translate(-50%, -50%);
 }
 
-.site-marker-beacon::after {
-  position: absolute;
-  inset: 3px 4px;
-  content: "";
-  border: 1px dotted rgba(114, 233, 255, 0.64);
-  border-radius: 50%;
-}
-
 .site-marker-copy {
-  display: flex;
   min-width: 138px;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 12px 8px 10px;
-  border-left: 1px solid rgba(114, 233, 255, 0.5);
-  background: linear-gradient(90deg, rgba(3, 13, 21, 0.82), rgba(3, 13, 21, 0.28));
+  padding: 7px 10px 6px;
+  border: 1px solid rgba(114, 233, 255, 0.18);
+  background: rgba(3, 13, 21, 0.68);
   backdrop-filter: blur(8px);
+  text-align: center;
 }
 
 .site-marker strong {
@@ -225,12 +216,6 @@ button {
   white-space: nowrap;
 }
 
-.site-marker small {
-  color: rgba(192, 224, 232, 0.56);
-  font: 560 8px/1 var(--mono);
-  letter-spacing: 0.14em;
-}
-
 .site-marker-summit .site-marker-beacon {
   border-color: var(--amber);
   box-shadow:
@@ -238,12 +223,8 @@ button {
     0 0 24px rgba(255, 200, 107, 0.72);
 }
 
-.site-marker-summit .site-marker-beacon::after {
-  border-color: rgba(255, 200, 107, 0.78);
-}
-
 .site-marker-summit .site-marker-copy {
-  border-left-color: rgba(255, 200, 107, 0.72);
+  border-color: rgba(255, 200, 107, 0.24);
 }
 
 .site-marker-base .site-marker-beacon {
@@ -258,12 +239,19 @@ button {
   padding: 6px 9px;
 }
 
-.site-marker[data-lod="far"] small {
-  display: none;
+.site-marker[data-lod="far"] .site-marker-beacon {
+  width: 13px;
+  height: 13px;
 }
 
 .site-marker[data-lod="near"] .site-marker-copy {
-  background: rgba(3, 13, 21, 0.88);
+  background: rgba(3, 13, 21, 0.76);
+}
+
+.site-marker[data-lod="near"] .site-marker-beacon {
+  width: 11px;
+  height: 11px;
+  opacity: 0.76;
 }
 
 .observatory-header {
@@ -1317,10 +1305,6 @@ button {
     overflow: hidden;
     font-size: 9px;
     text-overflow: ellipsis;
-  }
-
-  .site-marker small {
-    display: none;
   }
 
 }
