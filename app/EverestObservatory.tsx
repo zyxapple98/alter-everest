@@ -79,6 +79,7 @@ import {
   SKY_PHASES,
   type SkyPhase,
 } from "./everest/sky-cycle";
+import { siteRegionBoundaryPositions } from "./everest/site-region";
 
 interface DemMetadata {
   id: string;
@@ -114,6 +115,7 @@ interface SiteAnchor {
   side: "SOUTH" | "NORTH" | "BOTH";
   latitude: number;
   longitude: number;
+  radiusM: number;
 }
 
 interface MemorialCluster {
@@ -1842,10 +1844,14 @@ function createSiteLabel(site: SiteAnchor) {
     <span class="site-marker-beacon" aria-hidden="true"></span>
     <span class="site-marker-copy">
       <strong>${site.name}</strong>
-      <small>${site.side === "BOTH" ? "SUMMIT" : `${site.side} FACE`}</small>
+      <small>${Math.round(site.radiusM)} M REGION</small>
     </span>
   `;
   return element;
+}
+
+function siteLabelLiftM(site: SiteAnchor) {
+  return site.kind === "SUMMIT" ? 30 : 20;
 }
 
 function createRoute(
@@ -3187,50 +3193,94 @@ export default function EverestObservatory() {
               : site.kind === "BASE"
                 ? "#8dffc1"
                 : "#72e9ff";
-          const beamMaterial = new THREE.MeshBasicMaterial({
+          const regionMaterial = new THREE.LineDashedMaterial({
             color: signalColor,
             transparent: true,
-            opacity: site.kind === "SUMMIT" ? 0.94 : 0.62,
+            opacity: site.kind === "SUMMIT" ? 0.72 : 0.54,
             depthWrite: false,
-          });
-          const ringMaterial = new THREE.MeshBasicMaterial({
-            color: signalColor,
-            transparent: true,
-            opacity: 0.32,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-          });
-          const marker = new THREE.Mesh(
-            new THREE.BoxGeometry(
-              site.kind === "SUMMIT" ? 0.3 : 0.18,
-              site.kind === "SUMMIT" ? 2.65 : 1.55,
-              site.kind === "SUMMIT" ? 0.3 : 0.18,
+            dashSize: Math.max(
+              0.025,
+              site.radiusM * WORLD_UNITS_PER_METER * 0.075,
             ),
-            beamMaterial,
+            gapSize: Math.max(
+              0.018,
+              site.radiusM * WORLD_UNITS_PER_METER * 0.045,
+            ),
+          });
+          const regionSegments = THREE.MathUtils.clamp(
+            Math.ceil(site.radiusM / 4),
+            28,
+            64,
           );
-          const ring = new THREE.Mesh(
-            new THREE.RingGeometry(0.28, 0.45, 4),
-            ringMaterial,
+          const regionGeometry = new THREE.BufferGeometry();
+          const regionPosition = new THREE.BufferAttribute(
+            new Float32Array(regionSegments * 3),
+            3,
           );
-          marker.position.y += site.kind === "SUMMIT" ? 1.33 : 0.78;
-          ring.rotation.x = -Math.PI / 2;
-          ring.rotation.z = Math.PI / 4;
-          ring.position.y += 0.07;
-          siteGroup.position.copy(point);
-          siteGroup.add(marker, ring);
+          regionGeometry.setAttribute("position", regionPosition);
+          const region = new THREE.LineLoop(
+            regionGeometry,
+            regionMaterial,
+          );
+          region.renderOrder = 4;
+          const radiusWorld =
+            site.radiusM * WORLD_UNITS_PER_METER;
+          let regionCellM = -1;
+          let regionCenterY = point.y;
+          const updateRegion = (cellM: number) => {
+            if (regionCellM === cellM) return regionCenterY;
+            regionCellM = cellM;
+            regionCenterY = detailedSurfaceY(
+              authority,
+              authorityTerrain,
+              point.x,
+              point.z,
+              cellM,
+              undefined,
+              terrainStreamingContext,
+            );
+            regionPosition.copyArray(
+              siteRegionBoundaryPositions({
+                centerX: point.x,
+                centerZ: point.z,
+                centerSurfaceY: regionCenterY,
+                radiusWorld,
+                segments: regionSegments,
+                sampleSurfaceY: (worldX, worldZ) =>
+                  detailedSurfaceY(
+                    authority,
+                    authorityTerrain,
+                    worldX,
+                    worldZ,
+                    cellM,
+                    undefined,
+                    terrainStreamingContext,
+                  ),
+              }),
+            );
+            regionPosition.needsUpdate = true;
+            region.computeLineDistances();
+            return regionCenterY;
+          };
+          siteGroup.position.set(
+            point.x,
+            updateRegion(90) + 2.5 * WORLD_UNITS_PER_METER,
+            point.z,
+          );
+          siteGroup.add(region);
           scene.add(siteGroup);
 
           const label = createSiteLabel(site);
           overlayHost.appendChild(label);
           const labelPoint = point.clone();
-          labelPoint.y += site.kind === "SUMMIT" ? 3.2 : 2.05;
+          labelPoint.y =
+            siteGroup.position.y +
+            siteLabelLiftM(site) * WORLD_UNITS_PER_METER;
           return {
             site,
             siteGroup,
-            marker,
-            ring,
-            beamMaterial,
-            ringMaterial,
+            regionMaterial,
+            updateRegion,
             label,
             labelPoint,
           };
@@ -5199,19 +5249,12 @@ export default function EverestObservatory() {
         }> = [];
         prioritizedSiteObjects.forEach((siteObject) => {
           siteObject.siteGroup.position.y =
-            detailedSurfaceY(
-              authority,
-              authorityTerrain,
-              siteObject.siteGroup.position.x,
-              siteObject.siteGroup.position.z,
-              currentCellM,
-              undefined,
-              terrainStreamingContext,
-            ) +
-            15 * WORLD_UNITS_PER_METER;
+            siteObject.updateRegion(currentCellM) +
+            2.5 * WORLD_UNITS_PER_METER;
           siteObject.labelPoint.y =
             siteObject.siteGroup.position.y +
-            (siteObject.site.kind === "SUMMIT" ? 3.2 : 2.05);
+            siteLabelLiftM(siteObject.site) *
+              WORLD_UNITS_PER_METER;
           if (manualReplayStarted.current > 0) {
             siteObject.label.style.opacity = "0";
             siteObject.label.style.visibility = "hidden";
@@ -5295,11 +5338,11 @@ export default function EverestObservatory() {
               : cameraDistance < 118
                 ? "mid"
                 : "far";
-          siteObject.ringMaterial.opacity =
-            0.18 +
+          siteObject.regionMaterial.opacity =
+            (siteObject.site.kind === "SUMMIT" ? 0.64 : 0.48) +
             (reduceMotion
               ? 0
-              : Math.sin(seconds * 1.6 + priority) * 0.08);
+              : Math.sin(seconds * 1.15 + priority) * 0.06);
         });
 
         updateCameraAtmosphere(atmosphere, camera);
@@ -5388,12 +5431,16 @@ export default function EverestObservatory() {
         summitStone.geometry.dispose();
         (summitStone.material as THREE.Material).dispose();
         siteObjects.forEach(
-          ({ siteGroup, beamMaterial, ringMaterial, label }) => {
+          ({ siteGroup, regionMaterial, label }) => {
             siteGroup.traverse((object) => {
-              if (object instanceof THREE.Mesh) object.geometry.dispose();
+              if (
+                object instanceof THREE.Mesh ||
+                object instanceof THREE.Line
+              ) {
+                object.geometry.dispose();
+              }
             });
-            beamMaterial.dispose();
-            ringMaterial.dispose();
+            regionMaterial.dispose();
             label.remove();
           },
         );
@@ -5758,7 +5805,10 @@ export default function EverestObservatory() {
       ) : null}
 
       {active ? (
-        <aside className="expedition-card" aria-label="Last expedition event">
+        <aside
+          className="expedition-card"
+          aria-label="Last expedition event"
+        >
           <div className="expedition-card-heading">
             <span
               className="route-swatch"
@@ -5772,6 +5822,24 @@ export default function EverestObservatory() {
                 ? `${active.actions?.length ?? 1}-ACTION TRACE`
                 : "LAST EVENT"}
             </small>
+            {expeditions.length > 1 ? (
+              <div
+                className="expedition-history"
+                aria-label="Recent expeditions"
+              >
+                {expeditions.map((expedition, index) => (
+                  <button
+                    key={expedition.id}
+                    type="button"
+                    aria-label={`Show ${expedition.agent}`}
+                    aria-pressed={index === activeExpedition}
+                    title={expedition.agent}
+                    style={{ "--trace-color": expedition.color } as React.CSSProperties}
+                    onClick={() => selectReplay(index)}
+                  />
+                ))}
+              </div>
+            ) : null}
           </div>
           <strong>{active.agent}</strong>
           <div className="expedition-result">
@@ -5792,6 +5860,15 @@ export default function EverestObservatory() {
               {active.actions?.length
                 ? `ACTION 1/${active.actions.length}`
                 : "ROUTE REPLAY"}
+            </div>
+          ) : null}
+          {active.trace ? (
+            <div
+              className="expedition-progress"
+              ref={replayProgressHost}
+              aria-hidden="true"
+            >
+              <i />
             </div>
           ) : null}
           <div className="endurance-language">
@@ -5836,59 +5913,10 @@ export default function EverestObservatory() {
           </div>
           <strong>THE FIELD IS OPEN</strong>
           <div className="expedition-result">
-            <span>AWAITING A FIRST CLIMBER</span>
+            <span>AWAITING FIRST EXPEDITION</span>
           </div>
         </aside>
       )}
-
-      <nav
-        className="replay-dock"
-        ref={replayProgressHost}
-        aria-label="Expedition replay"
-      >
-        <div className="replay-progress" aria-hidden="true">
-          <i />
-        </div>
-        <div className="replay-title">
-          <small>
-            {active
-              ? active.trace
-                ? "LIVE REPLAY"
-                : "RECENT EVENTS"
-              : "OPEN FIELD"}
-          </small>
-          <strong>
-            {active
-              ? active.trace
-                ? active.actions?.length
-                  ? "FULL EXPEDITION · AUTO-DIRECTED"
-                  : "REAL-TIME ROUTE"
-                : "TRACE NOT PUBLISHED"
-              : "AWAITING FIRST EXPEDITION"}
-          </strong>
-        </div>
-        <div className="replay-list">
-          {expeditions.map((expedition, index) => (
-            <button
-              key={expedition.id}
-              type="button"
-              aria-pressed={index === activeExpedition}
-              onClick={() => selectReplay(index)}
-            >
-              <i style={{ background: expedition.color }} />
-              <span>
-                <strong>{expedition.agent}</strong>
-                <small>
-                  {expedition.action}
-                  {expedition.actions?.length
-                    ? ` · ${expedition.actions.length} ACTIONS`
-                    : ""}
-                </small>
-              </span>
-            </button>
-          ))}
-        </div>
-      </nav>
 
       {rankingsOpen ? (
         <aside className="rankings" aria-label="Agent leaderboard">
