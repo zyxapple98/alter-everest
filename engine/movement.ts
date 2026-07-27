@@ -18,6 +18,7 @@ export interface MovementWorldView {
   world: PhysicsSnapshot;
   terrain: TerrainOracle;
   stonesByCell: ReadonlyMap<string, StoneState>;
+  stoneBucketsByX: ReadonlyMap<number, ReadonlySet<number>>;
   removed: ReadonlySet<string>;
 }
 
@@ -49,12 +50,25 @@ export function createMovementWorldView(
   world: PhysicsSnapshot,
   terrain: TerrainOracle,
 ): MovementWorldView {
+  const stoneBucketsByX = new Map<number, Set<number>>();
+  for (const stone of world.stones) {
+    const bucketX = Math.floor(
+      stone.cell.x / STONE_CLEARANCE_BUCKET_EDGE_CELLS,
+    );
+    const bucketZ = Math.floor(
+      stone.cell.z / STONE_CLEARANCE_BUCKET_EDGE_CELLS,
+    );
+    const zBuckets = stoneBucketsByX.get(bucketX) ?? new Set<number>();
+    zBuckets.add(bucketZ);
+    stoneBucketsByX.set(bucketX, zBuckets);
+  }
   return {
     world,
     terrain,
     stonesByCell: new Map(
       world.stones.map((stone) => [voxelKey(stone.cell), stone]),
     ),
+    stoneBucketsByX,
     removed: new Set(world.removedTerrainVoxels.map(voxelKey)),
   };
 }
@@ -95,19 +109,64 @@ function surfaceAt(altitudeM: number, slopeDegrees: number): SurfaceKind {
   return "ROCK";
 }
 
-function nearbyBodyCells(point: Vec3) {
+const STONE_CLEARANCE_BUCKET_EDGE_CELLS = 32;
+
+function nearbyBodyCellBounds(point: Vec3) {
   const edge = TERRAIN.voxelEdgeM;
-  const minimumX = Math.floor((point.x - CLIMBER.clearanceRadiusM) / edge);
-  const maximumX = Math.floor((point.x + CLIMBER.clearanceRadiusM) / edge);
-  const minimumZ = Math.floor((point.z - CLIMBER.clearanceRadiusM) / edge);
-  const maximumZ = Math.floor((point.z + CLIMBER.clearanceRadiusM) / edge);
-  const minimumY = Math.floor((point.y + 1e-7) / edge);
-  const maximumY = Math.floor(
-    (point.y + CLIMBER.clearanceHeightM - 1e-7) / edge,
+  return {
+    minimumX: Math.floor((point.x - CLIMBER.clearanceRadiusM) / edge),
+    maximumX: Math.floor((point.x + CLIMBER.clearanceRadiusM) / edge),
+    minimumZ: Math.floor((point.z - CLIMBER.clearanceRadiusM) / edge),
+    maximumZ: Math.floor((point.z + CLIMBER.clearanceRadiusM) / edge),
+    minimumY: Math.floor((point.y + 1e-7) / edge),
+    maximumY: Math.floor(
+      (point.y + CLIMBER.clearanceHeightM - 1e-7) / edge,
+    ),
+  };
+}
+
+function stoneBucketMayOverlap(
+  view: MovementWorldView,
+  bounds: ReturnType<typeof nearbyBodyCellBounds>,
+) {
+  const minimumBucketX = Math.floor(
+    bounds.minimumX / STONE_CLEARANCE_BUCKET_EDGE_CELLS,
   );
+  const maximumBucketX = Math.floor(
+    bounds.maximumX / STONE_CLEARANCE_BUCKET_EDGE_CELLS,
+  );
+  const minimumBucketZ = Math.floor(
+    bounds.minimumZ / STONE_CLEARANCE_BUCKET_EDGE_CELLS,
+  );
+  const maximumBucketZ = Math.floor(
+    bounds.maximumZ / STONE_CLEARANCE_BUCKET_EDGE_CELLS,
+  );
+  for (
+    let bucketX = minimumBucketX;
+    bucketX <= maximumBucketX;
+    bucketX += 1
+  ) {
+    const zBuckets = view.stoneBucketsByX.get(bucketX);
+    if (!zBuckets) continue;
+    for (
+      let bucketZ = minimumBucketZ;
+      bucketZ <= maximumBucketZ;
+      bucketZ += 1
+    ) {
+      if (zBuckets.has(bucketZ)) return true;
+    }
+  }
+  return false;
+}
+
+function nearbyBodyCells(
+  point: Vec3,
+  bounds = nearbyBodyCellBounds(point),
+) {
+  const edge = TERRAIN.voxelEdgeM;
   const result: VoxelCoordinate[] = [];
-  for (let x = minimumX; x <= maximumX; x += 1) {
-    for (let z = minimumZ; z <= maximumZ; z += 1) {
+  for (let x = bounds.minimumX; x <= bounds.maximumX; x += 1) {
+    for (let z = bounds.minimumZ; z <= bounds.maximumZ; z += 1) {
       const centerX = (x + 0.5) * edge;
       const centerZ = (z + 0.5) * edge;
       const closestX = Math.max(
@@ -127,7 +186,7 @@ function nearbyBodyCells(point: Vec3) {
       // Keep the cell centre calculation explicit for deterministic bounds.
       void centerX;
       void centerZ;
-      for (let y = minimumY; y <= maximumY; y += 1) {
+      for (let y = bounds.minimumY; y <= bounds.maximumY; y += 1) {
         result.push({ x, y, z });
       }
     }
@@ -140,9 +199,16 @@ function pointClearance(
   point: Vec3,
   checkTerrain: boolean,
 ) {
-  for (const cell of nearbyBodyCells(point)) {
-    const stone = stoneAt(view, cell);
-    if (stone) return { clear: false, obstacle: stone.id };
+  const bounds = nearbyBodyCellBounds(point);
+  const checkStones = stoneBucketMayOverlap(view, bounds);
+  if (!checkStones && !checkTerrain) {
+    return { clear: true, obstacle: null };
+  }
+  for (const cell of nearbyBodyCells(point, bounds)) {
+    if (checkStones) {
+      const stone = stoneAt(view, cell);
+      if (stone) return { clear: false, obstacle: stone.id };
+    }
     if (
       checkTerrain &&
       isSolidTerrainVoxel(view.terrain, view.removed, cell)

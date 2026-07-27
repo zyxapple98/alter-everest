@@ -167,6 +167,41 @@ test("exact stance and micro-movement use current 20 cm support", () => {
   assert.equal(validateStance(view, to).valid, true);
 });
 
+test("swept clearance detects stones across spatial bucket boundaries", () => {
+  for (const [fromX, toX, blockerX] of [
+    [31, 32, 32],
+    [-33, -32, -32],
+  ]) {
+    const blocker = stone(`blocker-${blockerX}`, blockerX, 3, 0);
+    const view = createMovementWorldView(snapshot([blocker]), terrain);
+    const result = validateMovement(
+      view,
+      {
+        step: 0,
+        cell: { x: fromX, y: 1, z: 0 },
+        mode: "WALK",
+        protected: false,
+      },
+      {
+        step: 1,
+        cell: { x: toX, y: 5, z: 0 },
+        mode: "CLIMB",
+        protected: true,
+      },
+      {
+        dx: 1,
+        dy: 4,
+        dz: 0,
+        mode: "CLIMB",
+        protected: true,
+      },
+      false,
+    );
+    assert.equal(result.code, "ROUTE_OBSTRUCTED");
+    assert.equal(result.obstacle, blocker.id);
+  }
+});
+
 test("unsupported stance and unprotected climb fail locally", () => {
   const view = createMovementWorldView(snapshot(), terrain);
   const unsupported = {
