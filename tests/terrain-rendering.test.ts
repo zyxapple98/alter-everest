@@ -50,6 +50,10 @@ import {
   terrainClipmapLevelIndex,
   TERRAIN_CLIPMAP_LEVELS,
 } from "../app/everest/terrain-lod-plan";
+import {
+  highestRenderedTerrainCellNear,
+  renderedTerrainCellAt,
+} from "../app/everest/terrain-landmark-anchor";
 
 test("screen-space terrain LOD follows projected voxel density", () => {
   const levels = [
@@ -85,6 +89,57 @@ test("orbiting a camera cannot move the terrain detail anchor", () => {
   assert.equal(northView, focus);
   assert.equal(eastView, focus);
   assert.deepEqual(northView, eastView);
+});
+
+test("terrain landmark authority resolves to the highest nearby voxel", () => {
+  const elevations = new Map([
+    ["45:45", 8_700],
+    ["135:45", 8_710],
+    ["45:135", 8_720],
+    ["135:135", 8_740],
+  ]);
+  const anchor = highestRenderedTerrainCellNear({
+    centerCanonicalX: 80,
+    centerCanonicalZ: 80,
+    cellM: 90,
+    searchRadiusM: 150,
+    sampleNaturalElevationM: (x, z) =>
+      elevations.get(`${x}:${z}`) ?? 8_000,
+  });
+
+  assert.deepEqual(anchor, {
+    canonicalX: 135,
+    canonicalZ: 135,
+    naturalElevationM: 8_740,
+    surfaceTopM: 8_820,
+  });
+});
+
+test("one semantic landmark maps onto each active LOD without moving its authority point", () => {
+  const semanticAnchor = {
+    canonicalX: 45.1,
+    canonicalZ: -14.9,
+  };
+  const coarse = renderedTerrainCellAt({
+    ...semanticAnchor,
+    cellM: 90,
+    sampleNaturalElevationM: () => 8_724,
+  });
+  const fine = renderedTerrainCellAt({
+    ...semanticAnchor,
+    cellM: 0.2,
+    sampleNaturalElevationM: () => 8_735,
+  });
+
+  assert.deepEqual(coarse, {
+    canonicalX: 45,
+    canonicalZ: -45,
+    naturalElevationM: 8_724,
+    surfaceTopM: 8_730,
+  });
+  assert.equal(fine.canonicalX, 45.1);
+  assert.equal(fine.canonicalZ, -14.9);
+  assert.ok(Math.abs(fine.surfaceTopM - 8_735.2) < 1e-9);
 });
 
 test("an upward orbit preserves pitch while clearing the terrain", () => {

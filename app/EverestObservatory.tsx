@@ -70,6 +70,10 @@ import {
   TERRAIN_CLIPMAP_LEVELS,
 } from "./everest/terrain-lod-plan";
 import {
+  highestRenderedTerrainCellNear,
+  renderedTerrainCellAt,
+} from "./everest/terrain-landmark-anchor";
+import {
   createCameraAtmosphere,
   disposeCameraAtmosphere,
   updateCameraAtmosphere,
@@ -326,7 +330,6 @@ const MOUNTAIN_MATERIALS = {
   snow: new THREE.Color("#d0d8d6"),
   placedGranite: "#8b8982",
   freshCut: "#786c62",
-  summitSignal: "#ffc86b",
 } as const;
 
 const TERRAIN_COLOR_SCRATCH = new THREE.Color();
@@ -3161,47 +3164,85 @@ export default function EverestObservatory() {
             )
               ? { terrain, metadata: focusTerrainData.metadata }
               : { terrain: farTerrain, metadata: far.metadata };
-          // Keep the canonical site coordinates for gameplay, but focus the
-          // visual summit preset on the apex of the rendered DEM. The public
-          // site anchor and the maximum GLO-30 sample differ by roughly one
-          // hundred metres, which is imperceptible in overview and very
-          // obvious once the camera reaches metre-scale detail.
-          const point =
-            site.kind === "SUMMIT"
-              ? gridPoint(
-                  terrain,
-                  terrain.peakColumn,
-                  terrain.peakRow,
-                  0.5,
-                )
-              : coordinatePoint(
-                  layer.terrain,
-                  layer.metadata,
-                  site.latitude,
-                  site.longitude,
-                );
-          const siteGroup = new THREE.Group();
-          let anchorCellM = -1;
-          let anchorSurfaceY = point.y;
-          const updateAnchor = (cellM: number) => {
-            if (anchorCellM === cellM) return anchorSurfaceY;
-            anchorCellM = cellM;
-            anchorSurfaceY = detailedSurfaceY(
-              authority,
-              authorityTerrain,
-              point.x,
-              point.z,
-              cellM,
-              undefined,
-              terrainStreamingContext,
-            );
-            return anchorSurfaceY;
-          };
-          siteGroup.position.set(
+          const point = coordinatePoint(
+            layer.terrain,
+            layer.metadata,
+            site.latitude,
+            site.longitude,
+          );
+          const canonicalPoint = worldToCanonical(
+            terrainStreamingContext,
             point.x,
-            updateAnchor(90) + 2.5 * WORLD_UNITS_PER_METER,
             point.z,
           );
+          const sampleNaturalElevationM = (
+            canonicalX: number,
+            canonicalZ: number,
+            renderedCellM: number,
+          ) =>
+            sampleTerrainElevation(
+              terrainStreamingContext,
+              canonicalX,
+              canonicalZ,
+              renderedCellM,
+            ) + syntheticReliefM(canonicalX, canonicalZ);
+          // A site is one stable geographic point. Everest's public site
+          // coordinate names a small summit region, so resolve its single
+          // display point once from the 30 m authority and never move that
+          // semantic point when the camera changes LOD.
+          const semanticAnchor =
+            site.kind === "SUMMIT"
+              ? highestRenderedTerrainCellNear({
+                  centerCanonicalX: canonicalPoint.x,
+                  centerCanonicalZ: canonicalPoint.z,
+                  cellM: 30,
+                  searchRadiusM: 360,
+                  sampleNaturalElevationM,
+                })
+              : {
+                  canonicalX: canonicalPoint.x,
+                  canonicalZ: canonicalPoint.z,
+                };
+          const siteGroup = new THREE.Group();
+          const anchorByCellM = new Map<number, THREE.Vector3>();
+          const anchorForCellM = (cellM: number) => {
+            const cached = anchorByCellM.get(cellM);
+            if (cached) return cached;
+            // Rendered cells are global and focus-independent. Snap the stable
+            // site point to the current lattice before sampling its height;
+            // mixing an exact X/Z with a neighbouring coarse-cell elevation
+            // is what previously put pins visibly inside steep terrain.
+            const renderedCell = renderedTerrainCellAt({
+              canonicalX: semanticAnchor.canonicalX,
+              canonicalZ: semanticAnchor.canonicalZ,
+              cellM,
+              sampleNaturalElevationM,
+            });
+            const renderedWorld = canonicalToWorld(
+              terrainStreamingContext,
+              renderedCell.canonicalX,
+              renderedCell.canonicalZ,
+            );
+            const anchorX = renderedWorld.x;
+            const anchorZ = renderedWorld.z;
+            const anchor = new THREE.Vector3(
+              anchorX,
+              detailedSurfaceY(
+                authority,
+                authorityTerrain,
+                anchorX,
+                anchorZ,
+                cellM,
+                undefined,
+                terrainStreamingContext,
+              ) +
+                0.35 * WORLD_UNITS_PER_METER,
+              anchorZ,
+            );
+            anchorByCellM.set(cellM, anchor);
+            return anchor;
+          };
+          siteGroup.position.copy(anchorForCellM(90));
           scene.add(siteGroup);
 
           const label = createSiteLabel(site);
@@ -3210,7 +3251,7 @@ export default function EverestObservatory() {
           return {
             site,
             siteGroup,
-            updateAnchor,
+            anchorForCellM,
             label,
             labelPoint,
           };
@@ -3893,21 +3934,6 @@ export default function EverestObservatory() {
       );
       scene.add(memorialField.group);
 
-      const summit = gridPoint(
-        terrain,
-        terrain.peakColumn,
-        terrain.peakRow,
-        1.12,
-      );
-      const summitStone = new THREE.Mesh(
-        new THREE.BoxGeometry(0.52, 0.52, 0.52),
-        new THREE.MeshBasicMaterial({
-          color: MOUNTAIN_MATERIALS.summitSignal,
-        }),
-      );
-      summitStone.position.copy(summit);
-      scene.add(summitStone);
-
       navigation.update(
         performance.now(),
         cellSizeForResolution("90 M") * 0.72,
@@ -4171,7 +4197,6 @@ export default function EverestObservatory() {
           siteGroup.visible = overviewContextVisible;
         });
         memorialField.group.visible = overviewContextVisible;
-        summitStone.visible = overviewContextVisible;
         if (
           terrainResolutionRef.current !== renderedResolution
         ) {
@@ -5178,9 +5203,9 @@ export default function EverestObservatory() {
           bottom: number;
         }> = [];
         prioritizedSiteObjects.forEach((siteObject) => {
-          siteObject.siteGroup.position.y =
-            siteObject.updateAnchor(currentCellM) +
-            2.5 * WORLD_UNITS_PER_METER;
+          siteObject.siteGroup.position.copy(
+            siteObject.anchorForCellM(currentCellM),
+          );
           siteObject.labelPoint.copy(siteObject.siteGroup.position);
           if (manualReplayStarted.current > 0) {
             siteObject.label.style.opacity = "0";
@@ -5350,8 +5375,6 @@ export default function EverestObservatory() {
           (surface.mesh.material as THREE.Material).dispose();
         });
         disposeCameraAtmosphere(atmosphere);
-        summitStone.geometry.dispose();
-        (summitStone.material as THREE.Material).dispose();
         siteObjects.forEach(({ label }) => label.remove());
         overlayHost.replaceChildren();
         renderer.dispose();

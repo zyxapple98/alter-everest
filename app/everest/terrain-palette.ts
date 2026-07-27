@@ -10,7 +10,6 @@ export const MOUNTAIN_MATERIALS = {
   snow: new THREE.Color("#d0d8d6"),
   placedGranite: "#8b8982",
   freshCut: "#786c62",
-  summitSignal: "#ffc86b",
 } as const;
 
 export const TERRAIN_COLOR_SCRATCH = new THREE.Color();
