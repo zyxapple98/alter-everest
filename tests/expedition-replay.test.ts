@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import type { ObservatoryFeed } from "../lib/world";
+import { selectFootprintRankingCandidates } from "../lib/footprint-ranking";
 import {
   agentVisualLod,
   createNormalReplayTimeline,
@@ -398,10 +399,6 @@ test("the canonical observatory feed reflects the current world", async () => {
     feed.recentExpeditions.length,
     Math.min(100, world.expeditions.length),
   );
-  assert.equal(
-    feed.footprints.length,
-    Math.min(50, world.footprints.length),
-  );
   const identityStatus = new Map(
     world.identities.map(
       (identity: { id: string; status: "ACTIVE" | "DEAD" }) => [
@@ -410,31 +407,26 @@ test("the canonical observatory feed reflects the current world", async () => {
       ],
     ),
   );
-  assert.deepEqual(
-    feed.footprints,
-    world.footprints
-      .map(
-        (footprint: {
-          agentId: string;
-          acceptedExpeditions: number;
-          totalDistanceMillimeters: number;
-          activeTerrainRemovals: number;
-          activeStonePlacements: number;
-          activeAlterations: number;
-        }) => ({
-          ...footprint,
-          agent: footprint.agentId,
-          outcome:
-            identityStatus.get(footprint.agentId.toLowerCase()) ??
-            "ACTIVE",
-        }),
-      )
-      .sort(
-        (left: { agent: string }, right: { agent: string }) =>
-          left.agent.localeCompare(right.agent),
-      )
-      .slice(0, 50),
+  const expectedFootprints = selectFootprintRankingCandidates(
+    world.footprints.map(
+      (footprint: {
+        agentId: string;
+        acceptedExpeditions: number;
+        totalDistanceMillimeters: number;
+        activeTerrainRemovals: number;
+        activeStonePlacements: number;
+        activeAlterations: number;
+      }) => ({
+        ...footprint,
+        agent: footprint.agentId,
+        outcome:
+          identityStatus.get(footprint.agentId.toLowerCase()) ??
+          "ACTIVE",
+      }),
+    ),
   );
+  assert.equal(feed.footprints.length, expectedFootprints.length);
+  assert.deepEqual(feed.footprints, expectedFootprints);
   assert.equal(
     feed.surfaceTiles.tiles.length,
     world.modifiedTiles.length,

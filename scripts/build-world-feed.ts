@@ -13,6 +13,10 @@ import { decodeRouteProgram } from "../engine/route-codec";
 import type { TerrainOracle } from "../engine/terrain";
 import { loadDemBundle } from "./expedition-kit";
 import { agentIdentityStyle } from "../lib/agent-identity";
+import {
+  FOOTPRINT_RANKING_LIMIT,
+  selectFootprintRankingCandidates,
+} from "../lib/footprint-ranking";
 
 function argument(name: string) {
   const index = process.argv.indexOf(name);
@@ -407,18 +411,15 @@ const recentExpeditions =
         trace: null,
       }));
 
-const footprintProfiles = footprints
-  .map((footprint) => ({
+const footprintProfiles = selectFootprintRankingCandidates(
+  footprints.map((footprint) => ({
     ...footprint,
     agent: footprint.agentId,
     outcome:
       identities.get(footprint.agentId.toLowerCase()) ?? "ACTIVE",
-  }))
-  .sort(
-    (left, right) =>
-      left.agent.localeCompare(right.agent),
-  )
-  .slice(0, 50);
+  })),
+  FOOTPRINT_RANKING_LIMIT,
+);
 const stonesById = new Map(
   world.stones.map((stone) => [stone.id, stone]),
 );

@@ -12,6 +12,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 import { verifyCandidateFile } from "../scripts/verification";
+import { selectFootprintRankingCandidates } from "../lib/footprint-ranking";
 
 const execute = promisify(execFile);
 const projectRoot = resolve(".");
@@ -569,31 +570,25 @@ test("observatory feed publishes the canonical footprint model", async () => {
         ],
       ),
     );
-    assert.deepEqual(
-      feed.footprints,
-      world.footprints
-        .map(
-          (footprint: {
-            agentId: string;
-            acceptedExpeditions: number;
-            totalDistanceMillimeters: number;
-            activeTerrainRemovals: number;
-            activeStonePlacements: number;
-            activeAlterations: number;
-          }) => ({
-            ...footprint,
-            agent: footprint.agentId,
-            outcome:
-              identityStatus.get(footprint.agentId.toLowerCase()) ??
-              "ACTIVE",
-          }),
-        )
-        .sort(
-          (left: { agent: string }, right: { agent: string }) =>
-            left.agent.localeCompare(right.agent),
-        )
-        .slice(0, 50),
+    const expectedFootprints = selectFootprintRankingCandidates(
+      world.footprints.map(
+        (footprint: {
+          agentId: string;
+          acceptedExpeditions: number;
+          totalDistanceMillimeters: number;
+          activeTerrainRemovals: number;
+          activeStonePlacements: number;
+          activeAlterations: number;
+        }) => ({
+          ...footprint,
+          agent: footprint.agentId,
+          outcome:
+            identityStatus.get(footprint.agentId.toLowerCase()) ??
+            "ACTIVE",
+        }),
+      ),
     );
+    assert.deepEqual(feed.footprints, expectedFootprints);
     assert.equal(
       feed.recentExpeditions.length,
       Math.min(100, world.expeditions.length),

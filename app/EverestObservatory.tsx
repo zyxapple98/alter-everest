@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
@@ -11,6 +17,11 @@ import {
   type ObservatoryTracePoint,
 } from "../lib/world";
 import { agentIdentityStyle } from "../lib/agent-identity";
+import {
+  FOOTPRINT_RANKING_LIMIT,
+  rankFootprints,
+  type FootprintSortKey,
+} from "../lib/footprint-ranking";
 import { syntheticReliefM } from "../engine/surface";
 import {
   agentVisualLod,
@@ -223,6 +234,14 @@ const WATCH_CAMERA_LEAD_IN_SECONDS = 1.2;
 const OVERVIEW_TRACE_SLOT_SECONDS = 8;
 const SELECTED_HIGHLIGHT_SECONDS = 12;
 const EMPTY_MEMORIAL_CLUSTERS: MemorialCluster[] = [];
+const FOOTPRINT_SORT_OPTIONS: {
+  key: FootprintSortKey;
+  label: string;
+}[] = [
+  { key: "acceptedExpeditions", label: "EXPEDITIONS" },
+  { key: "totalDistanceMillimeters", label: "DISTANCE" },
+  { key: "activeAlterations", label: "ALTERATIONS" },
+];
 
 type TerrainResolution =
   | "90 M"
@@ -2305,6 +2324,8 @@ export default function EverestObservatory() {
     number | null
   >(null);
   const [rankingsOpen, setRankingsOpen] = useState(false);
+  const [footprintSort, setFootprintSort] =
+    useState<FootprintSortKey>("acceptedExpeditions");
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [uiAwake, setUiAwake] = useState(true);
@@ -2334,7 +2355,15 @@ export default function EverestObservatory() {
     navigationCommandRef.current = { type: "restore-watch-view" };
   }, []);
   const expeditions = feed.recentExpeditions;
-  const footprintProfiles = feed.footprints;
+  const footprintProfiles = useMemo(
+    () =>
+      rankFootprints(
+        feed.footprints,
+        footprintSort,
+        FOOTPRINT_RANKING_LIMIT,
+      ),
+    [feed.footprints, footprintSort],
+  );
   const memorialClusters =
     feed.memorialClusters ?? EMPTY_MEMORIAL_CLUSTERS;
   const sceneDataRef = useRef({
@@ -5618,19 +5647,79 @@ export default function EverestObservatory() {
       {rankingsOpen ? (
         <aside className="rankings" aria-label="Agent footprints">
           <small>
-            FOOTPRINT · {footprintProfiles.length} IDENTITIES SHOWN
+            FOOTPRINT · TOP {footprintProfiles.length} OF{" "}
+            {feed.worldSummary.identityCount}
           </small>
-          {footprintProfiles.map((entry) => (
-            <div key={entry.agent}>
-              <span>{entry.acceptedExpeditions}E</span>
-              <strong>{entry.agent}</strong>
-              <em>
-                {(entry.totalDistanceMillimeters / 1_000_000).toFixed(1)}
-                KM · {entry.activeAlterations}A
-              </em>
-              <i className={entry.outcome.toLowerCase()} />
-            </div>
-          ))}
+          <div
+            className="rankings-sort"
+            role="group"
+            aria-label="Sort climber footprints"
+          >
+            {FOOTPRINT_SORT_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                className={
+                  footprintSort === option.key ? "active" : undefined
+                }
+                aria-pressed={footprintSort === option.key}
+                onClick={() => setFootprintSort(option.key)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <div className="rankings-list" role="list">
+            {footprintProfiles.map((entry, index) => (
+              <div
+                className="footprint-row"
+                key={entry.agent}
+                role="listitem"
+                aria-label={`${index + 1}. ${entry.agent}: ${entry.acceptedExpeditions} expeditions, ${(entry.totalDistanceMillimeters / 1_000_000).toFixed(1)} kilometres, ${entry.activeAlterations} active alterations, ${entry.outcome.toLowerCase()}`}
+              >
+                <span className="footprint-rank">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <strong title={entry.agent}>{entry.agent}</strong>
+                <em className="footprint-metrics">
+                  <b
+                    className={
+                      footprintSort === "acceptedExpeditions"
+                        ? "active"
+                        : undefined
+                    }
+                  >
+                    {entry.acceptedExpeditions}E
+                  </b>
+                  <b
+                    className={
+                      footprintSort === "totalDistanceMillimeters"
+                        ? "active"
+                        : undefined
+                    }
+                  >
+                    {(
+                      entry.totalDistanceMillimeters / 1_000_000
+                    ).toFixed(1)}
+                    KM
+                  </b>
+                  <b
+                    className={
+                      footprintSort === "activeAlterations"
+                        ? "active"
+                        : undefined
+                    }
+                  >
+                    {entry.activeAlterations}A
+                  </b>
+                </em>
+                <i
+                  className={entry.outcome.toLowerCase()}
+                  title={entry.outcome}
+                />
+              </div>
+            ))}
+          </div>
         </aside>
       ) : null}
 
