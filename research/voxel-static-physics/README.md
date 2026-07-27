@@ -12,8 +12,9 @@ in:
 - `tests/physics.test.ts`
 
 This directory intentionally retains only the presentation assets requested for
-future documentation. They depict ordinary stone construction; there is no
-special scaffold material.
+future documentation. They illustrate static support only: they are not
+verified expeditions and do not prove that a climber can reach every placement.
+There is no special scaffold material.
 
 ## What can stand?
 
@@ -23,10 +24,12 @@ special scaffold material.
   </a>
 </p>
 
-## Build it one stable step at a time
+## Static support, one stage at a time
 
 Every intermediate world must stand on its own. There is no temporary scaffold
-material and no final frame that repairs an invalid earlier step.
+material and no final frame that repairs an invalid earlier step. A real
+expedition must additionally supply a legal stance and route for every
+placement.
 
 ### Mountain hall
 

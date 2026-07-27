@@ -1,28 +1,43 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 190" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 205" role="img" aria-labelledby="title description">
   <title id="title">ALTER EVEREST</title>
-  <desc id="description">A stepped voxel summit with an amber peak beside the ALTER EVEREST wordmark.</desc>
-  <rect width="980" height="190" fill="#071019"/>
-  <g transform="translate(38 30)">
-    <rect x="0" y="100" width="22" height="22" fill="#dfeaec"/>
-    <rect x="30" y="70" width="22" height="22" fill="#dfeaec"/>
-    <rect x="60" y="40" width="22" height="22" fill="#dfeaec"/>
-    <rect x="90" y="10" width="22" height="22" fill="#ffc86b"/>
-    <rect x="120" y="40" width="22" height="22" fill="#a8bcc1"/>
-    <rect x="150" y="70" width="22" height="22" fill="#a8bcc1"/>
-    <rect x="180" y="100" width="22" height="22" fill="#a8bcc1"/>
-    <rect x="30" y="100" width="22" height="22" fill="#596c73"/>
-    <rect x="60" y="70" width="22" height="22" fill="#596c73"/>
-    <rect x="90" y="40" width="22" height="22" fill="#596c73"/>
-    <rect x="120" y="70" width="22" height="22" fill="#435861"/>
-    <rect x="150" y="100" width="22" height="22" fill="#435861"/>
+  <desc id="description">A technical Everest survey reticle, stepped ridge, and climbing trace beside a cut engineering wordmark.</desc>
+  <defs>
+    <linearGradient id="ice" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#eef6f4"/>
+      <stop offset="0.56" stop-color="#c5d4d4"/>
+      <stop offset="1" stop-color="#91a7aa"/>
+    </linearGradient>
+    <mask id="cut-title">
+      <rect width="900" height="205" fill="white"/>
+      <path d="M277 112h36M352 137h28M431 104h31M504 151h34M585 121h27M661 145h38M755 108h30" stroke="black" stroke-width="5"/>
+      <path d="M317 90v16M469 139v15M627 91v13M725 128v18" stroke="black" stroke-width="3"/>
+    </mask>
+  </defs>
+
+  <g transform="translate(9 4)">
+    <path d="M31 50V27h24M157 27h24v23M31 145v24h24M157 169h24v-24" fill="none" stroke="#91a7aa" stroke-width="3"/>
+    <path d="M54 42A73 73 0 0 1 158 40M171 61a73 73 0 0 1 0 76M157 158a73 73 0 0 1-103-1M41 137a73 73 0 0 1 0-76" fill="none" stroke="#a8babc" stroke-width="1.5" stroke-dasharray="15 8" opacity="0.66"/>
+    <path d="M23 99h37M153 99h37M106 16v28M106 155v30" fill="none" stroke="#6f878b" stroke-width="1.5" opacity="0.72"/>
+    <circle cx="106" cy="99" r="5" fill="none" stroke="#d8e5e3" stroke-width="1.5"/>
+    <path d="M49 151L68 139 81 115 94 124 112 55 127 105 140 94 166 151" fill="none" stroke="url(#ice)" stroke-width="6" stroke-linejoin="miter"/>
+    <path d="M49 151h117M60 159h95M75 167h65" fill="none" stroke="#71898d" stroke-width="3" opacity="0.68"/>
+    <path d="M65 143l22 2 7-21 11 6 7-75 8 81 7-31 13-11" fill="none" stroke="#657d81" stroke-width="2"/>
+    <path d="M81 158c3-17-6-25 2-39 7-12 18-12 18-27 0-11-2-18 11-37" fill="none" stroke="#7de2ed" stroke-width="2.5" stroke-linecap="square" stroke-dasharray="2 6"/>
+    <circle cx="81" cy="158" r="3" fill="#dce8e6"/>
+    <path d="M112 48v14M105 55h14" stroke="#efc471" stroke-width="2"/>
+    <rect x="109" y="52" width="6" height="6" fill="#efc471"/>
+    <path d="M31 83h7M31 115h7M174 83h7M174 115h7M90 27v7M122 27v7M90 164v7M122 164v7" stroke="#c3d2d1" stroke-width="2"/>
+    <text x="50" y="190" fill="#82999d" font-family="'Courier New',monospace" font-size="10" letter-spacing="1.6">8848.86 / AE-01</text>
   </g>
-  <text
-    x="282"
-    y="132"
-    fill="#f7fbf7"
-    font-family="'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif"
-    font-size="84"
-    font-weight="400"
-    letter-spacing="9"
-  >ALTER EVEREST</text>
+
+  <g>
+    <path d="M239 42h46M810 42h42" stroke="#778f93" stroke-width="2"/>
+    <rect x="291" y="38" width="8" height="8" fill="#efc471"/>
+    <text x="313" y="53" fill="#a9babc" font-family="'Courier New',monospace" font-size="30" font-weight="700" letter-spacing="6">ALTER</text>
+    <text x="239" y="142" fill="url(#ice)" font-family="'Arial Narrow','Roboto Condensed','Helvetica Neue',sans-serif" font-size="91" font-weight="700" letter-spacing="8" mask="url(#cut-title)">EVEREST</text>
+    <path d="M241 160H852" stroke="#687f83" stroke-width="1.5"/>
+    <path d="M241 160h77M815 160h37" stroke="#d4e1df" stroke-width="3"/>
+    <circle cx="328" cy="160" r="2.5" fill="#7de2ed"/>
+    <text x="241" y="184" fill="#82999d" font-family="'Courier New',monospace" font-size="11" letter-spacing="2.4">27.9881 N · 86.9250 E / SHARED 0.20 M WORLD</text>
+  </g>
 </svg>

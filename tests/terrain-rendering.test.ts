@@ -38,7 +38,9 @@ import {
 } from "../app/everest/terrain-streaming";
 import {
   canonicalToWorld,
+  canonicalWindowCell,
   canonicalWorldScale,
+  terrainGridWorldBounds,
   worldToCanonical,
 } from "../app/everest/canonical-world";
 import {
@@ -364,6 +366,89 @@ test("matter animation and final stone share one anchored transform", () => {
   );
   assert.ok(Math.abs(roundTrip.x - canonicalCell.x) < 1e-9);
   assert.ok(Math.abs(roundTrip.z - canonicalCell.z) < 1e-9);
+});
+
+test("authority navigation bounds include routes beyond the activity crop", () => {
+  const blockSize = 0.235;
+  const originLatitude = 27.9881;
+  const originLongitude = 86.925;
+  const authorityBounds = {
+    north: 28.2,
+    south: 27.9,
+    west: 86.78,
+    east: 87.07,
+  };
+  const registration = {
+    metadata: {
+      sampleSpacingArcSeconds: 1,
+      bounds: authorityBounds,
+    },
+    terrain: {
+      blockSize,
+      xOrigin:
+        (authorityBounds.west - originLongitude) * 3600 * blockSize,
+      zOrigin:
+        (originLatitude - authorityBounds.north) * 3600 * blockSize,
+    },
+    canonicalOriginLatitude: 27.94236111111111,
+    canonicalOriginLongitude: 86.89486111111111,
+    metersPerDegreeLatitude: 111_320,
+    worldUnitsPerMeter: blockSize / 30,
+  };
+  const navigationBounds = terrainGridWorldBounds(
+    registration,
+    1_044,
+    1_080,
+  );
+  const longitude = 86.79;
+  const latitude = 28.15;
+  const metersPerDegreeLongitude =
+    registration.metersPerDegreeLatitude *
+    Math.cos(
+      (registration.canonicalOriginLatitude * Math.PI) / 180,
+    );
+  const remoteRoutePoint = canonicalToWorld(
+    registration,
+    (longitude - registration.canonicalOriginLongitude) *
+      metersPerDegreeLongitude,
+    (registration.canonicalOriginLatitude - latitude) *
+      registration.metersPerDegreeLatitude,
+  );
+
+  assert.ok(longitude < 86.8125, "point should be outside the old crop");
+  assert.ok(remoteRoutePoint.x > navigationBounds.minX);
+  assert.ok(remoteRoutePoint.x < navigationBounds.maxX);
+  assert.ok(remoteRoutePoint.z > navigationBounds.minZ);
+  assert.ok(remoteRoutePoint.z < navigationBounds.maxZ);
+});
+
+test("streaming windows quantise scene points in canonical metres", () => {
+  const registration = {
+    metadata: {
+      sampleSpacingArcSeconds: 1,
+      bounds: { north: 28, west: 86.9 },
+    },
+    terrain: {
+      blockSize: 0.235,
+      xOrigin: -20,
+      zOrigin: -20,
+    },
+    canonicalOriginLatitude: 27.94236111111111,
+    canonicalOriginLongitude: 86.89486111111111,
+    metersPerDegreeLatitude: 111_320,
+    worldUnitsPerMeter: 0.235 / 30,
+  };
+  const before = canonicalToWorld(registration, 11.9, 6);
+  const after = canonicalToWorld(registration, 12.1, 6);
+
+  assert.deepEqual(
+    canonicalWindowCell(registration, before.x, before.z, 12),
+    { x: 0, z: 0 },
+  );
+  assert.deepEqual(
+    canonicalWindowCell(registration, after.x, after.z, 12),
+    { x: 1, z: 0 },
+  );
 });
 
 test("clipmap rings assign every horizontal point to one LOD", () => {

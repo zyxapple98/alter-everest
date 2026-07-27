@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
@@ -10,14 +16,25 @@ import {
   type ObservatoryExpeditionAction,
   type ObservatoryTracePoint,
 } from "../lib/world";
+import { agentIdentityStyle } from "../lib/agent-identity";
+import {
+  FOOTPRINT_RANKING_LIMIT,
+  rankFootprints,
+  type FootprintSortKey,
+} from "../lib/footprint-ranking";
 import { syntheticReliefM } from "../engine/surface";
 import {
   agentVisualLod,
   createNormalReplayTimeline,
+  overviewReplayElapsedSeconds,
+  replayAgentVisualState,
   replayActionState,
   sampleActionMatterState,
+  sampleReplayLookahead,
   sampleReplayTimeline,
+  shouldReturnFromExpeditionWatch,
   type ReplayActionWindow,
+  type ReplayAgentVisualState,
 } from "./everest/expedition-replay";
 import {
   focusAnchoredTerrainCenter,
@@ -43,7 +60,9 @@ import { renderIntervalMs } from "./everest/render-budget";
 import {
   canonicalDistanceM,
   canonicalToWorld,
+  canonicalWindowCell,
   canonicalWorldScale,
+  terrainGridWorldBounds,
   worldToCanonical,
 } from "./everest/canonical-world";
 import {
@@ -82,6 +101,7 @@ import {
   SKY_PHASES,
   type SkyPhase,
 } from "./everest/sky-cycle";
+import { createSnowField } from "./everest/snow-field";
 
 interface DemMetadata {
   id: string;
@@ -209,7 +229,19 @@ const MAX_RENDER_PIXEL_RATIO = 1.2;
 const WALK_CADENCE_RADIANS_PER_SECOND = 5.2;
 const WALK_VERTICAL_BOB_METERS = 0.035;
 const WALK_ARM_SWING_RADIANS = 0.22;
+const WATCH_TERRAIN_LOOKAHEAD_SECONDS = 12;
+const WATCH_CAMERA_LEAD_IN_SECONDS = 1.2;
+const OVERVIEW_TRACE_SLOT_SECONDS = 8;
+const SELECTED_HIGHLIGHT_SECONDS = 12;
 const EMPTY_MEMORIAL_CLUSTERS: MemorialCluster[] = [];
+const FOOTPRINT_SORT_OPTIONS: {
+  key: FootprintSortKey;
+  label: string;
+}[] = [
+  { key: "acceptedExpeditions", label: "EXPEDITIONS" },
+  { key: "totalDistanceMillimeters", label: "DISTANCE" },
+  { key: "activeAlterations", label: "ALTERATIONS" },
+];
 
 type TerrainResolution =
   | "90 M"
@@ -942,20 +974,11 @@ function cellSizeForResolution(resolution: TerrainResolution) {
 }
 
 function snapDetailCenterToCanonicalGrid(
-  core: DemLayer,
-  terrain: VoxelTerrain,
+  registration: TerrainMesherContext,
   worldX: number,
   worldZ: number,
   cellM: number,
 ) {
-  const registration = {
-    metadata: core.metadata,
-    terrain,
-    canonicalOriginLatitude: CANONICAL_ORIGIN_LATITUDE,
-    canonicalOriginLongitude: CANONICAL_ORIGIN_LONGITUDE,
-    metersPerDegreeLatitude: METERS_PER_DEGREE_LATITUDE,
-    worldUnitsPerMeter: WORLD_UNITS_PER_METER,
-  };
   const canonical = worldToCanonical(
     registration,
     worldX,
@@ -1148,17 +1171,142 @@ function sitePriority(site: SiteAnchor) {
   return 1;
 }
 
+const SITE_LABEL_OFFSETS: Record<string, readonly [number, number]> = {
+  "south-base-camp": [0, -4],
+  "khumbu-icefall": [-20, 4],
+  "south-camp-1": [-26, 6],
+  "western-cwm": [-44, 10],
+  "south-camp-2": [38, 6],
+  "south-camp-3": [46, 18],
+  "geneva-spur": [70, 18],
+  "south-col": [66, -4],
+  "the-balcony": [-60, 18],
+  "south-summit": [-68, -18],
+  "hillary-step": [-62, 5],
+  "everest-summit": [0, -14],
+  "north-col": [-38, 2],
+  "north-advanced-base": [38, 4],
+  "north-base-camp": [34, 4],
+};
+
 function createSiteLabel(site: SiteAnchor) {
   const element = document.createElement("div");
   element.className = `site-marker site-marker-${site.kind.toLowerCase()}`;
   element.dataset.priority = String(sitePriority(site));
-  element.innerHTML = `
-    <span class="site-marker-copy">
-      <strong>${site.name}</strong>
-    </span>
-    <span class="site-marker-beacon" aria-hidden="true"></span>
-  `;
+  element.innerHTML = `<span class="site-marker-copy"><strong>${site.name}</strong></span><span class="site-marker-beacon" aria-hidden="true"></span>`;
   return element;
+}
+
+interface StableSiteLabelPlacement {
+  offsetX: number;
+  offsetY: number;
+  visible: boolean;
+}
+
+interface SiteLabelRectangle {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+function stableSiteLabelPlacement({
+  anchorX,
+  anchorY,
+  labelWidth,
+  labelHeight,
+  viewportWidth,
+  viewportHeight,
+  headerHeight,
+  occupied,
+  previous,
+  preferred,
+}: {
+  anchorX: number;
+  anchorY: number;
+  labelWidth: number;
+  labelHeight: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  headerHeight: number;
+  occupied: SiteLabelRectangle[];
+  previous?: StableSiteLabelPlacement;
+  preferred: readonly [number, number];
+}) {
+  const horizontal = labelWidth / 2 + 14;
+  const vertical = labelHeight + 8;
+  const candidates = [
+    previous?.visible
+      ? { x: previous.offsetX, y: previous.offsetY }
+      : null,
+    { x: preferred[0], y: preferred[1] },
+    { x: 0, y: 0 },
+    { x: horizontal, y: 0 },
+    { x: -horizontal, y: 0 },
+    { x: 0, y: vertical },
+    { x: 0, y: -vertical },
+    { x: horizontal, y: vertical },
+    { x: -horizontal, y: vertical },
+    { x: horizontal, y: -vertical },
+    { x: -horizontal, y: -vertical },
+    { x: horizontal * 2, y: vertical },
+    { x: -horizontal * 2, y: vertical },
+    { x: horizontal * 2, y: -vertical },
+    { x: -horizontal * 2, y: -vertical },
+    { x: 0, y: vertical * 2 },
+  ].filter(
+    (candidate): candidate is { x: number; y: number } =>
+      candidate !== null,
+  );
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    const key = `${candidate.x.toFixed(1)}:${candidate.y.toFixed(1)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const centerX = anchorX + candidate.x;
+    const bottom = anchorY - 11 + candidate.y;
+    const rectangle = {
+      left: centerX - labelWidth / 2,
+      right: centerX + labelWidth / 2,
+      top: bottom - labelHeight,
+      bottom,
+    };
+    if (
+      rectangle.left < 5 ||
+      rectangle.right > viewportWidth - 5 ||
+      rectangle.top < headerHeight ||
+      rectangle.bottom > viewportHeight - 8
+    ) {
+      continue;
+    }
+    const collides = occupied.some(
+      (other) =>
+        rectangle.left < other.right + 3 &&
+        rectangle.right > other.left - 3 &&
+        rectangle.top < other.bottom + 3 &&
+        rectangle.bottom > other.top - 3,
+    );
+    if (!collides) {
+      return {
+        placement: {
+          offsetX: candidate.x,
+          offsetY: candidate.y,
+          visible: true,
+        },
+        rectangle,
+      };
+    }
+  }
+
+  return {
+    placement: {
+      offsetX: previous?.offsetX ?? preferred[0],
+      offsetY: previous?.offsetY ?? preferred[1],
+      visible: false,
+    },
+    rectangle: null,
+  };
 }
 
 function createRoute(
@@ -1199,8 +1347,8 @@ function createRoute(
 }
 
 function canonicalCoordinatePoint(
-  focusData: DemLayer,
-  focusTerrain: VoxelTerrain,
+  registration: TerrainMesherContext,
+  bounds: DemBounds,
   x: number,
   z: number,
 ) {
@@ -1212,18 +1360,10 @@ function canonicalCoordinatePoint(
   const longitude =
     CANONICAL_ORIGIN_LONGITUDE + x / metersPerDegreeLongitude;
   if (
-    containsCoordinate(
-      focusData.metadata.bounds,
-      latitude,
-      longitude,
-    )
+    containsCoordinate(bounds, latitude, longitude)
   ) {
-    return coordinatePoint(
-      focusTerrain,
-      focusData.metadata,
-      latitude,
-      longitude,
-    );
+    const point = canonicalToWorld(registration, x, z);
+    return new THREE.Vector3(point.x, 0, point.z);
   }
   return null;
 }
@@ -1305,14 +1445,22 @@ function navigationDistanceForSite(site: SiteAnchor) {
   return 920;
 }
 
-function createVoxelClimber(color: string) {
+function createVoxelClimber(color: string, accentColor: string) {
   const group = new THREE.Group();
+  const shadowColor = new THREE.Color(color).lerp(
+    new THREE.Color("#101a20"),
+    0.7,
+  );
+  const packColor = new THREE.Color(color).lerp(
+    new THREE.Color("#07151d"),
+    0.52,
+  );
   const jacketMaterial = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
   });
   const darkMaterial = new THREE.MeshBasicMaterial({
-    color: "#17242a",
+    color: shadowColor,
     transparent: true,
   });
   const skinMaterial = new THREE.MeshBasicMaterial({
@@ -1320,23 +1468,23 @@ function createVoxelClimber(color: string) {
     transparent: true,
   });
   const packMaterial = new THREE.MeshBasicMaterial({
-    color: "#20323f",
+    color: packColor,
     transparent: true,
   });
   const visorMaterial = new THREE.MeshBasicMaterial({
-    color: "#9ce7ed",
+    color: accentColor,
     transparent: true,
     opacity: 0.88,
     depthWrite: false,
   });
   const veilMaterial = new THREE.MeshBasicMaterial({
-    color: "#b8dce1",
+    color: accentColor,
     transparent: true,
     opacity: 0.16,
     depthWrite: false,
   });
   const charmMaterial = new THREE.MeshBasicMaterial({
-    color: "#a8edf1",
+    color: accentColor,
     transparent: true,
     opacity: 0.72,
     depthWrite: false,
@@ -1722,8 +1870,15 @@ function createAgentSignal(color: string) {
   return { group, materials: [ringMaterial, coreMaterial] };
 }
 
-function createAgentIdentityBadge(color: string) {
+function createAgentIdentityBadge(
+  color: string,
+  accentColor: string,
+  variant: 0 | 1 | 2 | 3,
+) {
   const group = new THREE.Group();
+  const portraitShadow = `#${new THREE.Color(color)
+    .lerp(new THREE.Color("#07151d"), 0.68)
+    .getHexString()}`;
   const layers: Array<{
     material: THREE.MeshBasicMaterial;
     opacity: number;
@@ -1753,7 +1908,7 @@ function createAgentIdentityBadge(color: string) {
 
   addLayer(
     new THREE.CircleGeometry(0.445, 32),
-    "#07151d",
+    portraitShadow,
     [0, 0, 0],
     0.94,
     24,
@@ -1795,11 +1950,44 @@ function createAgentIdentityBadge(color: string) {
   );
   addLayer(
     new THREE.PlaneGeometry(0.3, 0.072),
-    "#9ce7ed",
+    accentColor,
     [0, 0.17, 0.05],
     0.94,
     29,
   );
+  const leftArm = addLayer(
+    new THREE.PlaneGeometry(0.09, 0.31),
+    variant % 2 === 0 ? color : accentColor,
+    [-0.19, -0.2, 0.058],
+    0.94,
+    29,
+  );
+  const rightArm = addLayer(
+    new THREE.PlaneGeometry(0.09, 0.31),
+    variant % 2 === 0 ? accentColor : color,
+    [0.19, -0.2, 0.058],
+    0.94,
+    29,
+  );
+  const stone = addLayer(
+    new THREE.CircleGeometry(0.105, 7),
+    "#cab991",
+    [0, -0.07, 0.074],
+    1,
+    31,
+  );
+  stone.visible = false;
+  const characterMark = addLayer(
+    variant < 2
+      ? new THREE.RingGeometry(0.285, 0.32, 20, 1, 0, Math.PI)
+      : new THREE.PlaneGeometry(0.32, 0.045),
+    accentColor,
+    [0, variant < 2 ? 0.17 : 0.29, 0.06],
+    0.82,
+    30,
+  );
+  characterMark.rotation.z =
+    variant === 1 || variant === 3 ? 0.12 : -0.12;
   addLayer(
     new THREE.CircleGeometry(0.045, 12),
     "#bdf5f3",
@@ -1811,6 +1999,9 @@ function createAgentIdentityBadge(color: string) {
   return {
     group,
     layers,
+    leftArm,
+    rightArm,
+    stone,
     materials: layers.map(({ material }) => material),
   };
 }
@@ -1818,10 +2009,43 @@ function createAgentIdentityBadge(color: string) {
 function updateAgentIdentityBadge(
   badge: ReturnType<typeof createAgentIdentityBadge>,
   opacity: number,
+  state: ReplayAgentVisualState,
+  seconds: number,
+  segmentProgress: number,
+  reduceMotion: boolean,
 ) {
   badge.layers.forEach((layer) => {
     layer.material.opacity = layer.opacity * opacity;
   });
+  const walkSwing =
+    reduceMotion || !state.startsWith("walking")
+      ? 0
+      : Math.sin(seconds * WALK_CADENCE_RADIANS_PER_SECOND) * 0.28;
+  const handleReach = Math.sin(
+    Math.PI * THREE.MathUtils.clamp(segmentProgress, 0, 1),
+  );
+  if (state === "walking-loaded") {
+    badge.leftArm.rotation.z = -0.58;
+    badge.rightArm.rotation.z = 0.58;
+  } else if (state === "pickup" || state === "release") {
+    const direction = state === "pickup" ? handleReach : 1 - handleReach;
+    badge.leftArm.rotation.z = -0.54 * direction;
+    badge.rightArm.rotation.z = 0.54 * direction;
+  } else {
+    badge.leftArm.rotation.z = walkSwing;
+    badge.rightArm.rotation.z = -walkSwing;
+  }
+  const stoneVisible =
+    state === "walking-loaded" ||
+    (state === "pickup" && segmentProgress >= 0.42) ||
+    (state === "release" && segmentProgress <= 0.7);
+  badge.stone.visible = stoneVisible;
+  badge.stone.position.y =
+    -0.08 -
+    (state === "pickup" || state === "release"
+      ? (1 - handleReach) * 0.14
+      : 0);
+  badge.stone.rotation.z = reduceMotion ? 0 : seconds * 0.35;
 }
 
 function createEnduranceHalo() {
@@ -2077,6 +2301,7 @@ export default function EverestObservatory() {
   const viewScaleHost = useRef<HTMLDivElement>(null);
   const activeExpeditionRef = useRef(0);
   const manualReplayStarted = useRef(0);
+  const manualReplayReadyAt = useRef(0);
   const overviewReplayRef = useRef<{
     expeditionIndex: number;
     startedAt: number;
@@ -2099,6 +2324,8 @@ export default function EverestObservatory() {
     number | null
   >(null);
   const [rankingsOpen, setRankingsOpen] = useState(false);
+  const [footprintSort, setFootprintSort] =
+    useState<FootprintSortKey>("acceptedExpeditions");
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [uiAwake, setUiAwake] = useState(true);
@@ -2123,11 +2350,20 @@ export default function EverestObservatory() {
   const [feed, setFeed] = useState(fallbackObservatoryFeed);
   const leaveExpeditionWatch = useCallback(() => {
     manualReplayStarted.current = 0;
+    manualReplayReadyAt.current = 0;
     setWatchingExpedition(null);
     navigationCommandRef.current = { type: "restore-watch-view" };
   }, []);
   const expeditions = feed.recentExpeditions;
-  const footprintProfiles = feed.footprints;
+  const footprintProfiles = useMemo(
+    () =>
+      rankFootprints(
+        feed.footprints,
+        footprintSort,
+        FOOTPRINT_RANKING_LIMIT,
+      ),
+    [feed.footprints, footprintSort],
+  );
   const memorialClusters =
     feed.memorialClusters ?? EMPTY_MEMORIAL_CLUSTERS;
   const sceneDataRef = useRef({
@@ -2363,6 +2599,8 @@ export default function EverestObservatory() {
         alpinePalette.atmosphere,
       );
       scene.add(atmosphere.root);
+      const snowField = createSnowField(WORLD_UNITS_PER_METER);
+      scene.add(snowField.root);
 
       // Keep navigation and all focus presets inside one canonical movement
       // envelope. Rendered terrain never uses this rectangle as a
@@ -2598,16 +2836,14 @@ export default function EverestObservatory() {
         camera.position.copy(cameraViewRef.current.position);
         controls.target.copy(cameraViewRef.current.target);
       }
-      const focusNavigationBounds = {
-        minX: terrain.xOrigin + terrain.blockSize,
-        maxX:
-          terrain.xOrigin +
-          (terrain.width - 1) * terrain.blockSize,
-        minZ: terrain.zOrigin + terrain.blockSize,
-        maxZ:
-          terrain.zOrigin +
-          (terrain.height - 1) * terrain.blockSize,
-      };
+      // Navigation and streamed detail follow the complete physical
+      // authority. The smaller activity DEM remains a disposable overview
+      // helper; it must not become a permanent boundary for a long replay.
+      const focusNavigationBounds = terrainGridWorldBounds(
+        terrainStreamingContext,
+        authority.metadata.width,
+        authority.metadata.height,
+      );
       let navigationSurfaceCellM = 30;
       const navigation = new SurfaceNavigationController({
         camera,
@@ -2729,8 +2965,7 @@ export default function EverestObservatory() {
         );
         const levelCenters = ringPlan.map((ring) =>
           snapDetailCenterToCanonicalGrid(
-            focusTerrainData,
-            terrain,
+            terrainStreamingContext,
             focusCenter.x,
             focusCenter.y,
             ring.cellM,
@@ -2790,8 +3025,7 @@ export default function EverestObservatory() {
           camera.position,
         );
         const canonicalCenter = snapDetailCenterToCanonicalGrid(
-          focusTerrainData,
-          terrain,
+          terrainStreamingContext,
           focusAnchor.x,
           focusAnchor.z,
           TERRAIN_CLIPMAP_LEVELS[
@@ -3014,6 +3248,12 @@ export default function EverestObservatory() {
 
       const traceObjects = sceneExpeditions.flatMap((expedition, index) => {
         if (!expedition.trace || expedition.trace.length < 2) return [];
+        // Appearance is derived client-side as well as in the feed so an
+        // older cached feed cannot collapse a crowd back to one color.
+        const identityStyle = agentIdentityStyle(
+          `${expedition.agent}:${expedition.id}`,
+        );
+        const traceColor = identityStyle.color;
         const route = createRoute(
           terrain,
           focusTerrainData.metadata,
@@ -3035,22 +3275,26 @@ export default function EverestObservatory() {
             0.08 * WORLD_UNITS_PER_METER;
         });
         const material = new THREE.LineBasicMaterial({
-          color: expedition.color,
+          color: traceColor,
           transparent: true,
           opacity: index === 0 ? 0.92 : 0.42,
+          depthTest: false,
           depthWrite: false,
         });
         const line = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints(points),
           material,
         );
+        line.renderOrder = 17;
         scene.add(line);
 
         const breadcrumbGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
         const breadcrumbMaterial = new THREE.MeshBasicMaterial({
-          color: expedition.color,
+          color: traceColor,
           transparent: true,
           opacity: index === 0 ? 0.9 : 0.42,
+          depthTest: false,
+          depthWrite: false,
         });
         const breadcrumbPoints = points.filter(
           (_, pointIndex) => pointIndex % 3 === 0,
@@ -3067,11 +3311,19 @@ export default function EverestObservatory() {
           breadcrumbs.setMatrixAt(pointIndex, breadcrumbDummy.matrix);
         });
         breadcrumbs.instanceMatrix.needsUpdate = true;
+        breadcrumbs.renderOrder = 18;
         scene.add(breadcrumbs);
 
-        const climber = createVoxelClimber(expedition.color);
+        const climber = createVoxelClimber(
+          traceColor,
+          identityStyle.accentColor,
+        );
         scene.add(climber.group);
-        const agentSignal = createAgentIdentityBadge(expedition.color);
+        const agentSignal = createAgentIdentityBadge(
+          traceColor,
+          identityStyle.accentColor,
+          identityStyle.variant,
+        );
         scene.add(agentSignal.group);
 
         const enduranceHalo = createEnduranceHalo();
@@ -3110,8 +3362,8 @@ export default function EverestObservatory() {
             cell,
             point:
               canonicalCoordinatePoint(
-                focusTerrainData,
-                terrain,
+                terrainStreamingContext,
+                authority.metadata.bounds,
                 canonicalX,
                 canonicalZ,
               ) ?? routePoint.clone(),
@@ -3215,9 +3467,14 @@ export default function EverestObservatory() {
       let overviewSuppressedAt = 0;
       let lastPrefetchAt = 0;
       let lastPrefetchKey = "";
+      let lastWatchPrefetchAt = 0;
+      let lastWatchPrefetchKey = "";
+      let watchCompletedAt = 0;
       let lastScaleUpdateAt = 0;
       let workCameraReplayStart = -1;
       const workCameraDirection = new THREE.Vector3(0.72, 0, 0.69);
+      const signalCameraRight = new THREE.Vector3();
+      const signalCameraUp = new THREE.Vector3();
       let directorSideSign = 1;
       let directorCameraLiftM = 0;
       let directorSmoothedCameraY = Number.NaN;
@@ -3225,6 +3482,12 @@ export default function EverestObservatory() {
       let directorLastUpdateAt = started;
       let lastRenderedFrameAt = started;
       let highMotionRenderActive = false;
+      const siteLabelPlacements = new Map<
+        string,
+        StableSiteLabelPlacement
+      >();
+      let siteLayoutSignature = "";
+      let lastSiteLayoutAt = 0;
       const reduceMotion = window.matchMedia(
         "(prefers-reduced-motion: reduce)",
       ).matches;
@@ -3294,14 +3557,23 @@ export default function EverestObservatory() {
               };
             }
             const point = canonicalCoordinatePoint(
-              focusTerrainData,
-              terrain,
+              terrainStreamingContext,
+              authority.metadata.bounds,
               navigationCommand.x,
               navigationCommand.z,
             );
             if (!point) {
               setCoordinateStatus("outside");
             } else {
+              point.y = detailedSurfaceY(
+                authority,
+                authorityTerrain,
+                point.x,
+                point.z,
+                navigationSurfaceCellM,
+                terrainStreaming,
+                terrainStreamingContext,
+              );
               suppressOverviewUntilDetailReady = true;
               overviewSuppressedAt = time;
               navigation.focus(point, navigationCommand.distanceM);
@@ -3389,11 +3661,13 @@ export default function EverestObservatory() {
           time - lastPrefetchAt > 240
         ) {
           const lod = desiredClipmapLod;
-          const prefetchKey = `${activeClipmapIndex}:${(
-            desiredTerrainCenter.x / Math.max(0.001, lod.cellM * 24)
-          ).toFixed(0)}:${(
-            desiredTerrainCenter.y / Math.max(0.001, lod.cellM * 24)
-          ).toFixed(0)}:${sceneDataRef.current.feed.worldHash}`;
+          const prefetchCell = canonicalWindowCell(
+            terrainStreamingContext,
+            desiredTerrainCenter.x,
+            desiredTerrainCenter.y,
+            Math.max(0.001, lod.cellM * 24),
+          );
+          const prefetchKey = `${activeClipmapIndex}:${prefetchCell.x}:${prefetchCell.z}:${sceneDataRef.current.feed.worldHash}`;
           if (prefetchKey !== lastPrefetchKey) {
             terrainStreaming.setFeed(sceneDataRef.current.feed);
             terrainStreaming.prefetch(
@@ -3475,13 +3749,40 @@ export default function EverestObservatory() {
             trace.expeditionIndex === activeExpeditionRef.current,
         );
         const selectedManualTimeline = manualTrace?.fullTimeline;
-        const manualElapsedSeconds = Math.max(
-          0,
-          (time - manualReplayStarted.current) / 1000,
-        );
-        const manualPlayback =
+        const manualReplayRequested =
           manualReplayStarted.current > 0 &&
           selectedManualTimeline !== undefined;
+        const manualSubjectDistanceM = manualTrace
+          ? camera.position.distanceTo(manualTrace.group.position) /
+            WORLD_UNITS_PER_METER
+          : Number.POSITIVE_INFINITY;
+        const manualSubjectProjection = manualTrace
+          ? manualTrace.group.position.clone().project(camera)
+          : null;
+        const manualSubjectFramed =
+          manualSubjectProjection !== null &&
+          manualSubjectProjection.z > -1 &&
+          manualSubjectProjection.z < 1 &&
+          Math.abs(manualSubjectProjection.x) <= 0.7 &&
+          Math.abs(manualSubjectProjection.y) <= 0.7;
+        if (
+          manualReplayRequested &&
+          manualReplayReadyAt.current <= 0 &&
+          terrainSurfaceReady &&
+          cellSizeForResolution(nextResolution) <= 1.6 &&
+          manualSubjectDistanceM <= 12 &&
+          manualSubjectFramed
+        ) {
+          manualReplayReadyAt.current = time;
+        }
+        const manualElapsedSeconds = Math.max(
+          0,
+          manualReplayReadyAt.current > 0
+            ? (time - manualReplayReadyAt.current) / 1000 -
+                WATCH_CAMERA_LEAD_IN_SECONDS
+            : 0,
+        );
+        const manualPlayback = manualReplayRequested;
         const overviewReplay = overviewReplayRef.current;
         const overviewTrace =
           overviewReplay === null
@@ -3499,7 +3800,7 @@ export default function EverestObservatory() {
           !manualPlayback &&
           overviewTrace !== undefined &&
           overviewElapsedSeconds <=
-            overviewTrace.fullTimeline.totalSeconds + 3;
+            SELECTED_HIGHLIGHT_SECONDS;
         if (overviewReplay !== null && !overviewPlayback) {
           overviewReplayRef.current = null;
         }
@@ -3507,7 +3808,10 @@ export default function EverestObservatory() {
           navigationSnapshot.inputActive ||
           (manualPlayback &&
             selectedManualTimeline !== undefined &&
-            manualElapsedSeconds < selectedManualTimeline.totalSeconds);
+            manualElapsedSeconds < selectedManualTimeline.totalSeconds) ||
+          (!reduceMotion &&
+            cameraDistanceM < 220 &&
+            traceObjects.length > 0);
         let nextActive =
           traceObjects[0]?.expeditionIndex ??
           activeExpeditionRef.current;
@@ -3530,32 +3834,29 @@ export default function EverestObservatory() {
         } else if (overviewPlayback && overviewTrace) {
           nextActive = overviewTrace.expeditionIndex;
           activeTimeline = overviewTrace.fullTimeline;
-          activeElapsedSeconds = Math.min(
-            overviewElapsedSeconds,
-            overviewTrace.fullTimeline.totalSeconds,
-          );
         } else if (traceObjects.length > 0) {
-          const totalCycleSeconds = traceObjects.reduce(
-            (total, trace) => total + trace.fullTimeline.totalSeconds + 3,
+          const slotIndex =
+            Math.floor(seconds / OVERVIEW_TRACE_SLOT_SECONDS) %
+            traceObjects.length;
+          const trace = traceObjects[slotIndex];
+          nextActive = trace.expeditionIndex;
+          activeTimeline = trace.fullTimeline;
+        }
+        if (!manualPlayback && activeTimeline) {
+          const activeTraceIndex = Math.max(
             0,
+            traceObjects.findIndex(
+              (trace) => trace.expeditionIndex === nextActive,
+            ),
           );
-          let cycleSeconds = positiveModulo(
-            seconds,
-            Math.max(0.001, totalCycleSeconds),
-          );
-          for (const trace of traceObjects) {
-            const slotSeconds = trace.fullTimeline.totalSeconds + 3;
-            if (cycleSeconds <= slotSeconds) {
-              nextActive = trace.expeditionIndex;
-              activeTimeline = trace.fullTimeline;
-              activeElapsedSeconds = Math.min(
-                cycleSeconds,
-                trace.fullTimeline.totalSeconds,
+          activeElapsedSeconds = reduceMotion
+            ? activeTimeline.totalSeconds
+            : overviewReplayElapsedSeconds(
+                activeTimeline,
+                seconds,
+                activeTraceIndex,
+                traceObjects.length,
               );
-              break;
-            }
-            cycleSeconds -= slotSeconds;
-          }
         }
         if (activeExpeditionRef.current !== nextActive) {
           activeExpeditionRef.current = nextActive;
@@ -3564,30 +3865,51 @@ export default function EverestObservatory() {
         let frameReplayWorldState = FINAL_WORLD_REPLAY_STATE;
         terrainStreaming.setReplayWorldState(frameReplayWorldState);
         let displayedRouteProgress = 0;
+        const agentScreenObstacles: SiteLabelRectangle[] = [];
+        signalCameraRight
+          .set(1, 0, 0)
+          .applyQuaternion(camera.quaternion);
+        signalCameraUp
+          .set(0, 1, 0)
+          .applyQuaternion(camera.quaternion);
         traceObjects.forEach((trace, index) => {
           const isActive = nextActive === trace.expeditionIndex;
           const humanWorkView =
             isActive && manualPlayback;
-          const playback = isActive
-            ? sampleReplayTimeline(
-                activeTimeline ?? trace.fullTimeline,
-                activeElapsedSeconds,
-              )
-            : sampleReplayTimeline(
-                trace.fullTimeline,
-                trace.fullTimeline.totalSeconds,
-              );
-          const phase = playback.progress;
-          if (isActive) displayedRouteProgress = phase;
-          const replayTimeline = isActive
+          const participantVisible = !manualPlayback || isActive;
+          const replayTimeline = humanWorkView
             ? activeTimeline ?? trace.fullTimeline
             : trace.fullTimeline;
+          const traceElapsedSeconds = humanWorkView
+            ? activeElapsedSeconds
+            : reduceMotion
+              ? trace.fullTimeline.totalSeconds
+              : overviewReplayElapsedSeconds(
+                  trace.fullTimeline,
+                  seconds,
+                  index,
+                  traceObjects.length,
+                );
+          const playback = sampleReplayTimeline(
+            replayTimeline,
+            traceElapsedSeconds,
+          );
+          const phase = playback.progress;
+          const actionState = replayActionState(
+            phase,
+            trace.actionWindows,
+          );
+          const agentState = replayAgentVisualState(
+            playback,
+            actionState,
+          );
+          if (isActive) displayedRouteProgress = phase;
           const matterStates =
             humanWorkView && trace.expedition.actions
               ? trace.expedition.actions.map((_, actionIndex) =>
                   sampleActionMatterState(
                     replayTimeline,
-                    activeElapsedSeconds,
+                    traceElapsedSeconds,
                     trace.actionWindows[actionIndex],
                     actionIndex,
                   ),
@@ -3607,6 +3929,42 @@ export default function EverestObservatory() {
             trace.progresses,
             phase,
           );
+          if (
+            humanWorkView &&
+            desiredClipmapLod &&
+            desiredClipmapLod.cellM <= 1.6 &&
+            time - lastWatchPrefetchAt > 240
+          ) {
+            const lookaheadPlayback = sampleReplayLookahead(
+              replayTimeline,
+              activeElapsedSeconds,
+              WATCH_TERRAIN_LOOKAHEAD_SECONDS,
+            );
+            const lookaheadPoint = routeSampleAtProgress(
+              trace.points,
+              trace.progresses,
+              lookaheadPlayback.progress,
+            ).point;
+            const watchPrefetchCell = canonicalWindowCell(
+              terrainStreamingContext,
+              lookaheadPoint.x,
+              lookaheadPoint.z,
+              Math.max(12, desiredClipmapLod.cellM * 24),
+            );
+            const watchPrefetchKey = `${activeClipmapIndex}:${watchPrefetchCell.x}:${watchPrefetchCell.z}:${sceneDataRef.current.feed.worldHash}`;
+            if (watchPrefetchKey !== lastWatchPrefetchKey) {
+              terrainStreaming.setFeed(sceneDataRef.current.feed);
+              terrainStreaming.prefetch(
+                lookaheadPoint.x,
+                lookaheadPoint.z,
+                desiredClipmapLod.cellM *
+                  desiredClipmapLod.gridCells *
+                  1.18,
+              );
+              lastWatchPrefetchKey = watchPrefetchKey;
+            }
+            lastWatchPrefetchAt = time;
+          }
           trace.group.position.copy(routeSample.point);
           const exactGroundY =
             detailedSurfaceY(
@@ -3635,8 +3993,7 @@ export default function EverestObservatory() {
             (humanWorkView &&
               trace.groundReplayStart !==
                 manualReplayStarted.current) ||
-            (isActive &&
-              phase + 0.000_001 < trace.lastGroundProgress);
+            phase + 0.000_001 < trace.lastGroundProgress;
           const groundDeltaSeconds = THREE.MathUtils.clamp(
             (time - trace.lastGroundUpdateAt) / 1000,
             1 / 240,
@@ -3651,7 +4008,6 @@ export default function EverestObservatory() {
             ? walkingGroundY
             : exactGroundY;
           trace.smoothedGroundY =
-            !isActive ||
             groundReplayRestarted ||
             !Number.isFinite(trace.smoothedGroundY)
               ? desiredGroundY
@@ -4002,45 +4358,59 @@ export default function EverestObservatory() {
             WORLD_UNITS_PER_METER;
           trace.leftLeg.rotation.x = stride * 0.42;
           trace.rightLeg.rotation.x = -stride * 0.42;
-          trace.material.opacity = humanWorkView
-            ? 0.24
-            : isActive
-              ? 0.94
-              : 0.14;
-          const ended = isActive && playback.ended;
+          trace.material.opacity = participantVisible
+            ? isActive
+              ? 0.9
+              : 0.16
+            : 0;
+          const ended = playback.ended;
+          if (humanWorkView && ended) {
+            if (watchCompletedAt === 0) watchCompletedAt = time;
+            if (
+              shouldReturnFromExpeditionWatch({
+                ended,
+                returned: trace.expedition.returned,
+                completedAtMilliseconds: watchCompletedAt,
+                nowMilliseconds: time,
+              })
+            ) {
+              watchCompletedAt = 0;
+              leaveExpeditionWatch();
+            }
+          } else if (isActive) {
+            watchCompletedAt = 0;
+          }
           const agentDistance = camera.position.distanceTo(
             trace.group.position,
           );
           const agentDistanceM =
             agentDistance / WORLD_UNITS_PER_METER;
           const visualLod = agentVisualLod(agentDistanceM);
-          trace.breadcrumbMaterial.opacity = isActive
-            ? visualLod.breadcrumbOpacity * 0.78
-            : 0.08;
-          trace.materials.forEach((material) => {
-            material.opacity = ended
+          trace.breadcrumbMaterial.opacity = participantVisible
+            ? visualLod.breadcrumbOpacity * (isActive ? 0.78 : 0.16)
+            : 0;
+          const participantEmphasis = isActive ? 1 : 0.52;
+          const climberOpacity = participantVisible
+            ? ended
               ? humanWorkView
                 ? 0.92
-                : 0.24
-              : isActive
-                ? visualLod.physicalOpacity
-                : 0;
+                : 0.24 * participantEmphasis
+              : visualLod.physicalOpacity * participantEmphasis
+            : 0;
+          trace.materials.forEach((material) => {
+            material.opacity = climberOpacity;
           });
           trace.line.visible =
-            !humanWorkView && (isActive || overviewContextVisible);
+            participantVisible &&
+            !humanWorkView;
           trace.breadcrumbs.visible =
+            participantVisible &&
             overviewContextVisible &&
             visualLod.breadcrumbOpacity > 0.02;
           trace.group.visible =
-            isActive && visualLod.physicalOpacity > 0.01;
+            participantVisible &&
+            visualLod.physicalOpacity > 0.01;
           trace.group.scale.setScalar(visualLod.physicalScale);
-          const climberOpacity = ended
-            ? humanWorkView
-              ? 0.92
-              : 0.24
-            : isActive
-              ? visualLod.physicalOpacity
-              : 0;
           trace.visorMaterial.opacity = climberOpacity * 0.9;
           trace.veilMaterial.opacity =
             climberOpacity * (humanWorkView ? 0.16 : 0.1);
@@ -4072,11 +4442,39 @@ export default function EverestObservatory() {
             Math.sin(seconds * 1.8) * 0.18;
 
           trace.agentSignal.group.visible =
-            isActive && visualLod.signalOpacity > 0.01;
+            participantVisible &&
+            visualLod.signalOpacity > 0.01;
           trace.agentSignal.group.position.copy(trace.group.position);
           trace.agentSignal.group.position.y +=
             (1.98 + smoothstep(110, 900, agentDistanceM) * 0.34) *
             WORLD_UNITS_PER_METER;
+          const signalSpreadMix = smoothstep(
+            180,
+            650,
+            agentDistanceM,
+          );
+          if (signalSpreadMix > 0) {
+            const signalSpreadAngle =
+              (index + 1) * Math.PI * (3 - Math.sqrt(5));
+            const signalSpreadPixels =
+              (18 + Math.sqrt(index + 1) * 5) *
+              signalSpreadMix;
+            const signalSpreadWorld = worldSizeForPixels(
+              agentDistance,
+              signalSpreadPixels,
+              host.clientHeight,
+              THREE.MathUtils.degToRad(camera.fov),
+            );
+            trace.agentSignal.group.position
+              .addScaledVector(
+                signalCameraRight,
+                Math.cos(signalSpreadAngle) * signalSpreadWorld,
+              )
+              .addScaledVector(
+                signalCameraUp,
+                Math.sin(signalSpreadAngle) * signalSpreadWorld,
+              );
+          }
           trace.agentSignal.group.quaternion.copy(camera.quaternion);
           const identityPulse = reduceMotion
             ? 1
@@ -4087,13 +4485,56 @@ export default function EverestObservatory() {
             host.clientHeight,
             THREE.MathUtils.degToRad(camera.fov),
           ) * identityPulse;
-          trace.agentSignal.group.scale.setScalar(agentSignalScale);
+          trace.agentSignal.group.scale.setScalar(
+            agentSignalScale * (isActive ? 1.08 : 0.7),
+          );
           const identityOpacity =
-            visualLod.signalOpacity * (ended ? 0.72 : 1);
+            participantVisible
+              ? visualLod.signalOpacity *
+                participantEmphasis *
+                (ended ? 0.72 : 1)
+              : 0;
           updateAgentIdentityBadge(
             trace.agentSignal,
             identityOpacity,
+            agentState,
+            seconds,
+            playback.segmentProgress,
+            reduceMotion,
           );
+          if (
+            trace.agentSignal.group.visible &&
+            identityOpacity > 0.01
+          ) {
+            const signalProjection = trace.agentSignal.group.position
+              .clone()
+              .project(camera);
+            if (
+              signalProjection.z > -1 &&
+              signalProjection.z < 1 &&
+              signalProjection.x > -1.08 &&
+              signalProjection.x < 1.08 &&
+              signalProjection.y > -1.08 &&
+              signalProjection.y < 1.08
+            ) {
+              const signalCenterX =
+                (signalProjection.x * 0.5 + 0.5) * host.clientWidth;
+              const signalCenterY =
+                (-signalProjection.y * 0.5 + 0.5) *
+                host.clientHeight;
+              const signalHalfSize =
+                visualLod.signalPixels *
+                  (isActive ? 1.08 : 0.7) *
+                  (isActive ? 0.72 : 0.58) +
+                3;
+              agentScreenObstacles.push({
+                left: signalCenterX - signalHalfSize,
+                right: signalCenterX + signalHalfSize,
+                top: signalCenterY - signalHalfSize,
+                bottom: signalCenterY + signalHalfSize,
+              });
+            }
+          }
 
           const reserve =
             1 -
@@ -4134,10 +4575,6 @@ export default function EverestObservatory() {
             identityOpacity,
           );
 
-          const actionState = replayActionState(
-            phase,
-            trace.actionWindows,
-          );
           const handlingPickup = playback.holdKind === "pickup";
           const handlingRelease = playback.holdKind === "release";
           trace.matterReplay.group.visible = humanWorkView;
@@ -4458,19 +4895,12 @@ export default function EverestObservatory() {
           );
         }
 
-        const minimumPriority =
-          !overviewContextVisible
-            ? 3
-            : cameraDistance > 145
-              ? 2
-              : cameraDistance > 82
-                ? 1
-                : 0;
-        const occupied: Array<{
-          left: number;
-          right: number;
-          top: number;
-          bottom: number;
+        const visibleSiteProjections: Array<{
+          siteObject: (typeof prioritizedSiteObjects)[number];
+          x: number;
+          y: number;
+          width: number;
+          height: number;
         }> = [];
         prioritizedSiteObjects.forEach((siteObject) => {
           siteObject.siteGroup.position.copy(
@@ -4504,7 +4934,7 @@ export default function EverestObservatory() {
               projected.x < 1.08 &&
               projected.y > -1.08 &&
               projected.y < 1.08);
-          if (!inView || priority < minimumPriority) {
+          if (!inView) {
             siteObject.label.style.opacity = "0";
             siteObject.label.style.visibility = "hidden";
             return;
@@ -4515,53 +4945,124 @@ export default function EverestObservatory() {
           const projectedY = targetLocked
             ? host.clientHeight / 2
             : (-projected.y * 0.5 + 0.5) * host.clientHeight;
-          const width =
-            siteObject.site.kind === "SUMMIT"
-              ? 198
-              : siteObject.site.name.length > 18
-                ? 188
-                : 150;
-          const height = 50;
-          const x = THREE.MathUtils.clamp(
-            projectedX,
-            width / 2 + 10,
-            host.clientWidth - width / 2 - 10,
+          const width = THREE.MathUtils.clamp(
+            12 + siteObject.site.name.length * 4.7,
+            40,
+            122,
           );
-          const y = THREE.MathUtils.clamp(
-            projectedY,
-            height + (host.clientWidth <= 720 ? 70 : 88),
-            host.clientHeight - 92,
-          );
-          const rectangle = {
-            left: x - width / 2,
-            right: x + width / 2,
-            top: y - height,
-            bottom: y,
-          };
-          const collides = occupied.some(
-            (other) =>
-              rectangle.left < other.right + 10 &&
-              rectangle.right > other.left - 10 &&
-              rectangle.top < other.bottom + 8 &&
-              rectangle.bottom > other.top - 8,
-          );
-          if (collides && priority < 3) {
-            siteObject.label.style.opacity = "0";
-            siteObject.label.style.visibility = "hidden";
-            return;
-          }
-          occupied.push(rectangle);
+          const height = 14;
           siteObject.label.style.visibility = "visible";
           siteObject.label.style.opacity = "1";
-          siteObject.label.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -100%)`;
+          siteObject.label.style.setProperty(
+            "--site-label-width",
+            `${width}px`,
+          );
+          siteObject.label.style.transform = `translate3d(${projectedX}px, ${projectedY}px, 0) translate(-50%, -100%)`;
           siteObject.label.dataset.lod =
             cameraDistance < 54
               ? "near"
               : cameraDistance < 118
                 ? "mid"
                 : "far";
+          visibleSiteProjections.push({
+            siteObject,
+            x: projectedX,
+            y: projectedY,
+            width,
+            height,
+          });
         });
 
+        const nextSiteLayoutSignature = visibleSiteProjections
+          .map(
+            ({ siteObject, x, y }) =>
+              `${siteObject.site.id}:${Math.round(x / 8)}:${Math.round(y / 8)}`,
+          )
+          .join("|")
+          .concat(
+            "#",
+            agentScreenObstacles
+              .map(
+                ({ left, right, top, bottom }) =>
+                  `${Math.round((left + right) / 24)}:${Math.round(
+                    (top + bottom) / 24,
+                  )}`,
+              )
+              .join("|"),
+          );
+        const shouldLayoutSites =
+          siteLabelPlacements.size === 0 ||
+          (!navigationSnapshot.inputActive &&
+            navigationSnapshot.inputIdleMs > 180 &&
+            nextSiteLayoutSignature !== siteLayoutSignature &&
+            time - lastSiteLayoutAt > 180);
+        if (shouldLayoutSites) {
+          const occupied: SiteLabelRectangle[] = [
+            ...agentScreenObstacles,
+            ...visibleSiteProjections.map(({ x, y }) => ({
+              left: x - 8,
+              right: x + 8,
+              top: y - 16,
+              bottom: y + 2,
+            })),
+          ];
+          visibleSiteProjections.forEach(
+            ({ siteObject, x, y, width, height }) => {
+              const result = stableSiteLabelPlacement({
+                anchorX: x,
+                anchorY: y,
+                labelWidth: width,
+                labelHeight: height,
+                viewportWidth: host.clientWidth,
+                viewportHeight: host.clientHeight,
+                headerHeight: host.clientWidth <= 720 ? 68 : 78,
+                occupied,
+                previous: siteLabelPlacements.get(siteObject.site.id),
+                preferred:
+                  SITE_LABEL_OFFSETS[siteObject.site.id] ?? [0, 0],
+              });
+              siteLabelPlacements.set(
+                siteObject.site.id,
+                result.placement,
+              );
+              if (result.rectangle) occupied.push(result.rectangle);
+            },
+          );
+          siteLayoutSignature = nextSiteLayoutSignature;
+          lastSiteLayoutAt = time;
+        }
+        visibleSiteProjections.forEach(({ siteObject }) => {
+          const placement = siteLabelPlacements.get(
+            siteObject.site.id,
+          );
+          siteObject.label.dataset.label =
+            placement?.visible ? "visible" : "hidden";
+          siteObject.label.style.setProperty(
+            "--site-label-x",
+            `${placement?.offsetX ?? 0}px`,
+          );
+          siteObject.label.style.setProperty(
+            "--site-label-y",
+            `${placement?.offsetY ?? 0}px`,
+          );
+        });
+
+        const snowProfile = snowField.update({
+          camera,
+          distanceM: cameraDistanceM,
+          deltaSeconds: elapsedSinceRender / 1000,
+          elapsedSeconds: seconds,
+          reducedMotion: reduceMotion,
+        });
+        renderer.domElement.dataset.snowScale = snowProfile.mode;
+        renderer.domElement.dataset.snowParticles = String(
+          snowProfile.visibleCount,
+        );
+        renderer.domElement.dataset.snowPixels =
+          snowProfile.pointPixels.toFixed(2);
+        renderer.domElement.dataset.watchReady = String(
+          !manualPlayback || manualReplayReadyAt.current > 0,
+        );
         updateCameraAtmosphere(atmosphere, camera);
         renderer.render(scene, camera);
       };
@@ -4645,6 +5146,7 @@ export default function EverestObservatory() {
           (surface.mesh.material as THREE.Material).dispose();
         });
         disposeCameraAtmosphere(atmosphere);
+        snowField.dispose();
         siteObjects.forEach(({ label }) => label.remove());
         overlayHost.replaceChildren();
         renderer.dispose();
@@ -4668,12 +5170,15 @@ export default function EverestObservatory() {
     // Rebuild on a real world revision so trace and memorial objects cannot
     // lag behind the text/feed state. Unchanged polling responses keep the
     // existing camera and GPU resources.
-  }, [feed.worldHash, skyPhase]);
+  }, [feed.worldHash, leaveExpeditionWatch, skyPhase]);
 
   const active =
     expeditions.length > 0
       ? expeditions[activeExpedition % expeditions.length]
       : null;
+  const activeDisplayColor = active
+    ? agentIdentityStyle(`${active.agent}:${active.id}`).color
+    : "#72e9ff";
   const navigationGroups = (["BOTH", "SOUTH", "NORTH"] as const)
     .map((side) => ({
       side,
@@ -4699,6 +5204,18 @@ export default function EverestObservatory() {
       setActiveExpedition(index);
     },
     [leaveExpeditionWatch],
+  );
+  const selectRelativeReplay = useCallback(
+    (offset: number) => {
+      if (expeditions.length === 0) return;
+      selectReplay(
+        positiveModulo(
+          activeExpedition + offset,
+          expeditions.length,
+        ),
+      );
+    },
+    [activeExpedition, expeditions.length, selectReplay],
   );
   const navigate = (command: NavigationCommand) => {
     navigationCommandRef.current = command;
@@ -4740,6 +5257,7 @@ export default function EverestObservatory() {
     overviewReplayRef.current = null;
     activeExpeditionRef.current = activeExpedition;
     manualReplayStarted.current = performance.now();
+    manualReplayReadyAt.current = 0;
     setWatchingExpedition(activeExpedition);
     const startingPoint = active.actions[0]?.pickup;
     if (startingPoint) {
@@ -5011,8 +5529,8 @@ export default function EverestObservatory() {
             <span
               className="route-swatch"
               style={{
-                background: active.color,
-                boxShadow: `0 0 22px ${active.color}`,
+                background: activeDisplayColor,
+                boxShadow: `0 0 22px ${activeDisplayColor}`,
               }}
             />
             <small>
@@ -5025,17 +5543,25 @@ export default function EverestObservatory() {
                 className="expedition-history"
                 aria-label="Recent expeditions"
               >
-                {expeditions.map((expedition, index) => (
-                  <button
-                    key={expedition.id}
-                    type="button"
-                    aria-label={`Show ${expedition.agent}`}
-                    aria-pressed={index === activeExpedition}
-                    title={expedition.agent}
-                    style={{ "--trace-color": expedition.color } as React.CSSProperties}
-                    onClick={() => selectReplay(index)}
-                  />
-                ))}
+                <button
+                  type="button"
+                  aria-label="Previous agent trace"
+                  title="Previous trace"
+                  onClick={() => selectRelativeReplay(-1)}
+                >
+                  ‹
+                </button>
+                <output aria-live="polite">
+                  {activeExpedition + 1}/{expeditions.length}
+                </output>
+                <button
+                  type="button"
+                  aria-label="Next agent trace"
+                  title="Next trace"
+                  onClick={() => selectRelativeReplay(1)}
+                >
+                  ›
+                </button>
               </div>
             ) : null}
           </div>
@@ -5121,19 +5647,79 @@ export default function EverestObservatory() {
       {rankingsOpen ? (
         <aside className="rankings" aria-label="Agent footprints">
           <small>
-            FOOTPRINT · {footprintProfiles.length} IDENTITIES SHOWN
+            FOOTPRINT · TOP {footprintProfiles.length} OF{" "}
+            {feed.worldSummary.identityCount}
           </small>
-          {footprintProfiles.map((entry) => (
-            <div key={entry.agent}>
-              <span>{entry.acceptedExpeditions}E</span>
-              <strong>{entry.agent}</strong>
-              <em>
-                {(entry.totalDistanceMillimeters / 1_000_000).toFixed(1)}
-                KM · {entry.activeAlterations}A
-              </em>
-              <i className={entry.outcome.toLowerCase()} />
-            </div>
-          ))}
+          <div
+            className="rankings-sort"
+            role="group"
+            aria-label="Sort climber footprints"
+          >
+            {FOOTPRINT_SORT_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                className={
+                  footprintSort === option.key ? "active" : undefined
+                }
+                aria-pressed={footprintSort === option.key}
+                onClick={() => setFootprintSort(option.key)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <div className="rankings-list" role="list">
+            {footprintProfiles.map((entry, index) => (
+              <div
+                className="footprint-row"
+                key={entry.agent}
+                role="listitem"
+                aria-label={`${index + 1}. ${entry.agent}: ${entry.acceptedExpeditions} expeditions, ${(entry.totalDistanceMillimeters / 1_000_000).toFixed(1)} kilometres, ${entry.activeAlterations} active alterations, ${entry.outcome.toLowerCase()}`}
+              >
+                <span className="footprint-rank">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <strong title={entry.agent}>{entry.agent}</strong>
+                <em className="footprint-metrics">
+                  <b
+                    className={
+                      footprintSort === "acceptedExpeditions"
+                        ? "active"
+                        : undefined
+                    }
+                  >
+                    {entry.acceptedExpeditions}E
+                  </b>
+                  <b
+                    className={
+                      footprintSort === "totalDistanceMillimeters"
+                        ? "active"
+                        : undefined
+                    }
+                  >
+                    {(
+                      entry.totalDistanceMillimeters / 1_000_000
+                    ).toFixed(1)}
+                    KM
+                  </b>
+                  <b
+                    className={
+                      footprintSort === "activeAlterations"
+                        ? "active"
+                        : undefined
+                    }
+                  >
+                    {entry.activeAlterations}A
+                  </b>
+                </em>
+                <i
+                  className={entry.outcome.toLowerCase()}
+                  title={entry.outcome}
+                />
+              </div>
+            ))}
+          </div>
         </aside>
       ) : null}
 

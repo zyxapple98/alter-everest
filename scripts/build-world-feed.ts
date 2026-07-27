@@ -12,6 +12,11 @@ import { stancePoint } from "../engine/movement";
 import { decodeRouteProgram } from "../engine/route-codec";
 import type { TerrainOracle } from "../engine/terrain";
 import { loadDemBundle } from "./expedition-kit";
+import { agentIdentityStyle } from "../lib/agent-identity";
+import {
+  FOOTPRINT_RANKING_LIMIT,
+  selectFootprintRankingCandidates,
+} from "../lib/footprint-ranking";
 
 function argument(name: string) {
   const index = process.argv.indexOf(name);
@@ -35,7 +40,7 @@ const BADGES_OUTPUT_PATH = resolve(outputDirectory, "badges.json");
 const SURFACE_TILES_OUTPUT_PATH = resolve(outputDirectory, "tiles");
 const usesCanonicalWorld =
   inputWorldPath === resolve("world/snapshot.json");
-const COLORS = ["#ff7138", "#d2dd72", "#70c6cf", "#bb91ff", "#f1bd59"];
+const MAX_OVERVIEW_EXPEDITIONS = 100;
 const METERS_PER_DEGREE_LATITUDE = 111_320;
 const MAX_MEMORIAL_CLUSTERS = 512;
 
@@ -163,7 +168,7 @@ async function loadEvents() {
     .sort()
     .reverse();
   return Promise.all(
-    names.slice(0, 3).map(async (name) =>
+    names.slice(0, MAX_OVERVIEW_EXPEDITIONS).map(async (name) =>
       JSON.parse(
         await readFile(resolve(directory, name), "utf8"),
       ) as CanonicalExpeditionEvent,
@@ -353,7 +358,7 @@ const identities = new Map(
 const recentExpeditions =
   events.length > 0
     ? await Promise.all(
-        events.map(async (event, index) => {
+        events.map(async (event) => {
           const route = await traceForEvent(
             event,
             config,
@@ -365,7 +370,9 @@ const recentExpeditions =
             agent: event.agentId,
             action: actionLabel(event.action),
             commit: event.eventHash.slice(0, 7),
-            color: COLORS[index % COLORS.length],
+            color: agentIdentityStyle(
+              `${event.agentId}:${event.candidateId}`,
+            ).color,
             returned: event.outcome === "ACTIVE",
             outcome: event.outcome,
             enduranceUsed: event.enduranceUsed,
@@ -380,14 +387,18 @@ const recentExpeditions =
         }),
       )
     : (usesCanonicalWorld
-        ? world.expeditions.slice(0, 3)
-        : world.expeditions.slice(-3).reverse()
-      ).map((expedition, index) => ({
+        ? world.expeditions.slice(0, MAX_OVERVIEW_EXPEDITIONS)
+        : world.expeditions
+            .slice(-MAX_OVERVIEW_EXPEDITIONS)
+            .reverse()
+      ).map((expedition) => ({
         id: expedition.id,
         agent: expedition.agentId,
         action: actionLabel(expedition.action),
         commit: world.worldHash.slice(-7),
-        color: COLORS[index % COLORS.length],
+        color: agentIdentityStyle(
+          `${expedition.agentId}:${expedition.id}`,
+        ).color,
         returned: expedition.outcome === "ACTIVE",
         outcome: expedition.outcome,
         enduranceUsed: expedition.enduranceUsed,
@@ -400,18 +411,15 @@ const recentExpeditions =
         trace: null,
       }));
 
-const footprintProfiles = footprints
-  .map((footprint) => ({
+const footprintProfiles = selectFootprintRankingCandidates(
+  footprints.map((footprint) => ({
     ...footprint,
     agent: footprint.agentId,
     outcome:
       identities.get(footprint.agentId.toLowerCase()) ?? "ACTIVE",
-  }))
-  .sort(
-    (left, right) =>
-      left.agent.localeCompare(right.agent),
-  )
-  .slice(0, 50);
+  })),
+  FOOTPRINT_RANKING_LIMIT,
+);
 const stonesById = new Map(
   world.stones.map((stone) => [stone.id, stone]),
 );
