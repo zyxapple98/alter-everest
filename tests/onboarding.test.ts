@@ -19,6 +19,8 @@ const exampleCandidate =
   "examples/example-agent/first-marker-roundtrip.json";
 const examplePlan =
   "examples/example-agent/first-marker-plan.json";
+const rehearsalWorld =
+  "examples/example-agent/rehearsal-world.json";
 
 function runScript(script: string, argumentsList: string[] = []) {
   return execute(
@@ -89,6 +91,7 @@ test("onboarding exposes the exact-route player loop", async () => {
     inspected.playerInterface.docs.intentions,
     "docs/player/INTENTIONS.md",
   );
+  assert.equal(inspected.onboarding.rehearsalWorld, rehearsalWorld);
 
   const site = JSON.parse(
     (await runScript("scripts/query-site.ts", [
@@ -220,6 +223,8 @@ test("labelled exact plans compile without route generation", async () => {
     const summary = JSON.parse(
       (await runScript("scripts/compile-expedition.ts", [
         examplePlan,
+        "--world",
+        rehearsalWorld,
         "--out",
         candidatePath,
       ])).stdout,
@@ -237,12 +242,23 @@ test("labelled exact plans compile without route generation", async () => {
     });
 
     const candidate = JSON.parse(await readFile(candidatePath, "utf8"));
+    const fixture = JSON.parse(
+      await readFile(resolve(rehearsalWorld), "utf8"),
+    );
+    const verifiedExample = JSON.parse(
+      await readFile(resolve(exampleCandidate), "utf8"),
+    );
+    assert.equal(candidate.parentWorldHash, fixture.worldHash);
+    assert.equal(verifiedExample.parentWorldHash, fixture.worldHash);
     assert.equal(candidate.proof.route.stepCount, 1410);
     assert.equal(candidate.proof.actions[0].releaseStep, 705);
+    assert.deepEqual(
+      candidate.proof.actions,
+      verifiedExample.proof.actions,
+    );
     assert.equal(
       candidate.proof.route.program,
-      JSON.parse(await readFile(resolve(exampleCandidate), "utf8"))
-        .proof.route.program,
+      verifiedExample.proof.route.program,
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -255,11 +271,13 @@ test("the first exact expedition passes preflight, verifier and apply", async ()
 
   try {
     const currentWorld = JSON.parse(
-      await readFile(resolve("world/snapshot.json"), "utf8"),
+      await readFile(resolve(rehearsalWorld), "utf8"),
     );
     const preflight = JSON.parse(
       (await runScript("scripts/evaluate-route.ts", [
         exampleCandidate,
+        "--world",
+        rehearsalWorld,
         "--summary",
       ])).stdout,
     );
@@ -274,6 +292,8 @@ test("the first exact expedition passes preflight, verifier and apply", async ()
     const verdict = JSON.parse(
       (await runScript("scripts/validate-expedition.ts", [
         exampleCandidate,
+        "--world",
+        rehearsalWorld,
         "--diagnose",
       ])).stdout,
     );
@@ -289,6 +309,8 @@ test("the first exact expedition passes preflight, verifier and apply", async ()
 
     await runScript("scripts/apply-expedition.ts", [
       exampleCandidate,
+      "--world",
+      rehearsalWorld,
       "--out",
       outputWorld,
     ]);
@@ -338,7 +360,9 @@ test("local candidate paths and malformed JSON objects fail safely", async () =>
       await readFile(resolve(exampleCandidate), "utf8"),
     );
     await writeFile(malformedCandidate, JSON.stringify({}));
-    const local = await verifyCandidateFile(localCandidate);
+    const local = await verifyCandidateFile(localCandidate, {
+      worldPath: rehearsalWorld,
+    });
     assert.equal(local.accepted, true);
     const malformed = await verifyCandidateFile(malformedCandidate);
     assert.equal(malformed.accepted, false);
@@ -366,6 +390,8 @@ test("diagnostics identify the failing physical action and phase", async () => {
     await assert.rejects(
       runScript("scripts/validate-expedition.ts", [
         candidatePath,
+        "--world",
+        rehearsalWorld,
         "--diagnose",
       ]),
       (error: Error & { stderr?: string }) => {
@@ -442,6 +468,8 @@ test("batch movement, compact terrain and matter transition tools compose", asyn
     const matter = JSON.parse(
       (await runScript("scripts/check-matter.ts", [
         mutationPath,
+        "--world",
+        rehearsalWorld,
       ])).stdout,
     );
     assert.equal(matter.valid, true);
@@ -527,12 +555,58 @@ test("observatory feed publishes the canonical footprint model", async () => {
     const feed = JSON.parse(
       await readFile(join(feedDirectory, "latest.json"), "utf8"),
     );
+    const world = JSON.parse(
+      await readFile(resolve("world/snapshot.json"), "utf8"),
+    );
     assert.equal(feed.schemaVersion, "1.5.0");
-    assert.deepEqual(feed.footprints, []);
-    assert.deepEqual(feed.recentExpeditions, []);
-    assert.equal(feed.worldSummary.expeditionCount, 0);
-    assert.equal(feed.worldSummary.removedTerrainVoxelCount, 0);
-    assert.equal(feed.worldSummary.stoneCount, 0);
+    assert.equal(feed.sequence, world.sequence);
+    assert.equal(feed.worldHash, world.worldHash);
+    const identityStatus = new Map(
+      world.identities.map(
+        (identity: { id: string; status: "ACTIVE" | "DEAD" }) => [
+          identity.id.toLowerCase(),
+          identity.status,
+        ],
+      ),
+    );
+    assert.deepEqual(
+      feed.footprints,
+      world.footprints
+        .map(
+          (footprint: {
+            agentId: string;
+            acceptedExpeditions: number;
+            totalDistanceMillimeters: number;
+            activeTerrainRemovals: number;
+            activeStonePlacements: number;
+            activeAlterations: number;
+          }) => ({
+            ...footprint,
+            agent: footprint.agentId,
+            outcome:
+              identityStatus.get(footprint.agentId.toLowerCase()) ??
+              "ACTIVE",
+          }),
+        )
+        .sort(
+          (left: { agent: string }, right: { agent: string }) =>
+            left.agent.localeCompare(right.agent),
+        )
+        .slice(0, 50),
+    );
+    assert.equal(
+      feed.recentExpeditions.length,
+      Math.min(3, world.expeditions.length),
+    );
+    assert.equal(
+      feed.worldSummary.expeditionCount,
+      world.expeditions.length,
+    );
+    assert.equal(
+      feed.worldSummary.removedTerrainVoxelCount,
+      world.removedTerrainVoxels.length,
+    );
+    assert.equal(feed.worldSummary.stoneCount, world.stones.length);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

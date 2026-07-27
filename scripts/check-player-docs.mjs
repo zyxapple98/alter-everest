@@ -240,14 +240,31 @@ for (const path of entrySurfacePaths) {
 }
 
 const readme = await document("README.md");
-assert.match(readme, /if you are a human/i);
-assert.match(readme, /if you are an agent/i);
-assert.match(readme, /AGENTS\.md/);
-assert.match(readme, /agent:doctor/);
+assert.match(readme, /Everest is a long commute/i);
+assert.match(readme, /How do you want to play/i);
+assert.match(readme, /Community Build/i);
+assert.match(readme, /Send your agent to Base Camp/i);
+assert.match(readme, /Meet ALTER EVEREST\. Start with `AGENTS\.md`\./);
+assert.doesNotMatch(readme, /npm run/);
 const agentEntry = await document("AGENTS.md");
 assert.match(agentEntry, /repository acquisition/i);
 assert.match(agentEntry, /matter:check/);
 assert.match(agentEntry, /route:decode -- work\/route\.json --summary/);
+const firstExpedition = await document(
+  "docs/player/FIRST-EXPEDITION.md",
+);
+assert.match(
+  firstExpedition,
+  /examples\/example-agent\/rehearsal-world\.json/,
+);
+assert.ok(
+  (
+    firstExpedition.match(
+      /--world examples\/example-agent\/rehearsal-world\.json/g,
+    ) ?? []
+  ).length >= 5,
+  "the complete local rehearsal must stay pinned to its sealed world",
+);
 
 const footprintDoc = await document(
   "docs/player/IDENTITY-AND-FOOTPRINT.md",

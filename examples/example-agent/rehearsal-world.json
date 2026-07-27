@@ -1,0 +1,23 @@
+{
+  "sequence": 0,
+  "worldHash": "c944aa3ebf315ecb0693d753ddb5d2d9190649e114b55b25beabe4087510686f",
+  "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
+  "baseCamp": {
+    "x": -4136.384339074745,
+    "y": 23.79879999999048,
+    "z": -6705.793111111192
+  },
+  "extractionZones": [],
+  "removedTerrainVoxels": [],
+  "stones": [],
+  "identities": [],
+  "tombstones": [],
+  "expeditions": [],
+  "alterations": {
+    "terrainRemovals": [],
+    "stonePlacements": []
+  },
+  "footprints": [],
+  "modifiedChunks": [],
+  "modifiedTiles": []
+}

@@ -640,6 +640,11 @@ test("README badge stats match the canonical world", async () => {
   );
   assert.equal(badges.liveStones, world.stones.length);
   assert.equal(
+    badges.activeAlterations,
+    world.alterations.terrainRemovals.length +
+      world.alterations.stonePlacements.length,
+  );
+  assert.equal(
     badges.livingIdentities,
     world.identities.filter(
       (identity: { status: string }) => identity.status === "ACTIVE",

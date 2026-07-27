@@ -15,6 +15,12 @@ import {
 import { roundTrip, surfaceLine } from "./helpers/exact-route";
 
 const terrain = await loadDemBundle();
+const rehearsalWorldPath =
+  "examples/example-agent/rehearsal-world.json";
+
+function loadRehearsalWorld() {
+  return loadCanonicalWorld(rehearsalWorldPath);
+}
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -89,7 +95,7 @@ async function verify(candidate: CandidateCommit, world: CanonicalWorld) {
 }
 
 test("exact round-trip expedition accepts and updates footprint", async () => {
-  const world = await loadCanonicalWorld();
+  const world = await loadRehearsalWorld();
   const candidate = firstMarkerCandidate(world, {
     agentId: "exact-agent",
     id: "exact-round-trip",
@@ -124,7 +130,7 @@ test("exact round-trip expedition accepts and updates footprint", async () => {
 });
 
 test("legal exact one-way expedition accepts and kills the identity", async () => {
-  const world = await loadCanonicalWorld();
+  const world = await loadRehearsalWorld();
   const candidate = firstMarkerCandidate(world, {
     agentId: "one-way-agent",
     id: "exact-one-way",
@@ -143,7 +149,7 @@ test("legal exact one-way expedition accepts and kills the identity", async () =
 });
 
 test("GitHub identity lifecycle is case-insensitive", async () => {
-  const world = await loadCanonicalWorld();
+  const world = await loadRehearsalWorld();
   const first = firstMarkerCandidate(world, {
     agentId: "Case-Agent",
     id: "case-one-way",
@@ -167,7 +173,7 @@ test("GitHub identity lifecycle is case-insensitive", async () => {
 });
 
 test("non-canonical or mismatched route program is rejected", async () => {
-  const world = await loadCanonicalWorld();
+  const world = await loadRehearsalWorld();
   const candidate = firstMarkerCandidate(world, {
     agentId: "codec-agent",
     id: "bad-codec",
@@ -183,7 +189,7 @@ test("non-canonical or mismatched route program is rejected", async () => {
 });
 
 test("a competing stone turns an exact stale trace into conflict", async () => {
-  const world = await loadCanonicalWorld();
+  const world = await loadRehearsalWorld();
   const candidate = firstMarkerCandidate(world, {
     agentId: "stale-agent",
     id: "stale-route",

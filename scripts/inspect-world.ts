@@ -169,6 +169,8 @@ console.log(
         ],
         intentInterview: PLAYER_RULES.onboarding.intentInterview,
         starterMissions: PLAYER_RULES.onboarding.starterMissions,
+        rehearsalWorld:
+          "examples/example-agent/rehearsal-world.json",
         verifiedExample:
           "examples/example-agent/first-marker-roundtrip.json",
         authoringExample:

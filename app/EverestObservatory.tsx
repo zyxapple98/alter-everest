@@ -206,6 +206,9 @@ const METERS_PER_DEGREE_LATITUDE = 111_320;
 const WORLD_UNITS_PER_METER = CORE_BLOCK_SIZE / 30;
 const ENDURANCE_SEGMENTS = 28;
 const MAX_RENDER_PIXEL_RATIO = 1.2;
+const WALK_CADENCE_RADIANS_PER_SECOND = 5.2;
+const WALK_VERTICAL_BOB_METERS = 0.035;
+const WALK_ARM_SWING_RADIANS = 0.22;
 const EMPTY_MEMORIAL_CLUSTERS: MemorialCluster[] = [];
 
 type TerrainResolution =
@@ -3990,9 +3993,13 @@ export default function EverestObservatory() {
           const stride =
             reduceMotion || !playback.moving
               ? 0
-              : Math.sin(seconds * 8.2 + index);
+              : Math.sin(
+                  seconds * WALK_CADENCE_RADIANS_PER_SECOND + index,
+                );
           trace.group.position.y +=
-            Math.abs(stride) * 0.06 * WORLD_UNITS_PER_METER;
+            Math.abs(stride) *
+            WALK_VERTICAL_BOB_METERS *
+            WORLD_UNITS_PER_METER;
           trace.leftLeg.rotation.x = stride * 0.42;
           trace.rightLeg.rotation.x = -stride * 0.42;
           trace.material.opacity = humanWorkView
@@ -4344,12 +4351,12 @@ export default function EverestObservatory() {
           const carryingMatter = activeMatterState !== null;
           const handlingMatter = handlingPickup || handlingRelease;
           trace.leftArm.rotation.x = playback.moving
-            ? -stride * 0.34
+            ? -stride * WALK_ARM_SWING_RADIANS
             : handlingMatter || carryingMatter
               ? -0.82 - handlingReach * 0.34
               : 0;
           trace.rightArm.rotation.x = playback.moving
-            ? stride * 0.34
+            ? stride * WALK_ARM_SWING_RADIANS
             : handlingMatter || carryingMatter
               ? -0.82 - handlingReach * 0.34
               : 0;

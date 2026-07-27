@@ -587,6 +587,9 @@ const badgeStats = {
   ),
   currentHighestAltitudeM: Math.round(feed.currentHighestPoint.altitudeM),
   liveStones: world.stones.length,
+  activeAlterations:
+    world.alterations.terrainRemovals.length +
+    world.alterations.stonePlacements.length,
   livingIdentities: world.identities.filter(
     (identity) => identity.status === "ACTIVE",
   ).length,
