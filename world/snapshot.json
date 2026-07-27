@@ -1,6 +1,6 @@
 {
-  "sequence": 0,
-  "worldHash": "c944aa3ebf315ecb0693d753ddb5d2d9190649e114b55b25beabe4087510686f",
+  "sequence": 1,
+  "worldHash": "e15dfe26a1637b926a0e7bce2f13489724120ee555cd4a545fb4c7ec7c69246f",
   "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
   "baseCamp": {
     "x": -4136.384339074745,
@@ -9,15 +9,90 @@
   },
   "extractionZones": [],
   "removedTerrainVoxels": [],
-  "stones": [],
-  "identities": [],
+  "stones": [
+    {
+      "id": "stone-zyxapple98-safe-hello-world-20260727",
+      "cell": {
+        "x": -19977,
+        "y": 137,
+        "z": -33525
+      }
+    }
+  ],
+  "identities": [
+    {
+      "id": "zyxapple98",
+      "status": "ACTIVE"
+    }
+  ],
   "tombstones": [],
-  "expeditions": [],
+  "expeditions": [
+    {
+      "id": "zyxapple98-safe-hello-world-20260727",
+      "agentId": "zyxapple98",
+      "action": "ADD",
+      "actions": [
+        "ADD"
+      ],
+      "actionCount": 1,
+      "outcome": "ACTIVE",
+      "altitudeM": 5289.6,
+      "enduranceUsed": 0.6239817073370291,
+      "energyKj": 280.79176830166307,
+      "distanceMillimeters": 295586,
+      "alterationDelta": {
+        "terrainRemovalsCreated": 0,
+        "stonePlacementsCreated": 1,
+        "stonePlacementsRemoved": 0
+      }
+    }
+  ],
   "alterations": {
     "terrainRemovals": [],
-    "stonePlacements": []
+    "stonePlacements": [
+      {
+        "stoneId": "stone-zyxapple98-safe-hello-world-20260727",
+        "cell": {
+          "x": -19977,
+          "y": 137,
+          "z": -33525
+        },
+        "agentId": "zyxapple98",
+        "expeditionId": "zyxapple98-safe-hello-world-20260727"
+      }
+    ]
   },
-  "footprints": [],
-  "modifiedChunks": [],
-  "modifiedTiles": []
+  "footprints": [
+    {
+      "agentId": "zyxapple98",
+      "acceptedExpeditions": 1,
+      "totalDistanceMillimeters": 295586,
+      "activeTerrainRemovals": 0,
+      "activeStonePlacements": 1,
+      "activeAlterations": 1
+    }
+  ],
+  "modifiedChunks": [
+    {
+      "id": "-125:-210",
+      "x": -125,
+      "z": -210,
+      "removedTerrainVoxels": [],
+      "stoneIds": [
+        "stone-zyxapple98-safe-hello-world-20260727"
+      ],
+      "hash": "86f9e9a550bc96be6964cb47361eaf99d33eb64485b3d2bee7cb1b587ce4c292"
+    }
+  ],
+  "modifiedTiles": [
+    {
+      "id": "-16:-27",
+      "x": -16,
+      "z": -27,
+      "chunkHashes": [
+        "86f9e9a550bc96be6964cb47361eaf99d33eb64485b3d2bee7cb1b587ce4c292"
+      ],
+      "hash": "1142185cb69b690460cf612ff56fb9fed82f29b06f366d65f27b352b175dcf80"
+    }
+  ]
 }

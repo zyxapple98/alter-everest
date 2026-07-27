@@ -1,0 +1,38 @@
+{
+  "protocol": "0.7.0",
+  "id": "zyxapple98-safe-hello-world-20260727",
+  "parentWorldHash": "c944aa3ebf315ecb0693d753ddb5d2d9190649e114b55b25beabe4087510686f",
+  "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
+  "agentId": "zyxapple98",
+  "proof": {
+    "route": {
+      "codec": "ae-microtrace-v1",
+      "start": {
+        "x": -20682,
+        "y": 119,
+        "z": -33529
+      },
+      "stepCount": 1410,
+      "program": "ikRMRERMiEQETIhEBkyIRApMiEQETIhECEw8TIhEBkyIRANMRERMiEQETIhEBUyIRApMiEQFTIhEC0yIRARMiEQHTIhEBkyIRANMiEQDTIhEBEyIRAVMiEQGTIhEBUyIRAVMiEQFTIhECEyIRAZMiEQGTIhEBEyIRCFMiEQDPIhECEyIRANMREQ8iEQLTIhELUyIRBBMiEQVPIhEDUw8iEQOPIhEETxETIhELTxMiEQNTIhECjyIRAw8iEQDPIhEBjyIRAZMiEQGPIhECEyIRAY8iEQDPERMiEQETIhECDxEREw8RExEPERMPIhEEDxETEQ8iEQGPIhEBTyIRBk8iEQSPIhECTyIRAM8iEQOPIhECDyIRAw8iEQMPERMRDyIRAqIQwpLQztDS4hDDEuIQwxLiEMIS4hDDkuIQwNLiEMJS4hDEkuIQxlLiEMFS4hDBktDO0NLiEMQSztDS0M7Q0s7Q0NLiEMIO4hDBDtDS4hDA0uIQwY7iEMIS4hDBjuIQwZLiEMGS4hDA0uIQwxLiEMKO4hDDTtLiEMtO0NLiEMRS4hDDks7iEMNS4hDFTuIQxA7iEMtO4hDC0tDQzuIQwM7iEMIS4hDAzuIQyE7iEMEO4hDBjuIQwY7iEMIO4hDBTuIQwU7iEMFO4hDBjuIQwU7iEMEO4hDAzuIQwM7iEMGO4hDBzuIQwQ7iEMLO4hDBTuIQwo7iEMFO4hDBDtDQzuIQwM7iEMGO0s7iEMIO4hDBDuIQwo7iEMGO4hDBDtDQztD"
+    },
+    "actions": [
+      {
+        "kind": "RELOCATE",
+        "matterId": "stone-zyxapple98-safe-hello-world-20260727",
+        "source": {
+          "kind": "BASE"
+        },
+        "destination": {
+          "kind": "WORLD",
+          "cell": {
+            "x": -19977,
+            "y": 137,
+            "z": -33525
+          }
+        },
+        "pickupStep": 0,
+        "releaseStep": 705
+      }
+    ]
+  }
+}

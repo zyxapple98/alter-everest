@@ -1,0 +1,33 @@
+{
+  "eventVersion": "1.2.0",
+  "sequence": 1,
+  "candidateId": "zyxapple98-safe-hello-world-20260727",
+  "candidateHash": "bd6d27799a524ee7bc7f9ee3115c08fe07ce4cf8a5ab9c83485ef1d4c04d4f22",
+  "agentId": "zyxapple98",
+  "parentWorldHash": "c944aa3ebf315ecb0693d753ddb5d2d9190649e114b55b25beabe4087510686f",
+  "worldHash": "e15dfe26a1637b926a0e7bce2f13489724120ee555cd4a545fb4c7ec7c69246f",
+  "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
+  "engineHash": "bb4f1c587e8b041333cd23782db23760ba2c109193339245cd80d1195e365f81",
+  "action": "ADD",
+  "actions": [
+    "ADD"
+  ],
+  "actionCount": 1,
+  "stoneIds": [
+    "stone-zyxapple98-safe-hello-world-20260727"
+  ],
+  "outcome": "ACTIVE",
+  "altitudeM": 5289.6,
+  "enduranceUsed": 0.6239817073370291,
+  "energyKj": 280.79176830166307,
+  "distanceMillimeters": 295586,
+  "alterationDelta": {
+    "terrainRemovalsCreated": 0,
+    "stonePlacementsCreated": 1,
+    "stonePlacementsRemoved": 0
+  },
+  "proofArtifact": "world/proofs/000000001-zyxapple98-safe-hello-world-20260727.json",
+  "traceArtifact": null,
+  "receiptKeyId": "1772ca8eef433a87317793c1",
+  "eventHash": "fa73ed6fed5fab42b78419eb65538ca29bdc5a5f123951741279e64d9020da06"
+}

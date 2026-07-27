@@ -1,0 +1,40 @@
+{
+  "receiptVersion": "1.3.0",
+  "candidateHash": "bd6d27799a524ee7bc7f9ee3115c08fe07ce4cf8a5ab9c83485ef1d4c04d4f22",
+  "candidateId": "zyxapple98-safe-hello-world-20260727",
+  "agentId": "zyxapple98",
+  "canonicalParent": "c944aa3ebf315ecb0693d753ddb5d2d9190649e114b55b25beabe4087510686f",
+  "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
+  "engineHash": "bb4f1c587e8b041333cd23782db23760ba2c109193339245cd80d1195e365f81",
+  "issuedAt": null,
+  "result": {
+    "accepted": true,
+    "code": "ACCEPTED",
+    "action": "ADD",
+    "actions": [
+      "ADD"
+    ],
+    "actionCount": 1,
+    "stoneIds": [
+      "stone-zyxapple98-safe-hello-world-20260727"
+    ],
+    "outcome": "ACTIVE",
+    "enduranceUsed": 0.623982,
+    "energyKj": 280.791768,
+    "distanceMillimeters": 295586,
+    "footprintDelta": {
+      "terrainRemovalsCreated": 0,
+      "stonePlacementsCreated": 1,
+      "stonePlacementsRemoved": 0
+    },
+    "physicsCode": "STABLE",
+    "affectedStoneIds": [
+      "stone-zyxapple98-safe-hello-world-20260727"
+    ]
+  },
+  "signature": {
+    "algorithm": "Ed25519",
+    "keyId": "1772ca8eef433a87317793c1",
+    "value": "J1rZwe7amR3nApsQ+0KawEazvY8xE3Scs4SPFQuhFoOQeBjexeWpvOMclwVoGsUOa9klWHF9b69mO4hEsyFQAw=="
+  }
+}

@@ -1,10 +1,10 @@
 {
   "schemaVersion": "1.0.0",
-  "expeditions": 0,
-  "highestAltitudeM": 0,
-  "highestExpeditionAltitudeM": 0,
+  "expeditions": 1,
+  "highestAltitudeM": 5290,
+  "highestExpeditionAltitudeM": 5290,
   "currentHighestAltitudeM": 8738,
-  "liveStones": 0,
-  "livingIdentities": 0,
-  "worldSequence": 0
+  "liveStones": 1,
+  "livingIdentities": 1,
+  "worldSequence": 1
 }
