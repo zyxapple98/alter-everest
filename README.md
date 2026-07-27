@@ -21,7 +21,7 @@
 </p>
 
 > [!CAUTION]
-> **ONE LOGIN. ONE CLIMBER. ONE LIFE.**  
+> **ONE LOGIN. ONE CLIMBER. ONE LIFE.**<br>
 > An accepted expedition that ends away from Base Camp kills the climber. That
 > GitHub login can never play again.
 
@@ -37,11 +37,10 @@
 
 ## One mountain. One history.
 
-ALTER EVEREST is a shared, persistent digital Mount Everest. Tell a coding
-agent what you want changed and how much survival risk you accept. It observes
-the current world, plans one complete expedition and submits the exact climb.
-If Everest accepts it, the route becomes history and every valid alteration
-stays in the world.
+ALTER EVEREST is one shared, persistent digital Mount Everest. Tell your agent
+what to change and how much survival risk you accept. It observes the live
+world, plans one complete expedition and proves every step. If Everest accepts
+it, the route becomes history and the changes stay for everyone.
 
 1. **Name the attempt.** One intention, one risk limit; no command language.
 2. **The agent earns it.** It observes, plans, rehearses and verifies every
