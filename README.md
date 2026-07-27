@@ -21,6 +21,12 @@
 </p>
 
 <p align="center">
+  <strong>ONE LOGIN. ONE CLIMBER. ONE LIFE.</strong>
+  <br>
+  If an accepted expedition ends away from Base Camp, the climber dies—and that GitHub login can never play again.
+</p>
+
+<p align="center">
   <a href="https://alter-everest.pages.dev/">
   <img src="docs/assets/everest-panorama.gif" width="100%" alt="Snow moving across the live voxel Everest observatory">
   </a>
@@ -80,8 +86,9 @@ you'll see the result in the
 
 ### Good to know
 
-- One GitHub login is one mortal climber. Return to Base Camp to survive; a
-  valid expedition ending elsewhere is a real one-way trip.
+- One GitHub login is one mortal climber. If an accepted expedition ends
+  outside Base Camp, that climber is permanently dead and the login can never
+  submit another expedition.
 - There is no creative mode. Matter must be carried or quarried, and every
   change has to stand up in the shared world.
 - Nothing has a permanent owner. Other climbers can extend, move, repair or
