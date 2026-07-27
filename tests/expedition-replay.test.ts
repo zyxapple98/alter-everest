@@ -188,7 +188,7 @@ test("matter exists in exactly one phase before, during, and after handling", ()
   );
 });
 
-test("historical replay has one terrain and stone state per frame", () => {
+test("expedition replay has one terrain and stone state per frame", () => {
   const actions = [
     {
       order: 1,
@@ -245,79 +245,18 @@ test("historical replay has one terrain and stone state per frame", () => {
   assert.equal(complete.hiddenStoneIds.size, 0);
 });
 
-test("the canonical observatory feed retains the complete real expedition", async () => {
+test("the canonical observatory feed reflects the current empty world", async () => {
   const feed = JSON.parse(
     await readFile(
       new URL("../public/data/world/latest.json", import.meta.url),
       "utf8",
     ),
   ) as ObservatoryFeed;
-  const expedition = feed.recentExpeditions.find(
-    ({ id }) => id === "base-camp-civic-square-foundation-20260725",
-  );
-
-  assert.ok(expedition);
-  assert.equal(expedition.actions?.length, 9);
-  assert.deepEqual(
-    expedition.actions?.map(({ order, operation }) => ({
-      order,
-      operation,
-    })),
-    [
-      { order: 1, operation: "ADD" },
-      ...Array.from({ length: 8 }, (_, index) => ({
-        order: index + 2,
-        operation: "QUARRY" as const,
-      })),
-    ],
-  );
-  const traceProgress = new Set(
-    expedition.trace?.map(({ progress }) => progress),
-  );
-  for (const action of expedition.actions ?? []) {
-    assert.ok(traceProgress.has(action.pickupFraction));
-    assert.ok(traceProgress.has(action.releaseFraction));
-    assert.ok(action.destinationCell);
-  }
-  assert.equal(
-    expedition.actions?.filter(({ sourceCell }) => sourceCell).length,
-    8,
-  );
-  assert.deepEqual(
-    [...new Set(
-      expedition.actions?.map(
-        ({ destinationCell }) => destinationCell?.y,
-      ),
-    )],
-    [45],
-  );
-  assert.deepEqual(
-    expedition.actions
-      ?.map(({ destinationCell }) =>
-        destinationCell
-          ? `${destinationCell.x}:${destinationCell.z}`
-          : "",
-      )
-      .sort(),
-    [
-      "-20676:-32727",
-      "-20676:-32728",
-      "-20676:-32729",
-      "-20677:-32727",
-      "-20677:-32728",
-      "-20677:-32729",
-      "-20678:-32727",
-      "-20678:-32728",
-      "-20678:-32729",
-    ],
-  );
-  assert.ok(
-    expedition.trace?.every(
-      ({ x, z, altitudeM, progress }) =>
-        Number.isFinite(x) &&
-        Number.isFinite(z) &&
-        Number.isFinite(altitudeM) &&
-        Number.isFinite(progress),
-    ),
-  );
+  assert.equal(feed.sequence, 0);
+  assert.deepEqual(feed.recentExpeditions, []);
+  assert.deepEqual(feed.footprints, []);
+  assert.deepEqual(feed.surfaceTiles.tiles, []);
+  assert.equal(feed.worldSummary.expeditionCount, 0);
+  assert.equal(feed.worldSummary.stoneCount, 0);
+  assert.equal(feed.worldSummary.removedTerrainVoxelCount, 0);
 });

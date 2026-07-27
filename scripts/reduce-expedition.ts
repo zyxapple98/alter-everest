@@ -113,13 +113,6 @@ if (
   const receipt = privateKey
     ? signReceiptBody(body, privateKey)
     : unsignedReceipt(body);
-  const actionAltitudes = candidate.proof.actions.map((action) => {
-    const actionIndex =
-      action.destination.kind === "BASE"
-        ? action.pickupIndex
-        : action.releaseIndex;
-    return candidate.proof.route[actionIndex].altitudeM;
-  });
   const operations = candidate.proof.actions.map(operationLabel);
   const stoneIds = actionStoneIds(candidate.proof.actions);
 
@@ -129,7 +122,7 @@ if (
   const proofPath = resolve(proofsDirectory, `${prefix}.json`);
   const proofArtifact = `world/proofs/${prefix}.json`;
   const eventWithoutHash = {
-    eventVersion: "1.1.0" as const,
+    eventVersion: "1.2.0" as const,
     sequence: nextWorld.sequence,
     candidateId: candidate.id,
     candidateHash: verification.candidateHash,
@@ -141,13 +134,13 @@ if (
     action: operationSummary(candidate.proof.actions),
     actions: operations,
     actionCount: operations.length,
-    stoneId: stoneIds[0],
     stoneIds,
     outcome: verdict.nextIdentityStatus!,
-    altitudeM: Math.max(...actionAltitudes),
+    altitudeM: verdict.route!.maximumAltitudeM,
     enduranceUsed: verdict.route!.enduranceUsed,
     energyKj: verdict.route!.energyKj,
-    score: verdict.score!,
+    distanceMillimeters: verdict.route!.distanceMillimeters,
+    alterationDelta: verdict.footprintDelta!,
     proofArtifact,
     traceArtifact: null,
     receiptKeyId: receipt.signature?.keyId ?? null,

@@ -104,7 +104,7 @@ const snapshotArtifact = await immutableArtifact(
 immutable.push(snapshotArtifact);
 
 const latestFeed = JSON.parse(await readFile(latestPath, "utf8"));
-for (const tile of latestFeed.surfaceTiles?.tiles ?? []) {
+for (const tile of latestFeed.surfaceTiles.tiles) {
   if (
     typeof tile.path !== "string" ||
     tile.path.startsWith("/") ||

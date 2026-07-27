@@ -61,7 +61,7 @@ passed.
 ## Community Build invariant
 
 A `Build-Thread` reference exists only in pull-request metadata. It is never
-part of a candidate proof, receipt, score, world hash or admission decision.
+part of a candidate proof, receipt, footprint, world hash or admission decision.
 The protected reducer workflow attempts to post a contribution comment only
 after the canonical event has been committed.
 

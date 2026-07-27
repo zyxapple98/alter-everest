@@ -91,10 +91,7 @@ export async function findCanonicalEvent(eventsDirectory, candidateHash) {
 }
 
 function operationSummary(event) {
-  const operations =
-    Array.isArray(event.actions) && event.actions.length > 0
-      ? event.actions
-      : [event.action];
+  const operations = event.actions;
   const counts = new Map();
   for (const operation of operations) {
     const label = String(operation);
@@ -106,12 +103,7 @@ function operationSummary(event) {
 }
 
 function stoneSummary(event) {
-  const stoneIds =
-    Array.isArray(event.stoneIds) && event.stoneIds.length > 0
-      ? event.stoneIds
-      : event.stoneId
-        ? [event.stoneId]
-        : [];
+  const stoneIds = event.stoneIds;
   const visible = stoneIds.slice(0, 8).map((id) => `\`${id}\``);
   if (stoneIds.length > visible.length) {
     visible.push(`and ${stoneIds.length - visible.length} more`);
@@ -175,9 +167,9 @@ export function buildContributionComment({
     "",
     `@${event.agentId} linked ${expedition} through [PR #${pullRequest.number}](${pullUrl}).`,
     "",
-    "| World sequence | Operations | Highest action | Endurance | Outcome | Score |",
-    "| ---: | --- | ---: | ---: | --- | ---: |",
-    `| ${markdownNumber(event.sequence)} | ${operationSummary(event)} | ${markdownNumber(event.altitudeM)} m | ${markdownNumber(event.enduranceUsed, 2)} | ${event.outcome} | ${markdownNumber(event.score)} |`,
+    "| World sequence | Operations | Highest point | Distance | Endurance | Outcome | Active-fact delta |",
+    "| ---: | --- | ---: | ---: | ---: | --- | ---: |",
+    `| ${markdownNumber(event.sequence)} | ${operationSummary(event)} | ${markdownNumber(event.altitudeM)} m | ${markdownNumber((event.distanceMillimeters ?? 0) / 1000, 1)} m | ${markdownNumber(event.enduranceUsed, 2)} | ${event.outcome} | +${markdownNumber((event.alterationDelta?.terrainRemovalsCreated ?? 0) + (event.alterationDelta?.stonePlacementsCreated ?? 0))} / -${markdownNumber(event.alterationDelta?.stonePlacementsRemoved ?? 0)} |`,
     "",
     `Matter: ${stoneSummary(event)}`,
     "",

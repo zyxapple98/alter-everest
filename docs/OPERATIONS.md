@@ -50,7 +50,8 @@ the canonical event commit; the reducer GitHub App does not need Discussions
 permission. Confirm that repository or organization Actions policy does not
 override the declared permission.
 
-See `docs/BUILD-HANDBOOK.md` for the participant workflow.
+See `docs/player/COMMUNITY.md` for the participant workflow and
+`docs/maintainer/COMMUNITY-BUILDS.md` for the compact repository setup.
 
 ## 3. Create the verifier signing key
 
@@ -70,8 +71,8 @@ Add the returned key ID and public SPKI value to
 `protocol/verifier-keys.json`, review that change as infrastructure, and keep
 the private value out of Git, logs, issues, and pull requests.
 
-Key rotation adds a new public key before changing the secret. Old public keys
-remain registered so historical receipts stay verifiable.
+Key rotation adds a new public key before changing the secret. Previous public
+keys remain registered so signed receipts stay verifiable.
 
 ## 4. Protect `main`
 
@@ -118,7 +119,8 @@ The beta workflow enforces:
   shapes and infrastructure PRs never create a marker;
 - duplicate workflow events for one candidate head are collapsed to one start,
   and an already-started head must be changed before another attempt;
-- one added candidate file, 256 KiB, and 4,096 route samples;
+- one added candidate file, 256 KiB, and at most 250,000 decoded exact
+  micro-movements;
 - a four-second, 256 MiB, one-CPU, network-disabled Docker sandbox;
 - a second replay against current canonical state in the serialized reducer.
 
@@ -188,7 +190,7 @@ WORLD_BASE_URL=https://world.your-production-domain.example
 ```
 
 Every accepted expedition then updates `world/latest.json` without requiring a
-site deployment. Historical proofs, traces, terrain tiles, and snapshots can
+site deployment. Immutable proofs, traces, terrain tiles, and snapshots can
 move to immutable content-addressed R2 keys without changing the browser API.
 
 The reducer builds an exact publish manifest for the accepted candidate,
@@ -206,12 +208,14 @@ TTL. The `r2.dev` development hostname is not a production origin.
 Before launch:
 
 1. Run `npm test`.
-2. Open an infra PR and verify that Code Owner review is required.
-3. Open a valid candidate PR and confirm that it is closed, not merged.
-4. Verify one new event, proof, receipt, snapshot sequence, and signed key ID.
-5. Re-submit the same dispatch and confirm that reduction is idempotent.
-6. Open a stale conflicting candidate and confirm `STALE_CONFLICT`.
-7. Fetch the observatory in a clean browser and confirm the real latest trace.
+2. Run `npm run route:benchmark` and `npm run physics:benchmark`; both must
+   remain inside the four-second, 256 MiB verifier envelope.
+3. Open an infra PR and verify that Code Owner review is required.
+4. Open a valid candidate PR and confirm that it is closed, not merged.
+5. Verify one new event, proof, receipt, snapshot sequence, and signed key ID.
+6. Re-submit the same dispatch and confirm that reduction is idempotent.
+7. Open a stale conflicting candidate and confirm `STALE_CONFLICT`.
+8. Fetch the observatory in a clean browser and confirm the real latest trace.
 
 Emergency stop:
 

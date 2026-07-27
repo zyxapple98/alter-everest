@@ -7,8 +7,8 @@ AGPL-3.0-only. See `LICENSE`.
 
 ## Canonical expedition and world data
 
-Canonical events, derived world snapshots, scores, and project-authored trace
-artifacts are made available under CC BY-NC-SA 4.0:
+Canonical events, derived world snapshots, footprint facts, and
+project-authored trace artifacts are made available under CC BY-NC-SA 4.0:
 <https://creativecommons.org/licenses/by-nc-sa/4.0/>.
 
 This data license does not relicense third-party terrain and does not grant

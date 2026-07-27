@@ -16,6 +16,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 import { PHYSICS } from "../engine/constants";
+import { computeWorldHash } from "../engine/world";
 import type { ReceiptBody } from "../lib/receipt";
 import {
   signReceiptBody,
@@ -33,6 +34,13 @@ test("public resource manifest matches enforced physics bounds", () => {
     PHYSICS.maximumAffectedStoneCells,
   );
   assert.equal(CANDIDATE_LIMITS.maximumBaseWithdrawals, 1);
+});
+
+test("canonical snapshot stores its exact derived world hash", async () => {
+  const world = JSON.parse(
+    await readFile(resolve("world/snapshot.json"), "utf8"),
+  );
+  assert.equal(world.worldHash, await computeWorldHash(world));
 });
 
 test("release manifest names the exact protected verifier source", async () => {
@@ -57,7 +65,7 @@ function signingKeys() {
 
 test("signed verifier receipts reject result tampering", () => {
   const body: ReceiptBody = {
-    receiptVersion: "1.2.0",
+    receiptVersion: "1.3.0",
     candidateHash: "a".repeat(64),
     candidateId: "candidate-1",
     agentId: "agent-1",
@@ -75,7 +83,12 @@ test("signed verifier receipts reject result tampering", () => {
       outcome: "ACTIVE",
       enduranceUsed: 20,
       energyKj: 1000,
-      score: 250,
+      distanceMillimeters: 123_000,
+      footprintDelta: {
+        terrainRemovalsCreated: 0,
+        stonePlacementsCreated: 1,
+        stonePlacementsRemoved: 0,
+      },
       physicsCode: "STABLE",
       affectedStoneIds: ["stone-1"],
     },
@@ -85,31 +98,24 @@ test("signed verifier receipts reject result tampering", () => {
   assert.equal(verifyReceiptSignature(receipt, keys.publicKey), true);
 
   const tampered = structuredClone(receipt);
-  tampered.result.score = 999_999;
+  tampered.result.distanceMillimeters = 999_999;
   assert.equal(verifyReceiptSignature(tampered, keys.publicKey), false);
 });
 
 test("candidate shape limits reject oversized and extended proofs", () => {
-  const route = Array.from(
-    { length: CANDIDATE_LIMITS.maximumRouteSamples + 1 },
-    (_, index) => ({
-      x: index,
-      y: 0,
-      z: 0,
-      altitudeM: 5350,
-      slopeDegrees: 0,
-      surface: "ROCK",
-      mode: "WALK",
-    }),
-  );
   const result = validateCandidateShape({
-    protocol: "0.6.0",
+    protocol: "0.7.0",
     id: "candidate-1",
     parentWorldHash: "world-1",
     terrainHash: "a".repeat(64),
     agentId: "agent-1",
     proof: {
-      route,
+      route: {
+        codec: "ae-microtrace-v1",
+        start: { x: 0, y: 1, z: 0 },
+        stepCount: CANDIDATE_LIMITS.maximumDecodedRouteSteps + 1,
+        program: "AA",
+      },
       actions: [
         {
           kind: "RELOCATE",
@@ -119,8 +125,8 @@ test("candidate shape limits reject oversized and extended proofs", () => {
             kind: "WORLD",
             cell: { x: 400, y: 0, z: 0 },
           },
-          pickupIndex: 0,
-          releaseIndex: 1,
+          pickupStep: 0,
+          releaseStep: 1,
         },
       ],
       executable: "never",
@@ -134,40 +140,26 @@ test("candidate shape limits reject oversized and extended proofs", () => {
 
 test("BASE to BASE is rejected before route execution", () => {
   const result = validateCandidateShape({
-    protocol: "0.6.0",
+    protocol: "0.7.0",
     id: "base-noop",
     parentWorldHash: "world-1",
     terrainHash: "a".repeat(64),
     agentId: "agent-1",
     proof: {
-      route: [
-        {
-          x: 0,
-          y: 0,
-          z: 0,
-          altitudeM: 5259,
-          slopeDegrees: 0,
-          surface: "ROCK",
-          mode: "WALK",
-        },
-        {
-          x: 1,
-          y: 0,
-          z: 0,
-          altitudeM: 5259,
-          slopeDegrees: 0,
-          surface: "ROCK",
-          mode: "WALK",
-        },
-      ],
+      route: {
+        codec: "ae-microtrace-v1",
+        start: { x: 0, y: 1, z: 0 },
+        stepCount: 1,
+        program: "RA",
+      },
       actions: [
         {
           kind: "RELOCATE",
           matterId: "stone-noop",
           source: { kind: "BASE" },
           destination: { kind: "BASE" },
-          pickupIndex: 0,
-          releaseIndex: 1,
+          pickupStep: 0,
+          releaseStep: 1,
         },
       ],
     },
@@ -221,7 +213,7 @@ test("the reducer writes one signed event and is idempotent", async () => {
     assert.match(first.stdout, /"idempotent": false/);
 
     const nextWorld = JSON.parse(await readFile(snapshot, "utf8"));
-    assert.equal(nextWorld.sequence, 6319);
+    assert.equal(nextWorld.sequence, 1);
     assert.match(nextWorld.worldHash, /^[a-f0-9]{64}$/);
 
     const [eventName] = await readdir(events);
@@ -232,7 +224,7 @@ test("the reducer writes one signed event and is idempotent", async () => {
     const receipt = JSON.parse(
       await readFile(join(receipts, receiptName), "utf8"),
     );
-    assert.equal(event.sequence, 6319);
+    assert.equal(event.sequence, 1);
     assert.equal(event.candidateHash, receipt.candidateHash);
     assert.equal(verifyReceiptSignature(receipt, keys.publicKey), true);
 

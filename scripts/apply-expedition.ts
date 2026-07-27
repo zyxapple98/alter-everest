@@ -5,6 +5,7 @@ import {
   verificationSummary,
   verifyCandidateFile,
 } from "./verification";
+import { formatPlayerHelp, PLAYER_DOCS } from "../lib/player-rules";
 
 function argument(name: string) {
   const index = process.argv.indexOf(name);
@@ -13,9 +14,30 @@ function argument(name: string) {
 
 const candidatePath = process.argv[2];
 const usage =
-  "Usage: npm run expedition:apply -- <candidate.json> [--world <snapshot.json>] [--out <world.json>]";
+  "npm run expedition:apply -- <candidate.json> [--world <snapshot.json>] [--out <world.json>]";
+const help = formatPlayerHelp({
+  command: "expedition:apply",
+  purpose:
+    "Verify and apply an accepted candidate into an explicitly selected local snapshot. It never changes the canonical mountain.",
+  usage,
+  sections: [
+    {
+      heading: "Safety",
+      lines: [
+        "Write under work/ for rehearsal. Never target world/snapshot.json.",
+      ],
+    },
+  ],
+  output:
+    "A local next-world JSON plus sequence, hashes, identity outcome, and tombstone.",
+  next: [
+    "Inspect the output with agent:inspect --world.",
+    "For a real expedition, compile and verify against the latest canonical world.",
+  ],
+  docs: [PLAYER_DOCS.firstExpedition, PLAYER_DOCS.submission],
+});
 if (!candidatePath || candidatePath === "--help") {
-  console.log(usage);
+  console.log(help);
   process.exit(0);
 }
 
@@ -47,7 +69,9 @@ if (
         sequence: applied.sequence,
         worldHash: applied.worldHash,
         identity: applied.identities.find(
-          (identity) => identity.id === result.candidate!.agentId,
+          (identity) =>
+            identity.id.toLowerCase() ===
+            result.candidate!.agentId.toLowerCase(),
         ),
         tombstone:
           applied.tombstones.find(

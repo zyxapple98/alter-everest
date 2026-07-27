@@ -11,6 +11,7 @@ import type {
   ExpeditionOperation,
   IdentityOutcome,
   MutationOperation,
+  FootprintDelta,
 } from "../engine/types";
 import {
   actionStoneIds,
@@ -19,7 +20,7 @@ import {
 } from "../engine/mutation";
 
 export interface ReceiptBody {
-  receiptVersion: "1.2.0";
+  receiptVersion: "1.3.0";
   candidateHash: string;
   candidateId: string;
   agentId: string;
@@ -37,7 +38,8 @@ export interface ReceiptBody {
     outcome: IdentityOutcome | null;
     enduranceUsed: number | null;
     energyKj: number | null;
-    score: number | null;
+    distanceMillimeters: number | null;
+    footprintDelta: FootprintDelta | null;
     physicsCode: string | null;
     affectedStoneIds: string[];
   };
@@ -77,7 +79,7 @@ export function receiptBody(
   issuedAt: string | null = null,
 ): ReceiptBody {
   return {
-    receiptVersion: "1.2.0",
+    receiptVersion: "1.3.0",
     candidateHash,
     candidateId: candidate.id,
     agentId: candidate.agentId,
@@ -99,7 +101,8 @@ export function receiptBody(
       energyKj: verdict.route
         ? Number(verdict.route.energyKj.toFixed(6))
         : null,
-      score: verdict.score,
+      distanceMillimeters: verdict.route?.distanceMillimeters ?? null,
+      footprintDelta: verdict.footprintDelta,
       physicsCode: verdict.physics?.code ?? null,
       affectedStoneIds: verdict.physics?.affectedStoneIds ?? [],
     },

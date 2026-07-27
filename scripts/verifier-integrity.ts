@@ -7,10 +7,12 @@ const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const AUTHORITY_FILES = [
   "lib/protocol.ts",
+  "lib/player-rules.ts",
   "lib/receipt.ts",
   "package-lock.json",
   "package.json",
   "protocol/manifest.json",
+  "protocol/player-rules.json",
   "schemas/candidate.schema.json",
   "scripts/expedition-kit.ts",
   "scripts/verification.ts",

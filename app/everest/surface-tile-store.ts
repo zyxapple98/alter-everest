@@ -50,11 +50,11 @@ function chunkIntersectsBounds(
 }
 
 function surfaceDefinition(feed: ObservatoryFeed): SurfaceDefinition {
-  const source = feed.surfaceTiles ?? feed.surfaceDelta;
+  const source = feed.surfaceTiles;
   return {
-    voxelEdgeM: source?.voxelEdgeM ?? 0.2,
-    physicsChunkEdgeM: source?.physicsChunkEdgeM ?? 32,
-    verticalDatumM: source?.verticalDatumM ?? 5_259,
+    voxelEdgeM: source.voxelEdgeM,
+    physicsChunkEdgeM: source.physicsChunkEdgeM,
+    verticalDatumM: source.verticalDatumM,
   };
 }
 
@@ -92,9 +92,9 @@ export class SurfaceTileStore {
     const worldChanged = feed.worldHash !== this.feed.worldHash;
     this.feed = feed;
     this.definitionValue = surfaceDefinition(feed);
-    this.tileEdgeM = feed.surfaceTiles?.tileEdgeM ?? 256;
+    this.tileEdgeM = feed.surfaceTiles.tileEdgeM;
     this.manifests = new Map(
-      (feed.surfaceTiles?.tiles ?? []).map((tile) => [
+      feed.surfaceTiles.tiles.map((tile) => [
         tile.id,
         tile,
       ]),
@@ -103,9 +103,6 @@ export class SurfaceTileStore {
       this.loadedChunks.clear();
       this.removedByColumn.clear();
       this.stonesByColumn.clear();
-    }
-    for (const chunk of feed.surfaceDelta?.chunks ?? []) {
-      this.indexChunk(chunk);
     }
   }
 
@@ -282,15 +279,6 @@ export class SurfaceTileStore {
   }
 
   async chunksInBounds(bounds: SurfaceBounds) {
-    if (!this.feed.surfaceTiles) {
-      return (this.feed.surfaceDelta?.chunks ?? []).filter((chunk) =>
-        chunkIntersectsBounds(
-          chunk,
-          this.definitionValue.physicsChunkEdgeM,
-          bounds,
-        ),
-      );
-    }
     const payloads = await Promise.all(
       this.manifestsInBounds(bounds).map((manifest) =>
         this.loadTile(manifest),

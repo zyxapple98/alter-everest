@@ -1,111 +1,37 @@
 {
-  "protocol": "0.6.0",
-  "id": "example-v2-first-marker-roundtrip",
-  "parentWorldHash": "3db512f19aea23197df04d57dae2de1cfca9c3ef42a04ebe35af26a928e4a608",
+  "protocol": "0.7.0",
+  "id": "example-v3-first-marker-exact",
+  "parentWorldHash": "c944aa3ebf315ecb0693d753ddb5d2d9190649e114b55b25beabe4087510686f",
   "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
   "agentId": "example-agent",
   "proof": {
-    "route": [
-      {
-        "x": -4136.384339074745,
-        "y": 23.79879999999048,
-        "z": -6705.793111111192,
-        "altitudeM": 5282.7987999999905,
-        "slopeDegrees": 7.165694801865883,
-        "surface": "ROCK",
-        "mode": "SCRAMBLE"
+    "route": {
+      "codec": "ae-microtrace-v1",
+      "start": {
+        "x": -20682,
+        "y": 119,
+        "z": -33529
       },
-      {
-        "x": -4096.384339074745,
-        "y": 29.74567891415336,
-        "z": -6705.793111111192,
-        "altitudeM": 5288.745678914153,
-        "slopeDegrees": 5.015621396098275,
-        "surface": "ROCK",
-        "mode": "SCRAMBLE"
-      },
-      {
-        "x": -4056.384339074745,
-        "y": 30.157606565681817,
-        "z": -6705.793111111192,
-        "altitudeM": 5289.157606565682,
-        "slopeDegrees": 8.602801635265955,
-        "surface": "ROCK",
-        "mode": "SCRAMBLE"
-      },
-      {
-        "x": -4016.384339074745,
-        "y": 29.047178030310533,
-        "z": -6705.793111111192,
-        "altitudeM": 5288.0471780303105,
-        "slopeDegrees": 12.3319620607633,
-        "surface": "ROCK",
-        "mode": "SCRAMBLE"
-      },
-      {
-        "x": -3976.384339074745,
-        "y": 26.903580303069248,
-        "z": -6705.793111111192,
-        "altitudeM": 5285.903580303069,
-        "slopeDegrees": 6.461860622636975,
-        "surface": "ROCK",
-        "mode": "SCRAMBLE"
-      },
-      {
-        "x": -4016.384339074745,
-        "y": 29.047178030310533,
-        "z": -6705.793111111192,
-        "altitudeM": 5288.0471780303105,
-        "slopeDegrees": 12.3319620607633,
-        "surface": "ROCK",
-        "mode": "SCRAMBLE"
-      },
-      {
-        "x": -4056.384339074745,
-        "y": 30.157606565681817,
-        "z": -6705.793111111192,
-        "altitudeM": 5289.157606565682,
-        "slopeDegrees": 8.602801635265955,
-        "surface": "ROCK",
-        "mode": "SCRAMBLE"
-      },
-      {
-        "x": -4096.384339074745,
-        "y": 29.74567891415336,
-        "z": -6705.793111111192,
-        "altitudeM": 5288.745678914153,
-        "slopeDegrees": 5.015621396098275,
-        "surface": "ROCK",
-        "mode": "SCRAMBLE"
-      },
-      {
-        "x": -4136.384339074745,
-        "y": 23.79879999999048,
-        "z": -6705.793111111192,
-        "altitudeM": 5282.7987999999905,
-        "slopeDegrees": 7.165694801865883,
-        "surface": "ROCK",
-        "mode": "SCRAMBLE",
-        "safeStop": true
-      }
-    ],
+      "stepCount": 1410,
+      "program": "ikRMRERMiEQETIhEBkyIRApMiEQETIhECEw8TIhEBkyIRANMRERMiEQETIhEBUyIRApMiEQFTIhEC0yIRARMiEQHTIhEBkyIRANMiEQDTIhEBEyIRAVMiEQGTIhEBUyIRAVMiEQFTIhECEyIRAZMiEQGTIhEBEyIRCFMiEQDPIhECEyIRANMREQ8iEQLTIhELUyIRBBMiEQVPIhEDUw8iEQOPIhEETxETIhELTxMiEQNTIhECjyIRAw8iEQDPIhEBjyIRAZMiEQGPIhECEyIRAY8iEQDPERMiEQETIhECDxEREw8RExEPERMPIhEEDxETEQ8iEQGPIhEBTyIRBk8iEQSPIhECTyIRAM8iEQOPIhECDyIRAw8iEQMPERMRDyIRAqIQwpLQztDS4hDDEuIQwxLiEMIS4hDDkuIQwNLiEMJS4hDEkuIQxlLiEMFS4hDBktDO0NLiEMQSztDS0M7Q0s7Q0NLiEMIO4hDBDtDS4hDA0uIQwY7iEMIS4hDBjuIQwZLiEMGS4hDA0uIQwxLiEMKO4hDDTtLiEMtO0NLiEMRS4hDDks7iEMNS4hDFTuIQxA7iEMtO4hDC0tDQzuIQwM7iEMIS4hDAzuIQyE7iEMEO4hDBjuIQwY7iEMIO4hDBTuIQwU7iEMFO4hDBjuIQwU7iEMEO4hDAzuIQwM7iEMGO4hDBzuIQwQ7iEMLO4hDBTuIQwo7iEMFO4hDBDtDQzuIQwM7iEMGO0s7iEMIO4hDBDuIQwo7iEMGO4hDBDtDQztD"
+    },
     "actions": [
       {
         "kind": "RELOCATE",
-        "matterId": "stone-example-first-marker-roundtrip",
+        "matterId": "stone-example-first-marker-exact",
         "source": {
           "kind": "BASE"
         },
         "destination": {
           "kind": "WORLD",
           "cell": {
-            "x": -19882,
-            "y": 136,
+            "x": -19977,
+            "y": 137,
             "z": -33525
           }
         },
-        "pickupIndex": 0,
-        "releaseIndex": 4
+        "pickupStep": 0,
+        "releaseStep": 705
       }
     ]
   }

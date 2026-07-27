@@ -8,7 +8,6 @@ import {
 import type {
   CanonicalWorld,
   ExpeditionAction,
-  RouteSample,
   StoneState,
   Vec3,
 } from "./types";
@@ -28,10 +27,6 @@ function distance(a: Vec3, b: Vec3) {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
-function sampleAt(route: RouteSample[], index: number | undefined) {
-  return index === undefined ? null : route[index] ?? null;
-}
-
 function stoneById(
   world: Pick<CanonicalWorld, "stones">,
   stoneId: string,
@@ -39,61 +34,29 @@ function stoneById(
   return world.stones.find((stone) => stone.id === stoneId) ?? null;
 }
 
-export function validateActionBinding(
+export function validateActionPickupBinding(
   action: ExpeditionAction,
-  route: RouteSample[],
+  pickupPoint: Vec3,
   world: Pick<CanonicalWorld, "baseCamp" | "stones">,
 ): ActionBindingVerdict {
-  const pickupSample = sampleAt(route, action.pickupIndex);
-  const releaseSample = sampleAt(route, action.releaseIndex);
-  if (!pickupSample || !releaseSample) {
-    return { valid: false, code: "ACTION_POSITION_MISMATCH" };
-  }
-
   if (
     action.source.kind === "BASE" &&
-    !isInsideBaseCamp(pickupSample, world)
+    !isInsideBaseCamp(pickupPoint, world)
   ) {
     return { valid: false, code: "BASE_PICKUP_OUTSIDE_CAMP" };
-  }
-  if (
-    action.destination.kind === "BASE" &&
-    !isInsideBaseCamp(releaseSample, world)
-  ) {
-    return { valid: false, code: "BASE_RELEASE_OUTSIDE_CAMP" };
-  }
-
-  const destinationCell = mutationDestinationCell(action);
-  const releasePoint = destinationCell ? voxelCenter(destinationCell) : null;
-  if (
-    releasePoint &&
-    distance(releaseSample, releasePoint) > CLIMBER.interactionReachM
-  ) {
-    return { valid: false, code: "ACTION_POSITION_MISMATCH" };
-  }
-
-  if (
-    releasePoint &&
-    action.source.kind === "BASE" &&
-    isInsideBaseCamp(releasePoint, world)
-  ) {
-    return { valid: false, code: "BASE_IMPORT_INSIDE_CAMP" };
-  }
-  if (releasePoint && isInsideSpawnCore(releasePoint, world)) {
-    return { valid: false, code: "SPAWN_CORE_PROTECTED" };
   }
 
   if (action.source.kind !== "BASE") {
     const target =
       action.source.kind === "STONE"
         ? (() => {
-            const stone = stoneById(world, action.source.stoneId);
+            const stone = stoneById(world, action.matterId);
             return stone ? voxelCenter(stone.cell) : undefined;
           })()
         : voxelCenter(action.source.voxel);
     if (
       !target ||
-      distance(pickupSample, target) >
+      distance(pickupPoint, target) >
         CLIMBER.interactionReachM
     ) {
       return { valid: false, code: "ACTION_POSITION_MISMATCH" };
@@ -106,7 +69,7 @@ export function validateActionBinding(
       action.source.kind === "TERRAIN"
         ? voxelCenter(action.source.voxel)
         : (() => {
-            const stone = stoneById(world, action.source.stoneId);
+            const stone = stoneById(world, action.matterId);
             return stone ? voxelCenter(stone.cell) : world.baseCamp;
           })(),
       world,
@@ -115,5 +78,44 @@ export function validateActionBinding(
     return { valid: false, code: "SPAWN_CORE_PROTECTED" };
   }
 
+  return { valid: true, code: "ACTION_BOUND" };
+}
+
+export function validateActionReleaseBinding(
+  action: ExpeditionAction,
+  releasePoint: Vec3,
+  world: Pick<CanonicalWorld, "baseCamp" | "stones">,
+): ActionBindingVerdict {
+  if (
+    action.destination.kind === "BASE" &&
+    !isInsideBaseCamp(releasePoint, world)
+  ) {
+    return { valid: false, code: "BASE_RELEASE_OUTSIDE_CAMP" };
+  }
+
+  const destinationCell = mutationDestinationCell(action);
+  const destinationPoint = destinationCell
+    ? voxelCenter(destinationCell)
+    : null;
+  if (
+    destinationPoint &&
+    distance(releasePoint, destinationPoint) >
+      CLIMBER.interactionReachM
+  ) {
+    return { valid: false, code: "ACTION_POSITION_MISMATCH" };
+  }
+  if (
+    destinationPoint &&
+    action.source.kind === "BASE" &&
+    isInsideBaseCamp(destinationPoint, world)
+  ) {
+    return { valid: false, code: "BASE_IMPORT_INSIDE_CAMP" };
+  }
+  if (
+    destinationPoint &&
+    isInsideSpawnCore(destinationPoint, world)
+  ) {
+    return { valid: false, code: "SPAWN_CORE_PROTECTED" };
+  }
   return { valid: true, code: "ACTION_BOUND" };
 }

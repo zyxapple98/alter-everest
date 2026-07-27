@@ -15,7 +15,7 @@ const execute = promisify(execFile);
 const projectRoot = resolve(".");
 
 const canonicalEvent = {
-  eventVersion: "1.1.0",
+  eventVersion: "1.2.0",
   sequence: 6320,
   eventHash: "e".repeat(64),
   candidateId: "sunrise-course-2",
@@ -28,13 +28,17 @@ const canonicalEvent = {
   action: "MULTI",
   actions: ["ADD", "MOVE", "MOVE"],
   actionCount: 3,
-  stoneId: "sunrise-1",
   stoneIds: ["sunrise-1", "sunrise-2", "sunrise-3"],
   outcome: "ACTIVE",
   altitudeM: 7312,
   enduranceUsed: 41.235,
   energyKj: 18555,
-  score: 416,
+  distanceMillimeters: 318_400,
+  alterationDelta: {
+    terrainRemovalsCreated: 0,
+    stonePlacementsCreated: 3,
+    stonePlacementsRemoved: 2,
+  },
   proofArtifact: "world/proofs/example.json",
   traceArtifact: null,
   receiptKeyId: "test",

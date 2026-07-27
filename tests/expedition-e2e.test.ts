@@ -1,272 +1,211 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { validateCandidateCommit } from "../engine/commit";
+import { exactRouteFromStances } from "../engine/route-codec";
 import type {
   CandidateCommit,
   CanonicalWorld,
-  RouteSample,
 } from "../engine/types";
-import { applyAcceptedCandidate } from "../engine/world";
-import { TERRAIN } from "../engine/constants";
+import { applyAcceptedCandidate, computeWorldHash } from "../engine/world";
 import { currentTopVoxel } from "../engine/surface";
-import { validateCandidateShape } from "../lib/protocol";
 import {
+  loadCanonicalWorld,
   loadDemBundle,
 } from "../scripts/expedition-kit";
+import { roundTrip, surfaceLine } from "./helpers/exact-route";
 
-async function fixture() {
-  const [worldText, terrain, candidateText] = await Promise.all([
-    readFile(
-      new URL("./fixtures/genesis-world.json", import.meta.url),
-      "utf8",
-    ),
-    loadDemBundle(),
-    readFile(
-      new URL(
-        "./fixtures/everest-one-way-candidate.json",
-        import.meta.url,
-      ),
-      "utf8",
-    ),
-  ]);
-  return {
-    world: JSON.parse(worldText) as CanonicalWorld,
-    terrain,
-    candidate: JSON.parse(candidateText) as CandidateCommit,
-  };
+const terrain = await loadDemBundle();
+
+function clone<T>(value: T): T {
+  return structuredClone(value);
 }
 
-test("the checked-in agent expedition reaches high Everest one-way", async () => {
-  const { world, terrain, candidate } = await fixture();
-  const shape = validateCandidateShape(candidate);
-  assert.equal(shape.valid, true, shape.errors.join("\n"));
-
-  const validationWorld = world;
-  const verdict = await validateCandidateCommit(candidate, validationWorld, {
-    baseCamp: world.baseCamp,
-    terrain: terrain.oracle,
+function firstMarkerCandidate(
+  world: CanonicalWorld,
+  input: {
+    agentId: string;
+    id: string;
+    roundTripRoute?: boolean;
+  },
+): CandidateCommit {
+  const startX = Math.floor(world.baseCamp.x / 0.2);
+  const startZ = Math.floor(world.baseCamp.z / 0.2);
+  const outbound = surfaceLine(terrain.oracle, world, {
+    startX,
+    startZ,
+    endX: startX + 705,
+    endZ: startZ,
+    mode: "SCRAMBLE",
   });
-
-  assert.equal(verdict.accepted, true, JSON.stringify(verdict, null, 2));
-  assert.equal(verdict.physics?.code, "STABLE");
-  assert.equal(verdict.route?.outcome, "DEAD");
-  assert.ok((verdict.route?.enduranceUsed ?? 101) < 100);
-  assert.ok(
-    candidate.proof.route[candidate.proof.actions[0].releaseIndex].altitudeM >
-      8_700,
-  );
-
-  const applied = await applyAcceptedCandidate(candidate, world, verdict);
-  assert.equal(applied.stones.length, 1);
-  assert.equal(
-    applied.identities.find((identity) => identity.id === candidate.agentId)
-      ?.status,
-    "DEAD",
-  );
-  assert.equal(applied.tombstones.length, world.tombstones.length + 1);
-  assert.ok(applied.expeditions.at(-1)!.score > 300);
-  assert.ok(applied.modifiedChunks.length > 0);
-  assert.ok(applied.modifiedTiles.length > 0);
-  assert.match(applied.worldHash, /^[a-f0-9]{64}$/);
-
-  const replay = await validateCandidateCommit(
-    candidate,
-    applied,
-    {
-      baseCamp: applied.baseCamp,
-      terrain: terrain.oracle,
-    },
-  );
-  assert.equal(replay.accepted, false);
-  assert.equal(replay.code, "CANDIDATE_ALREADY_APPLIED");
-});
-
-test("a lower round-trip preserves the identity without an official planner", async () => {
-  const { world, terrain, candidate: summitCandidate } = await fixture();
-  const releaseIndex = 72;
-  const ascent = summitCandidate.proof.route.slice(0, releaseIndex + 1);
-  const releaseSample = ascent.at(-1)!;
-  const columnX = Math.floor(releaseSample.x / TERRAIN.voxelEdgeM);
-  const columnZ = Math.floor(releaseSample.z / TERRAIN.voxelEdgeM);
-  const placementColumnX = columnX + 5;
-  const topVoxel = currentTopVoxel(
+  const stances =
+    input.roundTripRoute === false ? outbound : roundTrip(outbound);
+  const destinationX = startX + 705;
+  const destinationZ = startZ + 4;
+  const destinationTop = currentTopVoxel(
     terrain.oracle,
     world.removedTerrainVoxels,
-    placementColumnX,
-    columnZ,
-  )!;
-  const descent = ascent
-    .slice(0, -1)
-    .reverse()
-    .map((sample) => ({ ...sample, safeStop: undefined }));
-  const candidate: CandidateCommit = {
-    ...structuredClone(summitCandidate),
-    id: "fixture-lower-roundtrip",
-    agentId: "roundtrip-agent",
+    destinationX,
+    destinationZ,
+  );
+  assert.notEqual(destinationTop, null);
+  return {
+    protocol: "0.7.0",
+    id: input.id,
+    parentWorldHash: world.worldHash,
+    terrainHash: world.terrainHash,
+    agentId: input.agentId,
     proof: {
-      route: [...ascent, ...descent],
+      route: exactRouteFromStances(
+        stances,
+        input.roundTripRoute === false,
+      ),
       actions: [
         {
           kind: "RELOCATE",
-          matterId: "stone-fixture-lower-roundtrip",
+          matterId: `stone-${input.agentId}-${input.id}`,
           source: { kind: "BASE" },
           destination: {
             kind: "WORLD",
             cell: {
-              x: placementColumnX,
-              y: topVoxel + 1,
-              z: columnZ,
+              x: destinationX,
+              y: destinationTop! + 1,
+              z: destinationZ,
             },
           },
-          pickupIndex: 0,
-          releaseIndex,
+          pickupStep: 0,
+          releaseStep: outbound.length - 1,
         },
       ],
     },
   };
-  candidate.proof.route[candidate.proof.route.length - 1] = {
-    ...candidate.proof.route.at(-1)!,
-    safeStop: true,
-  };
-  const validationWorld = world;
-  const verdict = await validateCandidateCommit(candidate, validationWorld, {
+}
+
+async function verify(candidate: CandidateCommit, world: CanonicalWorld) {
+  return validateCandidateCommit(candidate, world, {
     baseCamp: world.baseCamp,
+    extractionZones: world.extractionZones,
     terrain: terrain.oracle,
   });
+}
 
-  assert.equal(verdict.accepted, true, JSON.stringify(verdict, null, 2));
-  assert.equal(verdict.nextIdentityStatus, "ACTIVE");
-  const applied = await applyAcceptedCandidate(candidate, world, verdict);
-  assert.equal(
-    applied.identities.find((entry) => entry.id === candidate.agentId)?.status,
-    "ACTIVE",
-  );
-  assert.equal(applied.tombstones.length, world.tombstones.length);
-});
-
-test("terrain claims are recomputed from the hashed DEM", async () => {
-  const { world, terrain, candidate } = await fixture();
-  const tampered = structuredClone(candidate);
-  tampered.proof.route[20].altitudeM += 100;
-  const validationWorld = world;
-  const verdict = await validateCandidateCommit(tampered, validationWorld, {
-    baseCamp: world.baseCamp,
-    terrain: terrain.oracle,
+test("exact round-trip expedition accepts and updates footprint", async () => {
+  const world = await loadCanonicalWorld();
+  const candidate = firstMarkerCandidate(world, {
+    agentId: "exact-agent",
+    id: "exact-round-trip",
   });
-
-  assert.equal(verdict.accepted, false);
-  assert.equal(verdict.route?.code, "TERRAIN_MISMATCH");
-});
-
-test("an exposed terrain voxel can be quarried and relocated", async () => {
-  const { world, terrain, candidate: summitCandidate } = await fixture();
-  const pickupIndex = 72;
-  const route: RouteSample[] = summitCandidate.proof.route
-    .slice(0, pickupIndex + 1)
-    .map((sample) => ({ ...sample, safeStop: undefined }));
-  const pickup = route.at(-1)!;
-  const source = {
-    x: Math.floor(pickup.x / TERRAIN.voxelEdgeM),
-    y: 0,
-    z: Math.floor(pickup.z / TERRAIN.voxelEdgeM),
-  };
-  source.y = currentTopVoxel(
-    terrain.oracle,
-    world.removedTerrainVoxels,
-    source.x,
-    source.z,
-  )!;
-  const destinationColumn = { x: source.x + 5, z: source.z };
-  const releaseColumn = { x: source.x + 1, z: source.z };
-  const releaseX = (releaseColumn.x + 0.5) * TERRAIN.voxelEdgeM;
-  const releaseZ = (releaseColumn.z + 0.5) * TERRAIN.voxelEdgeM;
-  const truth = terrain.oracle.sample(releaseX, releaseZ)!;
-  const destinationTop = currentTopVoxel(
-    terrain.oracle,
-    world.removedTerrainVoxels,
-    destinationColumn.x,
-    destinationColumn.z,
-  )!;
-  const releaseIndex = route.length;
-  route.push({
-    x: releaseX,
-    y: truth.y,
-    z: releaseZ,
-    altitudeM: truth.altitudeM,
-    slopeDegrees: truth.slopeDegrees,
-    surface: truth.surface,
-    mode: truth.slopeDegrees <= 32 ? "WALK" : "SCRAMBLE",
-    safeStop: true,
-  });
-  const candidate: CandidateCommit = {
-    protocol: "0.6.0",
-    id: "fixture-quarry",
-    parentWorldHash: world.worldHash,
-    terrainHash: world.terrainHash,
-    agentId: "quarry-agent",
-    proof: {
-      route,
-      actions: [
-        {
-          kind: "RELOCATE",
-          matterId: "stone-fixture-quarry",
-          source: { kind: "TERRAIN", voxel: source },
-          destination: {
-            kind: "WORLD",
-            cell: {
-              x: destinationColumn.x,
-              y: destinationTop + 1,
-              z: destinationColumn.z,
-            },
-          },
-          pickupIndex,
-          releaseIndex,
-        },
-      ],
-    },
-  };
-  const verdict = await validateCandidateCommit(
-    candidate,
-    world,
-    { baseCamp: world.baseCamp, terrain: terrain.oracle },
-  );
-  assert.equal(verdict.accepted, true, JSON.stringify(verdict, null, 2));
-  const applied = await applyAcceptedCandidate(candidate, world, verdict);
-  assert.deepEqual(applied.removedTerrainVoxels, [source]);
+  assert.ok(candidate.proof.route.stepCount > 1_000);
   assert.ok(
-    applied.stones.some(
-      (stone) => stone.id === candidate.proof.actions[0].matterId,
-    ),
+    Buffer.from(candidate.proof.route.program, "base64url").byteLength <
+      1_000,
   );
-  assert.equal(applied.expeditions.at(-1)?.action, "QUARRY");
-});
 
-test("a competing stone turns a stale route into a CI conflict", async () => {
-  const { world, terrain, candidate } = await fixture();
-  const blockedSample = candidate.proof.route[8];
-  const competingWorld = {
-    ...world,
-    worldHash: "world-after-competitor",
-    stones: [
-      {
-        id: "stone-competitor",
-        cell: {
-          x: Math.floor(blockedSample.x / TERRAIN.voxelEdgeM),
-          y: Math.floor(blockedSample.y / TERRAIN.voxelEdgeM),
-          z: Math.floor(blockedSample.z / TERRAIN.voxelEdgeM),
-        },
-      },
-    ],
-  };
-  const validationWorld = competingWorld;
-  const verdict = await validateCandidateCommit(candidate, validationWorld, {
-    baseCamp: world.baseCamp,
-    terrain: terrain.oracle,
+  const verdict = await verify(candidate, world);
+  assert.equal(verdict.accepted, true);
+  assert.equal(verdict.route?.outcome, "ACTIVE");
+  assert.equal(verdict.route?.failureStep, null);
+  assert.ok((verdict.route?.distanceMillimeters ?? 0) > 290_000);
+  assert.deepEqual(verdict.footprintDelta, {
+    terrainRemovalsCreated: 0,
+    stonePlacementsCreated: 1,
+    stonePlacementsRemoved: 0,
   });
 
+  const next = await applyAcceptedCandidate(candidate, world, verdict);
+  const footprint = next.footprints.find(
+    (entry) => entry.agentId === "exact-agent",
+  );
+  assert.equal(footprint?.acceptedExpeditions, 1);
+  assert.equal(footprint?.activeAlterations, 1);
+  assert.equal(
+    footprint?.totalDistanceMillimeters,
+    verdict.route?.distanceMillimeters,
+  );
+});
+
+test("legal exact one-way expedition accepts and kills the identity", async () => {
+  const world = await loadCanonicalWorld();
+  const candidate = firstMarkerCandidate(world, {
+    agentId: "one-way-agent",
+    id: "exact-one-way",
+    roundTripRoute: false,
+  });
+  const verdict = await verify(candidate, world);
+  assert.equal(verdict.accepted, true);
+  assert.equal(verdict.route?.outcome, "DEAD");
+
+  const next = await applyAcceptedCandidate(candidate, world, verdict);
+  assert.equal(
+    next.identities.find((entry) => entry.id === "one-way-agent")?.status,
+    "DEAD",
+  );
+  assert.equal(next.tombstones.at(-1)?.agentId, "one-way-agent");
+});
+
+test("GitHub identity lifecycle is case-insensitive", async () => {
+  const world = await loadCanonicalWorld();
+  const first = firstMarkerCandidate(world, {
+    agentId: "Case-Agent",
+    id: "case-one-way",
+    roundTripRoute: false,
+  });
+  const firstVerdict = await verify(first, world);
+  assert.equal(firstVerdict.accepted, true);
+  const next = await applyAcceptedCandidate(first, world, firstVerdict);
+  assert.equal(
+    next.identities.find((entry) => entry.id === "Case-Agent")?.status,
+    "DEAD",
+  );
+
+  const second = firstMarkerCandidate(next, {
+    agentId: "case-agent",
+    id: "case-second-expedition",
+  });
+  const secondVerdict = await verify(second, next);
+  assert.equal(secondVerdict.accepted, false);
+  assert.equal(secondVerdict.code, "IDENTITY_DEAD");
+});
+
+test("non-canonical or mismatched route program is rejected", async () => {
+  const world = await loadCanonicalWorld();
+  const candidate = firstMarkerCandidate(world, {
+    agentId: "codec-agent",
+    id: "bad-codec",
+  });
+  candidate.proof.route = {
+    ...candidate.proof.route,
+    stepCount: candidate.proof.route.stepCount + 1,
+  };
+  const verdict = await verify(candidate, world);
+  assert.equal(verdict.accepted, false);
+  assert.equal(verdict.code, "ROUTE_INVALID");
+  assert.equal(verdict.route?.code, "ROUTE_PROGRAM_INVALID");
+});
+
+test("a competing stone turns an exact stale trace into conflict", async () => {
+  const world = await loadCanonicalWorld();
+  const candidate = firstMarkerCandidate(world, {
+    agentId: "stale-agent",
+    id: "stale-route",
+  });
+  const decoded = (
+    await import("../engine/route")
+  ).decodeCandidateRoute(candidate.proof);
+  const blocked = decoded.stances[20].cell;
+  const changed = clone(world);
+  changed.stones.push({
+    id: "competing-route-blocker",
+    cell: { ...blocked },
+  });
+  changed.worldHash = await computeWorldHash({
+    ...changed,
+    worldHash: "",
+  });
+
+  const verdict = await verify(candidate, changed);
   assert.equal(verdict.accepted, false);
   assert.equal(verdict.code, "STALE_CONFLICT");
   assert.equal(verdict.route?.code, "ROUTE_OBSTRUCTED");
-  assert.equal(verdict.revalidatedAgainstHead, true);
+  assert.ok((verdict.route?.failureStep ?? -1) < 20);
+  assert.equal(verdict.route?.obstacle, "competing-route-blocker");
 });

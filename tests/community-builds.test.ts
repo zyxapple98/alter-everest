@@ -94,8 +94,8 @@ test("Build inspection separates social context from canonical truth", () => {
 });
 
 test("agent commands list, inspect, start and join Builds through GitHub", async () => {
-  let createdBuild = null;
-  const postedComments = [];
+  let createdBuild: Record<string, string> = {};
+  const postedComments: Array<Record<string, string>> = [];
 
   const comments = [
     {
@@ -246,7 +246,10 @@ test("agent commands list, inspect, start and join Builds through GitHub", async
 
     const inspected = await run(["inspect", "--discussion", "7"]);
     assert.match(inspected.stdout, /LATEST CURRENT VIBE/);
-    assert.match(inspected.stdout, /ACCEPTED CONTRIBUTIONS 1/);
+    assert.match(
+      inspected.stdout,
+      /HISTORICAL CONTRIBUTION COMMENTS 1 · CANONICAL NOW 0/,
+    );
     assert.match(inspected.stdout, /latest canonical world/i);
 
     const started = await run([

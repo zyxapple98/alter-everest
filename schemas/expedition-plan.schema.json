@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://alter-everest.invalid/schemas/expedition-plan.schema.json",
+  "title": "ALTER EVEREST local expedition authoring plan",
+  "description": "A non-canonical labelled authoring format compiled into candidate.schema.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "agentId", "route", "actions"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 39,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9]))*$"
+    },
+    "route": {
+      "$ref": "#/$defs/route"
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "items": { "$ref": "#/$defs/action" }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "voxel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "integer" },
+        "y": { "type": "integer" },
+        "z": { "type": "integer" }
+      }
+    },
+    "stance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cell", "mode"],
+      "properties": {
+        "label": { "$ref": "#/$defs/identifier" },
+        "cell": { "$ref": "#/$defs/voxel" },
+        "mode": {
+          "enum": ["WALK", "SCRAMBLE", "CLIMB"]
+        },
+        "protected": { "type": "boolean" }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stances"],
+      "properties": {
+        "stances": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 250001,
+          "prefixItems": [
+            {
+              "allOf": [
+                { "$ref": "#/$defs/stance" },
+                {
+                  "properties": {
+                    "mode": { "const": "WALK" },
+                    "protected": { "const": false }
+                  }
+                }
+              ]
+            }
+          ],
+          "items": { "$ref": "#/$defs/stance" }
+        },
+        "safeStop": { "type": "boolean" }
+      }
+    },
+    "source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "BASE" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "STONE" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "voxel"],
+          "properties": {
+            "kind": { "const": "TERRAIN" },
+            "voxel": { "$ref": "#/$defs/voxel" }
+          }
+        }
+      ]
+    },
+    "destination": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "BASE" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "cell"],
+          "properties": {
+            "kind": { "const": "WORLD" },
+            "cell": { "$ref": "#/$defs/voxel" }
+          }
+        }
+      ]
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "matterId",
+        "source",
+        "destination",
+        "pickupAt",
+        "releaseAt"
+      ],
+      "properties": {
+        "kind": { "const": "RELOCATE" },
+        "matterId": { "$ref": "#/$defs/identifier" },
+        "source": { "$ref": "#/$defs/source" },
+        "destination": { "$ref": "#/$defs/destination" },
+        "pickupAt": { "$ref": "#/$defs/identifier" },
+        "releaseAt": { "$ref": "#/$defs/identifier" }
+      }
+    }
+  }
+}

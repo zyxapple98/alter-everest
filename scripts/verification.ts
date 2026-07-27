@@ -15,11 +15,11 @@ import {
   operationLabel,
   operationSummary,
 } from "../engine/mutation";
-import { calculateReward } from "../engine/scoring";
 import {
   loadCanonicalWorld,
   loadDemBundle,
 } from "./expedition-kit";
+import { guidanceForCode } from "../lib/player-rules";
 
 export interface VerificationOptions {
   expectedAgent?: string | null;
@@ -44,7 +44,33 @@ export async function verifyCandidateFile(
   options: VerificationOptions = {},
 ): Promise<CandidateVerification> {
   const resolvedCandidatePath = resolve(candidatePath);
-  const candidateStat = await stat(resolvedCandidatePath);
+  let candidateStat;
+  try {
+    candidateStat = await stat(resolvedCandidatePath);
+  } catch {
+    return {
+      accepted: false,
+      stage: "INPUT",
+      errors: ["candidate file could not be read"],
+      candidate: null,
+      candidateHash: null,
+      candidateBytes: 0,
+      canonicalWorld: null,
+      verdict: null,
+    };
+  }
+  if (!candidateStat.isFile()) {
+    return {
+      accepted: false,
+      stage: "INPUT",
+      errors: ["candidate path must name one file"],
+      candidate: null,
+      candidateHash: null,
+      candidateBytes: 0,
+      canonicalWorld: null,
+      verdict: null,
+    };
+  }
   if (candidateStat.size > CANDIDATE_LIMITS.maximumBytes) {
     return {
       accepted: false,
@@ -58,11 +84,25 @@ export async function verifyCandidateFile(
     };
   }
 
-  const bytes = await readFile(resolvedCandidatePath);
-  const candidateHash = createHash("sha256").update(bytes).digest("hex");
-  let candidate: CandidateCommit;
+  let bytes: Buffer;
   try {
-    candidate = JSON.parse(bytes.toString("utf8")) as CandidateCommit;
+    bytes = await readFile(resolvedCandidatePath);
+  } catch {
+    return {
+      accepted: false,
+      stage: "INPUT",
+      errors: ["candidate file could not be read"],
+      candidate: null,
+      candidateHash: null,
+      candidateBytes: 0,
+      canonicalWorld: null,
+      verdict: null,
+    };
+  }
+  const candidateHash = createHash("sha256").update(bytes).digest("hex");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bytes.toString("utf8")) as unknown;
   } catch {
     return {
       accepted: false,
@@ -76,9 +116,24 @@ export async function verifyCandidateFile(
     };
   }
 
+  const shape = validateCandidateShape(parsed);
+  if (!shape.valid) {
+    return {
+      accepted: false,
+      stage: "SCHEMA",
+      errors: shape.errors,
+      candidate: null,
+      candidateHash,
+      candidateBytes: bytes.byteLength,
+      canonicalWorld: null,
+      verdict: null,
+    };
+  }
+  const candidate = parsed as CandidateCommit;
+
   const expectedAgent = options.expectedAgent ?? null;
   const enforceDirectoryIdentity =
-    options.enforceDirectoryIdentity ?? expectedAgent === null;
+    options.enforceDirectoryIdentity ?? false;
   const candidateDirectory = basename(dirname(resolvedCandidatePath));
   if (
     enforceDirectoryIdentity &&
@@ -103,20 +158,6 @@ export async function verifyCandidateFile(
       accepted: false,
       stage: "IDENTITY",
       errors: [`agentId must match the pull-request author: ${expectedAgent}`],
-      candidate,
-      candidateHash,
-      candidateBytes: bytes.byteLength,
-      canonicalWorld: null,
-      verdict: null,
-    };
-  }
-
-  const shape = validateCandidateShape(candidate);
-  if (!shape.valid) {
-    return {
-      accepted: false,
-      stage: "SCHEMA",
-      errors: shape.errors,
       candidate,
       candidateHash,
       candidateBytes: bytes.byteLength,
@@ -151,17 +192,20 @@ export async function verifyCandidateFile(
 export function verificationSummary(result: CandidateVerification) {
   const verdict = result.verdict;
   const actions = result.candidate?.proof.actions ?? [];
-  const reward =
-    result.accepted &&
-    result.candidate &&
-    result.canonicalWorld &&
-    verdict?.route
-      ? calculateReward(
-          result.candidate,
-          result.canonicalWorld,
-          verdict.route,
-        )
-      : null;
+  const actionableCode =
+    (result.accepted ? verdict?.code : null) ??
+    verdict?.physics?.code ??
+    (verdict?.route?.code === "ROUTE_VALID"
+      ? verdict.code
+      : verdict?.route?.code) ??
+    verdict?.code ??
+    (result.stage === "INPUT"
+      ? "INPUT_INVALID"
+      : result.stage === "IDENTITY"
+        ? "IDENTITY_MISMATCH"
+        : result.stage === "SCHEMA"
+          ? "SCHEMA_INVALID"
+          : null);
   return {
     accepted: result.accepted,
     stage: result.stage,
@@ -174,17 +218,10 @@ export function verificationSummary(result: CandidateVerification) {
     actionCount: actions.length,
     routeCode: verdict?.route?.code ?? null,
     outcome: verdict?.nextIdentityStatus ?? null,
-    score: verdict?.score ?? null,
-    scoreBreakdown: reward
-      ? {
-          height: reward.heightPoints,
-          survival: reward.survivalPoints,
-          enduranceReserve: reward.reservePoints,
-          stewardship: reward.stewardshipPoints,
-          repeatPenalty: reward.repeatPenaltyPoints,
-          total: reward.total,
-        }
-      : null,
+    footprintDelta: verdict?.footprintDelta ?? null,
+    distanceMillimeters: verdict?.route?.distanceMillimeters ?? null,
+    maximumAltitudeM: verdict?.route?.maximumAltitudeM ?? null,
+    terminalAltitudeM: verdict?.route?.terminalAltitudeM ?? null,
     endurance: verdict?.route
       ? {
           used: Number(verdict.route.enduranceUsed.toFixed(2)),
@@ -201,5 +238,8 @@ export function verificationSummary(result: CandidateVerification) {
           affectedStoneIds: verdict.physics.affectedStoneIds,
         }
       : null,
+    failureContext: verdict?.failureContext ?? null,
+    actionableCode,
+    rule: guidanceForCode(actionableCode),
   };
 }

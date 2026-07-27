@@ -1,18 +1,17 @@
-import type { CandidateCommit, ExpeditionAction } from "../engine/types";
+import type {
+  CandidateCommit,
+  ExactRoute,
+  ExpeditionAction,
+} from "../engine/types";
+import { CANDIDATE_LIMITS } from "../engine/constants";
 import protocolManifest from "../protocol/manifest.json";
 
 export const PROTOCOL_VERSION = protocolManifest.protocolVersion;
-export const CANDIDATE_LIMITS = protocolManifest.candidate;
+export { CANDIDATE_LIMITS };
 
 export interface ShapeValidationResult {
   valid: boolean;
   errors: string[];
-}
-
-function isFiniteVec3(value: unknown) {
-  if (!value || typeof value !== "object") return false;
-  const point = value as Record<string, unknown>;
-  return ["x", "y", "z"].every((key) => Number.isFinite(point[key]));
 }
 
 function hasOnlyKeys(value: unknown, allowed: readonly string[]) {
@@ -60,13 +59,13 @@ function validAction(value: unknown): value is ExpeditionAction {
       "matterId",
       "source",
       "destination",
-      "pickupIndex",
-      "releaseIndex",
+      "pickupStep",
+      "releaseStep",
     ]) ||
-    !Number.isSafeInteger(mutation.pickupIndex) ||
-    !Number.isSafeInteger(mutation.releaseIndex) ||
-    (mutation.pickupIndex as number) < 0 ||
-    (mutation.releaseIndex as number) < 0
+    !Number.isSafeInteger(mutation.pickupStep) ||
+    !Number.isSafeInteger(mutation.releaseStep) ||
+    (mutation.pickupStep as number) < 0 ||
+    (mutation.releaseStep as number) < 0
   ) {
     return false;
   }
@@ -76,9 +75,7 @@ function validAction(value: unknown): value is ExpeditionAction {
   const validSource =
     (source.kind === "BASE" && hasOnlyKeys(source, ["kind"])) ||
     (source.kind === "STONE" &&
-      hasOnlyKeys(source, ["kind", "stoneId"]) &&
-      safeIdentifier(source.stoneId) &&
-      source.stoneId === mutation.matterId) ||
+      hasOnlyKeys(source, ["kind"])) ||
     (source.kind === "TERRAIN" &&
       hasOnlyKeys(source, ["kind", "voxel"]) &&
       validVoxel(source.voxel));
@@ -92,6 +89,31 @@ function validAction(value: unknown): value is ExpeditionAction {
     validSource &&
       validDestination &&
       !(source.kind === "BASE" && destination.kind === "BASE"),
+  );
+}
+
+function validRoute(value: unknown): value is ExactRoute {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const route = value as Record<string, unknown>;
+  return (
+    hasOnlyKeys(route, [
+      "codec",
+      "start",
+      "stepCount",
+      "program",
+      "safeStop",
+    ]) &&
+    route.codec === "ae-microtrace-v1" &&
+    validVoxel(route.start) &&
+    Number.isSafeInteger(route.stepCount) &&
+    (route.stepCount as number) >= 1 &&
+    (route.stepCount as number) <=
+      CANDIDATE_LIMITS.maximumDecodedRouteSteps &&
+    typeof route.program === "string" &&
+    /^[A-Za-z0-9_-]*$/.test(route.program) &&
+    (route.safeStop === undefined || typeof route.safeStop === "boolean")
   );
 }
 
@@ -154,40 +176,10 @@ export function validateCandidateShape(
     ) {
       errors.push("proof contains unsupported properties");
     }
-    if (!Array.isArray(candidate.proof.route) || candidate.proof.route.length < 2) {
-      errors.push("proof.route must contain at least two samples");
-    } else if (candidate.proof.route.length > CANDIDATE_LIMITS.maximumRouteSamples) {
+    if (!validRoute(candidate.proof.route)) {
       errors.push(
-        `proof.route may contain at most ${CANDIDATE_LIMITS.maximumRouteSamples} samples`,
+        `proof.route must be a bounded ae-microtrace-v1 route with at most ${CANDIDATE_LIMITS.maximumDecodedRouteSteps} steps`,
       );
-    } else if (
-      candidate.proof.route.some(
-        (sample) =>
-          !isFiniteVec3(sample) ||
-          !Number.isFinite(sample.altitudeM) ||
-          !Number.isFinite(sample.slopeDegrees) ||
-          sample.slopeDegrees < 0 ||
-          sample.slopeDegrees > 90 ||
-          !["ROCK", "SNOW", "ICE"].includes(String(sample.surface)) ||
-          !["WALK", "SCRAMBLE", "CLIMB"].includes(String(sample.mode)) ||
-          (sample.protected !== undefined &&
-            typeof sample.protected !== "boolean") ||
-          (sample.safeStop !== undefined &&
-            typeof sample.safeStop !== "boolean") ||
-          !hasOnlyKeys(sample as unknown as Record<string, unknown>, [
-            "x",
-            "y",
-            "z",
-            "altitudeM",
-            "slopeDegrees",
-            "surface",
-            "mode",
-            "protected",
-            "safeStop",
-          ]),
-      )
-    ) {
-      errors.push("proof.route contains an invalid sample");
     }
     if (
       !Array.isArray(candidate.proof.actions) ||

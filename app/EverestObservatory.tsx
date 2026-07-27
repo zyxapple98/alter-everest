@@ -9,7 +9,6 @@ import {
   type ObservatoryFeed,
   type ObservatoryExpeditionAction,
   type ObservatoryTracePoint,
-  type ObservatorySurfaceDeltaChunk,
 } from "../lib/world";
 import { syntheticReliefM } from "../engine/surface";
 import {
@@ -208,78 +207,6 @@ const WORLD_UNITS_PER_METER = CORE_BLOCK_SIZE / 30;
 const ENDURANCE_SEGMENTS = 28;
 const MAX_RENDER_PIXEL_RATIO = 1.2;
 const EMPTY_MEMORIAL_CLUSTERS: MemorialCluster[] = [];
-interface SurfaceDeltaLookup {
-  chunks: Map<string, ObservatorySurfaceDeltaChunk>;
-  removedByColumn: Map<string, Set<number>>;
-}
-const SURFACE_DELTA_INDEX = new WeakMap<
-  ObservatoryFeed,
-  SurfaceDeltaLookup
->();
-
-function surfaceDeltaLookup(feed: ObservatoryFeed) {
-  let lookup = SURFACE_DELTA_INDEX.get(feed);
-  if (lookup) return lookup;
-  const chunks = feed.surfaceDelta?.chunks ?? [];
-  const removedByColumn = new Map<string, Set<number>>();
-  chunks.forEach((chunk) => {
-    chunk.removedTerrainVoxels.forEach((voxel) => {
-      const key = `${voxel.x}:${voxel.z}`;
-      let removedLevels = removedByColumn.get(key);
-      if (!removedLevels) {
-        removedLevels = new Set();
-        removedByColumn.set(key, removedLevels);
-      }
-      removedLevels.add(voxel.y);
-    });
-  });
-  lookup = {
-    chunks: new Map(chunks.map((chunk) => [chunk.id, chunk])),
-    removedByColumn,
-  };
-  SURFACE_DELTA_INDEX.set(feed, lookup);
-  return lookup;
-}
-
-function surfaceDeltaChunksInBounds(
-  feed: ObservatoryFeed,
-  minimumX: number,
-  maximumX: number,
-  minimumZ: number,
-  maximumZ: number,
-) {
-  const delta = feed.surfaceDelta;
-  if (!delta) return [];
-  const index = surfaceDeltaLookup(feed).chunks;
-  const minimumChunkX = Math.floor(
-    minimumX / delta.physicsChunkEdgeM,
-  );
-  const maximumChunkX = Math.floor(
-    maximumX / delta.physicsChunkEdgeM,
-  );
-  const minimumChunkZ = Math.floor(
-    minimumZ / delta.physicsChunkEdgeM,
-  );
-  const maximumChunkZ = Math.floor(
-    maximumZ / delta.physicsChunkEdgeM,
-  );
-  const chunks: ObservatorySurfaceDeltaChunk[] = [];
-  for (
-    let chunkZ = minimumChunkZ;
-    chunkZ <= maximumChunkZ;
-    chunkZ += 1
-  ) {
-    for (
-      let chunkX = minimumChunkX;
-      chunkX <= maximumChunkX;
-      chunkX += 1
-    ) {
-      const chunk = index.get(`${chunkX}:${chunkZ}`);
-      if (chunk) chunks.push(chunk);
-    }
-  }
-  return chunks;
-}
 
 type TerrainResolution =
   | "90 M"
@@ -1007,626 +934,6 @@ function sampleDemElevation(
   return north * (1 - tz) + south * tz;
 }
 
-function yieldDetailBuild() {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, 0);
-  });
-}
-
-// Retained as a source-compatible fallback while the new Worker path rolls
-// out; production clipmaps are created by TerrainStreamingEngine.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function createDetailPatch(
-  key: string,
-  core: DemLayer,
-  terrain: VoxelTerrain,
-  centerWorldX: number,
-  centerWorldZ: number,
-  cellM: number,
-  gridCells: number,
-  innerHoleM: number,
-  terrainTint: string,
-  feed: ObservatoryFeed,
-): Promise<TerrainClipmapPatch> {
-  const { metadata, elevations } = core;
-  const degreesPerSample = metadata.sampleSpacingArcSeconds / 3600;
-  const centerColumn = THREE.MathUtils.clamp(
-    (centerWorldX - terrain.xOrigin) / terrain.blockSize - 0.5,
-    1,
-    metadata.width - 2,
-  );
-  const centerRow = THREE.MathUtils.clamp(
-    (centerWorldZ - terrain.zOrigin) / terrain.blockSize - 0.5,
-    1,
-    metadata.height - 2,
-  );
-  const centerLatitude =
-    metadata.bounds.north - (centerRow + 0.5) * degreesPerSample;
-  const centerLongitude =
-    metadata.bounds.west + (centerColumn + 0.5) * degreesPerSample;
-  const latitudeRadians =
-    (centerLatitude * Math.PI) / 180;
-  const sampleWidthM =
-    degreesPerSample *
-    METERS_PER_DEGREE_LATITUDE *
-    Math.cos(latitudeRadians);
-  const sampleHeightM =
-    degreesPerSample * METERS_PER_DEGREE_LATITUDE;
-  const metersPerDegreeLongitude =
-    METERS_PER_DEGREE_LATITUDE *
-    Math.cos(
-      (CANONICAL_ORIGIN_LATITUDE * Math.PI) / 180,
-    );
-  const centerCanonicalX =
-    (centerLongitude - CANONICAL_ORIGIN_LONGITUDE) *
-    metersPerDegreeLongitude;
-  const centerCanonicalZ =
-    (CANONICAL_ORIGIN_LATITUDE - centerLatitude) *
-    METERS_PER_DEGREE_LATITUDE;
-  const halfWindowM = (gridCells * cellM) / 2;
-  const deltaChunks = surfaceDeltaChunksInBounds(
-    feed,
-    centerCanonicalX - halfWindowM,
-    centerCanonicalX + halfWindowM,
-    centerCanonicalZ - halfWindowM,
-    centerCanonicalZ + halfWindowM,
-  );
-  const deltaVoxelEdgeM =
-    feed.surfaceDelta?.voxelEdgeM ?? 0.2;
-  const exactDeltaResolution =
-    Math.abs(cellM - deltaVoxelEdgeM) < 0.0001;
-  const removedByColumn = feed.surfaceDelta
-    ? surfaceDeltaLookup(feed).removedByColumn
-    : new Map<string, Set<number>>();
-  const hasLocalRemovedTerrain = deltaChunks.some(
-    (chunk) => chunk.removedTerrainVoxels.length > 0,
-  );
-  const verticalDatumVoxels = Math.round(
-    (feed.surfaceDelta?.verticalDatumM ?? 5_259) /
-      deltaVoxelEdgeM,
-  );
-  const centerElevationM = sampleDemElevation(
-    elevations,
-    metadata.width,
-    metadata.height,
-    centerColumn,
-    centerRow,
-  );
-  const centerTopVoxel = Math.floor(
-    (centerElevationM +
-      syntheticReliefM(centerCanonicalX, centerCanonicalZ)) /
-      cellM,
-  );
-  const halfGrid = Math.floor(gridCells / 2);
-  const topLevels = new Int16Array(
-    gridCells * gridCells,
-  );
-  const reliefValues = new Float32Array(topLevels.length);
-  const elevationValues = new Float32Array(topLevels.length);
-
-  for (let row = 0; row < gridCells; row += 1) {
-    for (let column = 0; column < gridCells; column += 1) {
-      const index = row * gridCells + column;
-      const localXM = (column - halfGrid) * cellM;
-      const localZM = (row - halfGrid) * cellM;
-      const canonicalX = centerCanonicalX + localXM;
-      const canonicalZ = centerCanonicalZ + localZM;
-      const elevationM = sampleDemElevation(
-        elevations,
-        metadata.width,
-        metadata.height,
-        centerColumn + localXM / sampleWidthM,
-        centerRow + localZM / sampleHeightM,
-      );
-      const reliefM = syntheticReliefM(canonicalX, canonicalZ);
-      let absoluteTopVoxel = Math.floor(
-        (elevationM + reliefM) / cellM,
-      );
-      if (hasLocalRemovedTerrain) {
-        const columnX = Math.floor(
-          canonicalX / deltaVoxelEdgeM,
-        );
-        const columnZ = Math.floor(
-          canonicalZ / deltaVoxelEdgeM,
-        );
-        const removedLevels = removedByColumn.get(
-          `${columnX}:${columnZ}`,
-        );
-        if (removedLevels) {
-          let fineAbsoluteTopVoxel = Math.floor(
-            (elevationM + reliefM) / deltaVoxelEdgeM,
-          );
-          let localTopVoxel =
-            fineAbsoluteTopVoxel - verticalDatumVoxels;
-          while (removedLevels.has(localTopVoxel)) {
-            localTopVoxel -= 1;
-          }
-          fineAbsoluteTopVoxel =
-            localTopVoxel + verticalDatumVoxels;
-          const editedSurfaceTopM =
-            (fineAbsoluteTopVoxel + 1) * deltaVoxelEdgeM;
-          absoluteTopVoxel =
-            Math.ceil(editedSurfaceTopM / cellM) - 1;
-        }
-      }
-      const level = absoluteTopVoxel - centerTopVoxel;
-      topLevels[index] = level;
-      reliefValues[index] = reliefM;
-      elevationValues[index] = elevationM;
-    }
-    if (row % 24 === 23) await yieldDetailBuild();
-  }
-
-  const group = new THREE.Group();
-  const detailTint = new THREE.Color(terrainTint);
-  const cellWorld = cellM * WORLD_UNITS_PER_METER;
-  const included = new Uint8Array(topLevels.length);
-  let renderedTopCount = 0;
-
-  const elevationAt = (
-    column: number,
-    row: number,
-    fallback: number,
-  ) => {
-    if (
-      column < 0 ||
-      row < 0 ||
-      column >= gridCells ||
-      row >= gridCells
-    ) {
-      return fallback;
-    }
-    return elevationValues[row * gridCells + column];
-  };
-
-  for (let row = 0; row < gridCells; row += 1) {
-    for (let column = 0; column < gridCells; column += 1) {
-      const index = row * gridCells + column;
-      const localXM = (column - halfGrid) * cellM;
-      const localZM = (row - halfGrid) * cellM;
-      const insideInnerHole =
-        innerHoleM > 0 &&
-        Math.abs(localXM) <
-          innerHoleM / 2 - cellM * 0.35 &&
-        Math.abs(localZM) <
-          innerHoleM / 2 - cellM * 0.35;
-      if (!insideInnerHole) {
-        included[index] = 1;
-        renderedTopCount += 1;
-      }
-    }
-    if (row % 24 === 23) await yieldDetailBuild();
-  }
-
-  let faceCount = renderedTopCount;
-  for (let row = 0; row < gridCells; row += 1) {
-    for (let column = 0; column < gridCells; column += 1) {
-      const index = row * gridCells + column;
-      if (!included[index]) continue;
-      const topLevel = topLevels[index];
-      // The neighboring clipmap ring supplies the surface outside this
-      // patch. Never generate an outer skirt: it becomes a giant hanging wall
-      // whenever the camera reaches the patch edge on a steep summit view.
-      if (
-        column + 1 < gridCells &&
-        included[index + 1] &&
-        topLevels[index + 1] < topLevel
-      ) {
-        faceCount += 1;
-      }
-      if (
-        column > 0 &&
-        included[index - 1] &&
-        topLevels[index - 1] < topLevel
-      ) {
-        faceCount += 1;
-      }
-      if (
-        row + 1 < gridCells &&
-        included[index + gridCells] &&
-        topLevels[index + gridCells] < topLevel
-      ) {
-        faceCount += 1;
-      }
-      if (
-        row > 0 &&
-        included[index - gridCells] &&
-        topLevels[index - gridCells] < topLevel
-      ) {
-        faceCount += 1;
-      }
-    }
-    if (row % 24 === 23) await yieldDetailBuild();
-  }
-
-  const positions = new Float32Array(faceCount * 12);
-  const colors = new Float32Array(faceCount * 12);
-  const indices =
-    faceCount * 4 > 65_535
-      ? new Uint32Array(faceCount * 6)
-      : new Uint16Array(faceCount * 6);
-  let face = 0;
-
-  const writeFace = (
-    ax: number,
-    ay: number,
-    az: number,
-    bx: number,
-    by: number,
-    bz: number,
-    cx: number,
-    cy: number,
-    cz: number,
-    dx: number,
-    dy: number,
-    dz: number,
-    color: THREE.Color,
-  ) => {
-    const positionOffset = face * 12;
-    positions[positionOffset] = ax;
-    positions[positionOffset + 1] = ay;
-    positions[positionOffset + 2] = az;
-    positions[positionOffset + 3] = bx;
-    positions[positionOffset + 4] = by;
-    positions[positionOffset + 5] = bz;
-    positions[positionOffset + 6] = cx;
-    positions[positionOffset + 7] = cy;
-    positions[positionOffset + 8] = cz;
-    positions[positionOffset + 9] = dx;
-    positions[positionOffset + 10] = dy;
-    positions[positionOffset + 11] = dz;
-    for (let vertex = 0; vertex < 4; vertex += 1) {
-      const colorOffset = positionOffset + vertex * 3;
-      colors[colorOffset] = color.r;
-      colors[colorOffset + 1] = color.g;
-      colors[colorOffset + 2] = color.b;
-    }
-    const vertexOffset = face * 4;
-    const indexOffset = face * 6;
-    indices[indexOffset] = vertexOffset;
-    indices[indexOffset + 1] = vertexOffset + 1;
-    indices[indexOffset + 2] = vertexOffset + 2;
-    indices[indexOffset + 3] = vertexOffset;
-    indices[indexOffset + 4] = vertexOffset + 2;
-    indices[indexOffset + 5] = vertexOffset + 3;
-    face += 1;
-  };
-
-  const slopeSampleOffset = Math.max(
-    1,
-    Math.round(30 / cellM),
-  );
-  for (let row = 0; row < gridCells; row += 1) {
-    for (let column = 0; column < gridCells; column += 1) {
-      const index = row * gridCells + column;
-      if (!included[index]) continue;
-      const localXM = (column - halfGrid) * cellM;
-      const localZM = (row - halfGrid) * cellM;
-      const worldX =
-        centerWorldX + localXM * WORLD_UNITS_PER_METER;
-      const worldZ =
-        centerWorldZ + localZM * WORLD_UNITS_PER_METER;
-      const topLevel = topLevels[index];
-      const surfaceElevationM =
-        elevationValues[index] + reliefValues[index];
-
-      const gradientX =
-        (elevationAt(
-          column + slopeSampleOffset,
-          row,
-          elevationValues[index],
-        ) -
-          elevationAt(
-            column - slopeSampleOffset,
-            row,
-            elevationValues[index],
-          )) /
-        (2 * slopeSampleOffset * cellM);
-      const gradientZ =
-        (elevationAt(
-          column,
-          row + slopeSampleOffset,
-          elevationValues[index],
-        ) -
-          elevationAt(
-            column,
-            row - slopeSampleOffset,
-            elevationValues[index],
-          )) /
-        (2 * slopeSampleOffset * cellM);
-      const slopeDegrees =
-        (Math.atan(Math.hypot(gradientX, gradientZ)) * 180) /
-        Math.PI;
-      const normalLength = Math.hypot(
-        gradientX,
-        1,
-        gradientZ,
-      );
-      const sunDot = THREE.MathUtils.clamp(
-        (-gradientX * -0.38 +
-          0.86 +
-          -gradientZ * -0.34) /
-          normalLength,
-        0,
-        1,
-      );
-      const topShade = 0.76 + sunDot * 0.24;
-      const sampleLongitude =
-        centerLongitude +
-        localXM / metersPerDegreeLongitude;
-      const sampleLatitude =
-        centerLatitude -
-        localZM / METERS_PER_DEGREE_LATITUDE;
-      const noiseColumn = Math.round(sampleLongitude * 3600);
-      const noiseRow = Math.round(sampleLatitude * 3600);
-      const x0 = worldX - cellWorld / 2;
-      const x1 = worldX + cellWorld / 2;
-      const z0 = worldZ - cellWorld / 2;
-      const z1 = worldZ + cellWorld / 2;
-      const yTop =
-        (centerTopVoxel + topLevel + 1) * cellWorld;
-      const topColor = terrainColor(
-        surfaceElevationM,
-        slopeDegrees,
-        noiseColumn,
-        noiseRow,
-        topShade,
-      ).multiply(detailTint);
-      const topRed = topColor.r;
-      const topGreen = topColor.g;
-      const topBlue = topColor.b;
-      writeFace(
-        x0, yTop, z0,
-        x0, yTop, z1,
-        x1, yTop, z1,
-        x1, yTop, z0,
-        topColor,
-      );
-
-      if (
-        column + 1 < gridCells &&
-        included[index + 1] &&
-        topLevels[index + 1] < topLevel
-      ) {
-        const yBottom =
-          (centerTopVoxel + topLevels[index + 1] + 1) *
-          cellWorld;
-        writeFace(
-          x1, yBottom, z0,
-          x1, yTop, z0,
-          x1, yTop, z1,
-          x1, yBottom, z1,
-          TERRAIN_COLOR_SCRATCH.setRGB(
-            (topRed * 0.72) / topShade,
-            (topGreen * 0.72) / topShade,
-            (topBlue * 0.72) / topShade,
-          ),
-        );
-      }
-      if (
-        column > 0 &&
-        included[index - 1] &&
-        topLevels[index - 1] < topLevel
-      ) {
-        const yBottom =
-          (centerTopVoxel + topLevels[index - 1] + 1) *
-          cellWorld;
-        writeFace(
-          x0, yBottom, z1,
-          x0, yTop, z1,
-          x0, yTop, z0,
-          x0, yBottom, z0,
-          TERRAIN_COLOR_SCRATCH.setRGB(
-            (topRed * 0.56) / topShade,
-            (topGreen * 0.56) / topShade,
-            (topBlue * 0.56) / topShade,
-          ),
-        );
-      }
-      if (
-        row + 1 < gridCells &&
-        included[index + gridCells] &&
-        topLevels[index + gridCells] < topLevel
-      ) {
-        const yBottom =
-          (centerTopVoxel +
-            topLevels[index + gridCells] +
-            1) *
-          cellWorld;
-        writeFace(
-          x0, yBottom, z1,
-          x1, yBottom, z1,
-          x1, yTop, z1,
-          x0, yTop, z1,
-          TERRAIN_COLOR_SCRATCH.setRGB(
-            (topRed * 0.64) / topShade,
-            (topGreen * 0.64) / topShade,
-            (topBlue * 0.64) / topShade,
-          ),
-        );
-      }
-      if (
-        row > 0 &&
-        included[index - gridCells] &&
-        topLevels[index - gridCells] < topLevel
-      ) {
-        const yBottom =
-          (centerTopVoxel +
-            topLevels[index - gridCells] +
-            1) *
-          cellWorld;
-        writeFace(
-          x1, yBottom, z0,
-          x0, yBottom, z0,
-          x0, yTop, z0,
-          x1, yTop, z0,
-          TERRAIN_COLOR_SCRATCH.setRGB(
-            (topRed * 0.48) / topShade,
-            (topGreen * 0.48) / topShade,
-            (topBlue * 0.48) / topShade,
-          ),
-        );
-      }
-    }
-    if (row % 16 === 15) await yieldDetailBuild();
-  }
-
-  const surfaceGeometry = new THREE.BufferGeometry();
-  surfaceGeometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(positions, 3),
-  );
-  surfaceGeometry.setAttribute(
-    "color",
-    new THREE.BufferAttribute(colors, 3),
-  );
-  surfaceGeometry.setIndex(new THREE.BufferAttribute(indices, 1));
-  surfaceGeometry.computeBoundingSphere();
-  const surfaceMesh = new THREE.Mesh(
-    surfaceGeometry,
-    new THREE.MeshBasicMaterial({
-      color: "#ffffff",
-      vertexColors: true,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      fog: true,
-    }),
-  );
-  group.add(surfaceMesh);
-  const surfaceMeshes = [surfaceMesh];
-
-  let stoneVoxelCount = 0;
-  const renderSurfaceStones =
-    (feed.surfaceDelta && cellM <= 1.6) ||
-    exactDeltaResolution;
-  if (renderSurfaceStones) {
-    const deltaStones = deltaChunks.flatMap(
-      (chunk) => chunk.stones,
-    );
-    const fallbackPoint = feed.currentHighestPoint;
-    const stones =
-      deltaStones.length > 0
-        ? deltaStones
-        : fallbackPoint?.kind === "STONE" &&
-            typeof fallbackPoint.x === "number" &&
-            typeof fallbackPoint.y === "number" &&
-            typeof fallbackPoint.z === "number"
-          ? [
-              {
-                id: fallbackPoint.id,
-                cell: {
-                  x: Math.floor(fallbackPoint.x / deltaVoxelEdgeM),
-                  y: Math.floor(
-                    (fallbackPoint.y - deltaVoxelEdgeM / 2) /
-                      deltaVoxelEdgeM,
-                  ),
-                  z: Math.floor(fallbackPoint.z / deltaVoxelEdgeM),
-                },
-              },
-            ]
-          : [];
-    const visibleStones = stones.filter(({ cell }) => {
-      const x = (cell.x + 0.5) * deltaVoxelEdgeM;
-      const z = (cell.z + 0.5) * deltaVoxelEdgeM;
-      return (
-        Math.abs(x - centerCanonicalX) <
-          halfWindowM - deltaVoxelEdgeM &&
-        Math.abs(z - centerCanonicalZ) <
-          halfWindowM - deltaVoxelEdgeM
-      );
-    });
-    if (visibleStones.length > 0) {
-      const stoneWorld =
-        deltaVoxelEdgeM * WORLD_UNITS_PER_METER;
-      const stoneGeometry = new THREE.BoxGeometry(
-        stoneWorld,
-        stoneWorld,
-        stoneWorld,
-      );
-      const stoneMaterial = new THREE.MeshLambertMaterial({
-        color: MOUNTAIN_MATERIALS.placedGranite,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-      });
-      const stoneMesh = new THREE.InstancedMesh(
-        stoneGeometry,
-        stoneMaterial,
-        visibleStones.length,
-      );
-      const stoneTransform = new THREE.Object3D();
-      visibleStones.forEach(({ cell }, index) => {
-        const x = (cell.x + 0.5) * deltaVoxelEdgeM;
-        const y = (cell.y + 0.5) * deltaVoxelEdgeM;
-        const z = (cell.z + 0.5) * deltaVoxelEdgeM;
-        stoneTransform.position.set(
-          centerWorldX +
-            (x - centerCanonicalX) * WORLD_UNITS_PER_METER,
-          (y +
-            (feed.surfaceDelta?.verticalDatumM ?? 5_259)) *
-            WORLD_UNITS_PER_METER,
-          centerWorldZ +
-            (z - centerCanonicalZ) * WORLD_UNITS_PER_METER,
-        );
-        stoneTransform.quaternion.identity();
-        stoneTransform.updateMatrix();
-        stoneMesh.setMatrixAt(index, stoneTransform.matrix);
-      });
-      stoneMesh.instanceMatrix.needsUpdate = true;
-      group.add(stoneMesh);
-      stoneVoxelCount = visibleStones.length;
-    }
-  }
-
-  return {
-    key,
-    group,
-    cellM,
-    windowM: gridCells * cellM,
-    voxelCount: renderedTopCount + stoneVoxelCount,
-    setOpacity(opacity: number) {
-      const safeOpacity = THREE.MathUtils.clamp(opacity, 0, 1);
-      group.visible = safeOpacity > 0.01;
-      group.traverse((object) => {
-        if (
-          object instanceof THREE.Mesh ||
-          object instanceof THREE.LineSegments
-        ) {
-          const materials = Array.isArray(object.material)
-            ? object.material
-            : [object.material];
-          materials.forEach((material) => {
-            material.opacity = safeOpacity;
-            material.transparent = true;
-            material.depthWrite = safeOpacity > 0.72;
-          });
-        }
-      });
-    },
-    dispose() {
-      const geometries = new Set<THREE.BufferGeometry>();
-      const materials = new Set<THREE.Material>();
-      group.traverse((object) => {
-        if (
-          object instanceof THREE.Mesh ||
-          object instanceof THREE.LineSegments
-        ) {
-          geometries.add(object.geometry);
-          const objectMaterials = Array.isArray(object.material)
-            ? object.material
-            : [object.material];
-          objectMaterials.forEach((material) => materials.add(material));
-        }
-      });
-      geometries.forEach((geometry) => geometry.dispose());
-      materials.forEach((material) => material.dispose());
-      surfaceMeshes.length = 0;
-    },
-  };
-}
-
 function cellSizeForResolution(resolution: TerrainResolution) {
   return terrainClipmapCellM(resolution) ?? 30;
 }
@@ -1854,62 +1161,38 @@ function createSiteLabel(site: SiteAnchor) {
 function createRoute(
   terrain: VoxelTerrain,
   terrainMetadata: DemMetadata,
-  suppliedTrace?: ObservatoryTracePoint[] | null,
-  suppliedTraceMetadata?: DemMetadata,
+  suppliedTrace: ObservatoryTracePoint[],
 ) {
-  if (
-    suppliedTrace &&
-    suppliedTrace.length >= 2 &&
-    suppliedTraceMetadata
-  ) {
-    const traceDegrees =
-      suppliedTraceMetadata.sampleSpacingArcSeconds / 3600;
-    const exact = suppliedTrace.every(
-      (point) =>
-        typeof point.x === "number" &&
-        typeof point.z === "number" &&
-        typeof point.altitudeM === "number",
-    );
+  if (suppliedTrace.length >= 2) {
     const points = suppliedTrace.map((point) => {
       const latitude =
-        exact && typeof point.z === "number"
-          ? CANONICAL_ORIGIN_LATITUDE -
-            point.z / METERS_PER_DEGREE_LATITUDE
-          : suppliedTraceMetadata.bounds.north -
-            (point.row + 0.5) * traceDegrees;
+        CANONICAL_ORIGIN_LATITUDE -
+        point.z / METERS_PER_DEGREE_LATITUDE;
       const longitude =
-        exact && typeof point.x === "number"
-          ? CANONICAL_ORIGIN_LONGITUDE +
-            point.x /
-              (METERS_PER_DEGREE_LATITUDE *
-                Math.cos(
-                  (CANONICAL_ORIGIN_LATITUDE * Math.PI) / 180,
-                ))
-          : suppliedTraceMetadata.bounds.west +
-            (point.column + 0.5) * traceDegrees;
+        CANONICAL_ORIGIN_LONGITUDE +
+        point.x /
+          (METERS_PER_DEGREE_LATITUDE *
+            Math.cos(
+              (CANONICAL_ORIGIN_LATITUDE * Math.PI) / 180,
+            ));
       const rendered = coordinatePoint(
         terrain,
         terrainMetadata,
         latitude,
         longitude,
       );
-      if (exact && typeof point.altitudeM === "number") {
-        rendered.y =
-          (point.altitudeM + 0.08) * WORLD_UNITS_PER_METER;
-      }
+      rendered.y =
+        (point.altitudeM + 0.08) * WORLD_UNITS_PER_METER;
       return rendered;
     });
     return {
       points,
-      progresses: suppliedTrace.map((point, index) =>
-        typeof point.progress === "number"
-          ? THREE.MathUtils.clamp(point.progress, 0, 1)
-          : index / Math.max(1, suppliedTrace.length - 1),
+      progresses: suppliedTrace.map((point) =>
+        THREE.MathUtils.clamp(point.progress, 0, 1),
       ),
-      exact,
     };
   }
-  return { points: [], progresses: [], exact: false };
+  return { points: [], progresses: [] };
 }
 
 function canonicalCoordinatePoint(
@@ -2841,7 +2124,7 @@ export default function EverestObservatory() {
     navigationCommandRef.current = { type: "restore-watch-view" };
   }, []);
   const expeditions = feed.recentExpeditions;
-  const leaderboard = feed.leaderboard;
+  const footprintProfiles = feed.footprints;
   const memorialClusters =
     feed.memorialClusters ?? EMPTY_MEMORIAL_CLUSTERS;
   const sceneDataRef = useRef({
@@ -3732,7 +3015,6 @@ export default function EverestObservatory() {
           terrain,
           focusTerrainData.metadata,
           expedition.trace,
-          core.metadata,
         );
         const { points, progresses } = route;
         // Route altitude remains canonical feed data, but the disposable
@@ -3749,18 +3031,6 @@ export default function EverestObservatory() {
             ) +
             0.08 * WORLD_UNITS_PER_METER;
         });
-        if (
-          !route.exact &&
-          baseCampObject &&
-          points[0].distanceTo(baseCampObject.siteGroup.position) > 0.8
-        ) {
-          points.unshift(baseCampObject.siteGroup.position.clone());
-          progresses.unshift(0);
-          if (expedition.returned) {
-            points.push(baseCampObject.siteGroup.position.clone());
-            progresses.push(1);
-          }
-        }
         const material = new THREE.LineBasicMaterial({
           color: expedition.color,
           transparent: true,
@@ -3805,16 +3075,10 @@ export default function EverestObservatory() {
         scene.add(enduranceHalo.group);
 
         const actionWindows: ReplayActionWindow[] =
-          expedition.actions?.map((action) => ({
+          expedition.actions.map((action) => ({
             pickupFraction: action.pickupFraction,
             releaseFraction: action.releaseFraction,
-          })) ??
-          (expedition.actionFractions ?? [expedition.releaseFraction]).map(
-            (fraction) => ({
-              pickupFraction: fraction,
-              releaseFraction: fraction,
-            }),
-          );
+          }));
         const pickupPoints = actionWindows.map(({ pickupFraction }) =>
           routeSampleAtProgress(
             points,
@@ -3829,10 +3093,9 @@ export default function EverestObservatory() {
             releaseFraction,
           ).point,
         );
-        const matterVoxelEdgeM =
-          sceneFeed.surfaceDelta?.voxelEdgeM ?? 0.2;
+        const matterVoxelEdgeM = sceneFeed.surfaceTiles.voxelEdgeM;
         const matterVerticalDatumM =
-          sceneFeed.surfaceDelta?.verticalDatumM ?? 5_259;
+          sceneFeed.surfaceTiles.verticalDatumM;
         const createMatterEndpoint = (
           cell: ObservatoryVoxelCell | undefined,
           routePoint: THREE.Vector3,
@@ -3852,7 +3115,7 @@ export default function EverestObservatory() {
           };
         };
         const matterEndpoints =
-          expedition.actions?.map((action, actionIndex) => ({
+          expedition.actions.map((action, actionIndex) => ({
             source: createMatterEndpoint(
               action.sourceCell,
               pickupPoints[actionIndex],
@@ -3861,7 +3124,7 @@ export default function EverestObservatory() {
               action.destinationCell,
               releasePoints[actionIndex],
             ),
-          })) ?? [];
+          }));
         const matterReplay = createMatterReplay();
         scene.add(matterReplay.group);
         let cumulativeRouteDistanceM = 0;
@@ -5124,7 +4387,7 @@ export default function EverestObservatory() {
           if (isActive && actionStatusHost.current) {
             const action =
               actionState &&
-              trace.expedition.actions?.[actionState.index];
+              trace.expedition.actions[actionState.index];
             const phaseLabel =
               playback.ended
                 ? "TASK COMPLETE"
@@ -5471,7 +4734,7 @@ export default function EverestObservatory() {
     activeExpeditionRef.current = activeExpedition;
     manualReplayStarted.current = performance.now();
     setWatchingExpedition(activeExpedition);
-    const startingPoint = active.actions?.[0]?.pickup;
+    const startingPoint = active.actions[0]?.pickup;
     if (startingPoint) {
       navigationCommandRef.current = {
         type: "coordinates",
@@ -5509,16 +4772,12 @@ export default function EverestObservatory() {
       />
 
       <header className="observatory-header">
-        <div className="wordmark" aria-label="ALTER EVEREST">
-          <span className="wordmark-symbol" aria-hidden="true">
-            <i />
-            <i />
-            <b />
-          </span>
-          <strong>
-            <span>ALTER</span>
-            <span>EVEREST</span>
-          </strong>
+        <div className="wordmark">
+          <img
+            className="wordmark-logo"
+            src="/alter-everest-logo.svg"
+            alt="ALTER EVEREST"
+          />
         </div>
         <div className="scene-tools">
           <button
@@ -5552,7 +4811,7 @@ export default function EverestObservatory() {
           <button
             className="scene-tool scene-tool-rank"
             type="button"
-            aria-label="Open climber rankings"
+            aria-label="Open climber footprints"
             aria-expanded={rankingsOpen}
             onClick={() => {
               setRankingsOpen((open) => !open);
@@ -5751,7 +5010,7 @@ export default function EverestObservatory() {
             />
             <small>
               {active.trace
-                ? `${active.actions?.length ?? 1}-ACTION TRACE`
+                ? `${active.actions.length}-ACTION TRACE`
                 : "LAST EVENT"}
             </small>
             {expeditions.length > 1 ? (
@@ -5777,11 +5036,13 @@ export default function EverestObservatory() {
           <div className="expedition-result">
             <span>
               {active.action}
-              {active.actions?.length
+              {active.actions.length
                 ? ` · ${active.actions.length} RELOCATIONS`
                 : ""}
             </span>
-            <em>+{active.score}</em>
+            <em>
+              {(active.distanceMillimeters / 1000).toFixed(1)} M
+            </em>
           </div>
           {active.trace ? (
             <div
@@ -5789,7 +5050,7 @@ export default function EverestObservatory() {
               ref={actionStatusHost}
               aria-live="polite"
             >
-              {active.actions?.length
+              {active.actions.length
                 ? `ACTION 1/${active.actions.length}`
                 : "ROUTE REPLAY"}
             </div>
@@ -5851,15 +5112,18 @@ export default function EverestObservatory() {
       )}
 
       {rankingsOpen ? (
-        <aside className="rankings" aria-label="Agent leaderboard">
+        <aside className="rankings" aria-label="Agent footprints">
           <small>
-            ALL-TIME · {leaderboard.length} IDENTITIES SHOWN
+            FOOTPRINT · {footprintProfiles.length} IDENTITIES SHOWN
           </small>
-          {leaderboard.map((entry, index) => (
+          {footprintProfiles.map((entry) => (
             <div key={entry.agent}>
-              <span>{String(index + 1).padStart(2, "0")}</span>
+              <span>{entry.acceptedExpeditions}E</span>
               <strong>{entry.agent}</strong>
-              <em>{entry.totalScore}</em>
+              <em>
+                {(entry.totalDistanceMillimeters / 1_000_000).toFixed(1)}
+                KM · {entry.activeAlterations}A
+              </em>
               <i className={entry.outcome.toLowerCase()} />
             </div>
           ))}

@@ -7,6 +7,10 @@ import type {
   CanonicalWorld,
 } from "../engine/types";
 import { currentHighestPoint } from "../engine/highest-point";
+import { CANDIDATE_LIMITS } from "../engine/constants";
+import { stancePoint } from "../engine/movement";
+import { decodeRouteProgram } from "../engine/route-codec";
+import type { TerrainOracle } from "../engine/terrain";
 import { loadDemBundle } from "./expedition-kit";
 
 function argument(name: string) {
@@ -69,7 +73,10 @@ function actionLabel(
 }
 
 function operationForAction(
-  action: CandidateCommit["proof"]["actions"][number],
+  action: {
+    source: { kind: string };
+    destination: { kind: string };
+  },
 ) {
   if (action.destination.kind === "BASE") return "RECOVER";
   if (action.source.kind === "BASE") return "ADD";
@@ -168,57 +175,43 @@ async function traceForEvent(
   event: CanonicalExpeditionEvent,
   config: TerrainConfig,
   metadata: DemMetadata,
+  oracle: TerrainOracle,
 ) {
-  if (!event.proofArtifact || event.proofArtifact.startsWith("sha256:")) {
-    return null;
-  }
   const bytes = await readFile(resolve(event.proofArtifact));
   if (hashBytes(bytes) !== event.candidateHash) {
     throw new Error(`Proof hash mismatch for event ${event.eventHash}.`);
   }
   const candidate = JSON.parse(bytes.toString("utf8")) as CandidateCommit;
-  const proof = candidate.proof as unknown as {
-    route: CandidateCommit["proof"]["route"];
-    actions?: CandidateCommit["proof"]["actions"];
-    mutation?: {
-      kind?: string;
-      destination?: { kind?: string };
+  const route = decodeRouteProgram(candidate.proof.route, {
+    maximumSteps: CANDIDATE_LIMITS.maximumDecodedRouteSteps,
+    requireCanonical: true,
+  }).stances.map((stance) => {
+    const point = stancePoint(stance.cell);
+    const truth = oracle.sample(point.x, point.z);
+    return {
+      ...point,
+      altitudeM: truth
+        ? truth.altitudeM + (point.y - truth.y)
+        : config.registration.verticalDatumM + point.y,
     };
-    pickupIndex?: number;
-    releaseIndex?: number;
-  };
-  const route = proof.route;
-  const actions = proof.actions ?? [];
-  const actionIndices =
-    proof.actions?.map((action) =>
+  });
+  const actions = candidate.proof.actions;
+  const actionIndices = actions.map((action) =>
       action.destination.kind === "BASE"
-        ? action.pickupIndex
-        : action.releaseIndex,
-    ) ??
-    [
-      proof.mutation?.destination?.kind === "BASE" ||
-      proof.mutation?.kind === "RECOVER"
-        ? proof.pickupIndex!
-        : proof.releaseIndex!,
-    ];
-  const validActionIndices = actionIndices.filter(
-    (index) => Number.isSafeInteger(index) && route[index],
+        ? action.pickupStep
+        : action.releaseStep,
   );
-  const actionIndex =
-    validActionIndices.length > 0
-      ? validActionIndices.reduce((highest, index) =>
-          route[index].altitudeM > route[highest].altitudeM
-            ? index
-            : highest,
-        )
-      : Math.max(0, route.length - 1);
+  const actionIndex = actionIndices.reduce((highest, index) =>
+    route[index].altitudeM > route[highest].altitudeM
+      ? index
+      : highest,
+  );
   const actionIndexSet = new Set(
     actions.flatMap((action) => [
-      action.pickupIndex,
-      action.releaseIndex,
+      action.pickupStep,
+      action.releaseStep,
     ]),
   );
-  validActionIndices.forEach((index) => actionIndexSet.add(index));
   const degrees = metadata.sampleSpacingArcSeconds / 3600;
   const stride = Math.max(1, Math.ceil(route.length / 220));
   const trace = route
@@ -258,8 +251,8 @@ async function traceForEvent(
         : [],
     );
   const actionTimeline = actions.map((action, index) => {
-    const pickup = route[action.pickupIndex];
-    const release = route[action.releaseIndex];
+    const pickup = route[action.pickupStep];
+    const release = route[action.releaseStep];
     return {
       order: index + 1,
       matterId: action.matterId,
@@ -268,11 +261,11 @@ async function traceForEvent(
       destinationKind: action.destination.kind,
       pickupFraction:
         route.length > 1
-          ? action.pickupIndex / (route.length - 1)
+          ? action.pickupStep / (route.length - 1)
           : 1,
       releaseFraction:
         route.length > 1
-          ? action.releaseIndex / (route.length - 1)
+          ? action.releaseStep / (route.length - 1)
           : 1,
       pickup: {
         x: pickup.x,
@@ -298,14 +291,27 @@ async function traceForEvent(
   });
   return {
     trace,
+    distanceMillimeters: Math.round(
+      route.slice(1).reduce((total, sample, index) => {
+        const from = route[index];
+        return (
+          total +
+          Math.hypot(
+            sample.x - from.x,
+            sample.y - from.y,
+            sample.z - from.z,
+          )
+        );
+      }, 0) * 1000,
+    ),
     releaseFraction:
       route.length > 1 ? actionIndex / (route.length - 1) : 1,
     actionFractions:
       route.length > 1
-        ? validActionIndices.map(
+        ? actionIndices.map(
             (index) => index / (route.length - 1),
           )
-        : validActionIndices.map(() => 1),
+        : actionIndices.map(() => 1),
     actions: actionTimeline,
   };
 }
@@ -323,22 +329,37 @@ const metadata = JSON.parse(
   await readFile(resolve("public/data/everest-dem.json"), "utf8"),
 ) as DemMetadata;
 const events = usesCanonicalWorld ? await loadEvents() : [];
-const totals = new Map<string, number>();
-for (const expedition of world.expeditions) {
-  totals.set(
-    expedition.agentId,
-    (totals.get(expedition.agentId) ?? 0) + expedition.score,
-  );
+const footprints = world.footprints;
+const footprintsByAgent = new Map(
+  footprints.map((footprint) => [
+    footprint.agentId.toLowerCase(),
+    footprint,
+  ]),
+);
+function footprintForFeed(agentId: string) {
+  const footprint = footprintsByAgent.get(agentId.toLowerCase());
+  if (!footprint) {
+    throw new Error(`Missing canonical footprint for ${agentId}.`);
+  }
+  return footprint;
 }
 const identities = new Map(
-  world.identities.map((identity) => [identity.id, identity.status]),
+  world.identities.map((identity) => [
+    identity.id.toLowerCase(),
+    identity.status,
+  ]),
 );
 
 const recentExpeditions =
   events.length > 0
     ? await Promise.all(
         events.map(async (event, index) => {
-          const route = await traceForEvent(event, config, metadata);
+          const route = await traceForEvent(
+            event,
+            config,
+            metadata,
+            terrain.oracle,
+          );
           return {
             id: event.candidateId,
             agent: event.agentId,
@@ -347,14 +368,14 @@ const recentExpeditions =
             color: COLORS[index % COLORS.length],
             returned: event.outcome === "ACTIVE",
             outcome: event.outcome,
-            enduranceUsed:
-              event.enduranceUsed ?? event.energyKj / 450,
-            score: event.score,
-            releaseFraction: route?.releaseFraction ?? 0.5,
-            actionFractions: route?.actionFractions ?? [],
-            actions: route?.actions ?? [],
-            totalScore: totals.get(event.agentId) ?? event.score,
-            trace: route?.trace ?? null,
+            enduranceUsed: event.enduranceUsed,
+            distanceMillimeters: event.distanceMillimeters,
+            alterationDelta: event.alterationDelta,
+            releaseFraction: route.releaseFraction,
+            actionFractions: route.actionFractions,
+            actions: route.actions,
+            footprint: footprintForFeed(event.agentId),
+            trace: route.trace,
           };
         }),
       )
@@ -369,23 +390,26 @@ const recentExpeditions =
         color: COLORS[index % COLORS.length],
         returned: expedition.outcome === "ACTIVE",
         outcome: expedition.outcome,
-        enduranceUsed:
-          expedition.enduranceUsed ?? expedition.oxygenUsed ?? 0,
-        score: expedition.score,
+        enduranceUsed: expedition.enduranceUsed,
+        distanceMillimeters: expedition.distanceMillimeters,
+        alterationDelta: expedition.alterationDelta,
         releaseFraction: 0.5,
-        totalScore: totals.get(expedition.agentId) ?? expedition.score,
+        actionFractions: [],
+        actions: [],
+        footprint: footprintForFeed(expedition.agentId),
         trace: null,
       }));
 
-const leaderboard = [...totals.entries()]
-  .map(([agent, totalScore]) => ({
-    agent,
-    totalScore,
-    outcome: identities.get(agent) ?? "ACTIVE",
+const footprintProfiles = footprints
+  .map((footprint) => ({
+    ...footprint,
+    agent: footprint.agentId,
+    outcome:
+      identities.get(footprint.agentId.toLowerCase()) ?? "ACTIVE",
   }))
   .sort(
     (left, right) =>
-      right.totalScore - left.totalScore || left.agent.localeCompare(right.agent),
+      left.agent.localeCompare(right.agent),
   )
   .slice(0, 50);
 const stonesById = new Map(
@@ -504,11 +528,11 @@ const surfaceTileArtifacts = [...chunksByTile.entries()]
   });
 
 const feed = {
-  schemaVersion: "1.4.0",
+  schemaVersion: "1.5.0",
   sequence: world.sequence,
   worldHash: world.worldHash,
   summitHeightM: 8848.86,
-  historicalSummit: {
+  everestSummit: {
     name: "Everest Summit",
     latitude: 27.9881,
     longitude: 86.925,
@@ -547,7 +571,7 @@ const feed = {
   },
   recentExpeditions,
   memorialClusters: buildMemorialClusters(world, config),
-  leaderboard,
+  footprints: footprintProfiles,
 };
 
 const badgeStats = {
