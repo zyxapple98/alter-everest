@@ -79,7 +79,6 @@ import {
   SKY_PHASES,
   type SkyPhase,
 } from "./everest/sky-cycle";
-import { siteRegionBoundaryPositions } from "./everest/site-region";
 
 interface DemMetadata {
   id: string;
@@ -1841,17 +1840,12 @@ function createSiteLabel(site: SiteAnchor) {
   element.className = `site-marker site-marker-${site.kind.toLowerCase()}`;
   element.dataset.priority = String(sitePriority(site));
   element.innerHTML = `
-    <span class="site-marker-beacon" aria-hidden="true"></span>
     <span class="site-marker-copy">
       <strong>${site.name}</strong>
-      <small>${Math.round(site.radiusM)} M REGION</small>
     </span>
+    <span class="site-marker-beacon" aria-hidden="true"></span>
   `;
   return element;
-}
-
-function siteLabelLiftM(site: SiteAnchor) {
-  return site.kind === "SUMMIT" ? 30 : 20;
 }
 
 function createRoute(
@@ -3187,50 +3181,12 @@ export default function EverestObservatory() {
                   site.longitude,
                 );
           const siteGroup = new THREE.Group();
-          const signalColor =
-            site.kind === "SUMMIT"
-              ? "#ffc86b"
-              : site.kind === "BASE"
-                ? "#8dffc1"
-                : "#72e9ff";
-          const regionMaterial = new THREE.LineDashedMaterial({
-            color: signalColor,
-            transparent: true,
-            opacity: site.kind === "SUMMIT" ? 0.72 : 0.54,
-            depthWrite: false,
-            dashSize: Math.max(
-              0.025,
-              site.radiusM * WORLD_UNITS_PER_METER * 0.075,
-            ),
-            gapSize: Math.max(
-              0.018,
-              site.radiusM * WORLD_UNITS_PER_METER * 0.045,
-            ),
-          });
-          const regionSegments = THREE.MathUtils.clamp(
-            Math.ceil(site.radiusM / 4),
-            28,
-            64,
-          );
-          const regionGeometry = new THREE.BufferGeometry();
-          const regionPosition = new THREE.BufferAttribute(
-            new Float32Array(regionSegments * 3),
-            3,
-          );
-          regionGeometry.setAttribute("position", regionPosition);
-          const region = new THREE.LineLoop(
-            regionGeometry,
-            regionMaterial,
-          );
-          region.renderOrder = 4;
-          const radiusWorld =
-            site.radiusM * WORLD_UNITS_PER_METER;
-          let regionCellM = -1;
-          let regionCenterY = point.y;
-          const updateRegion = (cellM: number) => {
-            if (regionCellM === cellM) return regionCenterY;
-            regionCellM = cellM;
-            regionCenterY = detailedSurfaceY(
+          let anchorCellM = -1;
+          let anchorSurfaceY = point.y;
+          const updateAnchor = (cellM: number) => {
+            if (anchorCellM === cellM) return anchorSurfaceY;
+            anchorCellM = cellM;
+            anchorSurfaceY = detailedSurfaceY(
               authority,
               authorityTerrain,
               point.x,
@@ -3239,48 +3195,22 @@ export default function EverestObservatory() {
               undefined,
               terrainStreamingContext,
             );
-            regionPosition.copyArray(
-              siteRegionBoundaryPositions({
-                centerX: point.x,
-                centerZ: point.z,
-                centerSurfaceY: regionCenterY,
-                radiusWorld,
-                segments: regionSegments,
-                sampleSurfaceY: (worldX, worldZ) =>
-                  detailedSurfaceY(
-                    authority,
-                    authorityTerrain,
-                    worldX,
-                    worldZ,
-                    cellM,
-                    undefined,
-                    terrainStreamingContext,
-                  ),
-              }),
-            );
-            regionPosition.needsUpdate = true;
-            region.computeLineDistances();
-            return regionCenterY;
+            return anchorSurfaceY;
           };
           siteGroup.position.set(
             point.x,
-            updateRegion(90) + 2.5 * WORLD_UNITS_PER_METER,
+            updateAnchor(90) + 2.5 * WORLD_UNITS_PER_METER,
             point.z,
           );
-          siteGroup.add(region);
           scene.add(siteGroup);
 
           const label = createSiteLabel(site);
           overlayHost.appendChild(label);
-          const labelPoint = point.clone();
-          labelPoint.y =
-            siteGroup.position.y +
-            siteLabelLiftM(site) * WORLD_UNITS_PER_METER;
+          const labelPoint = siteGroup.position.clone();
           return {
             site,
             siteGroup,
-            regionMaterial,
-            updateRegion,
+            updateAnchor,
             label,
             labelPoint,
           };
@@ -5249,12 +5179,9 @@ export default function EverestObservatory() {
         }> = [];
         prioritizedSiteObjects.forEach((siteObject) => {
           siteObject.siteGroup.position.y =
-            siteObject.updateRegion(currentCellM) +
+            siteObject.updateAnchor(currentCellM) +
             2.5 * WORLD_UNITS_PER_METER;
-          siteObject.labelPoint.y =
-            siteObject.siteGroup.position.y +
-            siteLabelLiftM(siteObject.site) *
-              WORLD_UNITS_PER_METER;
+          siteObject.labelPoint.copy(siteObject.siteGroup.position);
           if (manualReplayStarted.current > 0) {
             siteObject.label.style.opacity = "0";
             siteObject.label.style.visibility = "hidden";
@@ -5338,11 +5265,6 @@ export default function EverestObservatory() {
               : cameraDistance < 118
                 ? "mid"
                 : "far";
-          siteObject.regionMaterial.opacity =
-            (siteObject.site.kind === "SUMMIT" ? 0.64 : 0.48) +
-            (reduceMotion
-              ? 0
-              : Math.sin(seconds * 1.15 + priority) * 0.06);
         });
 
         updateCameraAtmosphere(atmosphere, camera);
@@ -5430,20 +5352,7 @@ export default function EverestObservatory() {
         disposeCameraAtmosphere(atmosphere);
         summitStone.geometry.dispose();
         (summitStone.material as THREE.Material).dispose();
-        siteObjects.forEach(
-          ({ siteGroup, regionMaterial, label }) => {
-            siteGroup.traverse((object) => {
-              if (
-                object instanceof THREE.Mesh ||
-                object instanceof THREE.Line
-              ) {
-                object.geometry.dispose();
-              }
-            });
-            regionMaterial.dispose();
-            label.remove();
-          },
-        );
+        siteObjects.forEach(({ label }) => label.remove());
         overlayHost.replaceChildren();
         renderer.dispose();
         if (host.contains(renderer.domElement)) {
