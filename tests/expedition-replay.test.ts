@@ -245,18 +245,71 @@ test("expedition replay has one terrain and stone state per frame", () => {
   assert.equal(complete.hiddenStoneIds.size, 0);
 });
 
-test("the canonical observatory feed reflects the current empty world", async () => {
-  const feed = JSON.parse(
-    await readFile(
+test("the canonical observatory feed reflects the current world", async () => {
+  const [feed, world] = await Promise.all([
+    readFile(
       new URL("../public/data/world/latest.json", import.meta.url),
       "utf8",
+    ).then((text) => JSON.parse(text) as ObservatoryFeed),
+    readFile(
+      new URL("../world/snapshot.json", import.meta.url),
+      "utf8",
+    ).then(JSON.parse),
+  ]);
+  assert.equal(feed.sequence, world.sequence);
+  assert.equal(feed.worldHash, world.worldHash);
+  assert.equal(
+    feed.recentExpeditions.length,
+    Math.min(3, world.expeditions.length),
+  );
+  assert.equal(
+    feed.footprints.length,
+    Math.min(50, world.footprints.length),
+  );
+  const identityStatus = new Map(
+    world.identities.map(
+      (identity: { id: string; status: "ACTIVE" | "DEAD" }) => [
+        identity.id.toLowerCase(),
+        identity.status,
+      ],
     ),
-  ) as ObservatoryFeed;
-  assert.equal(feed.sequence, 0);
-  assert.deepEqual(feed.recentExpeditions, []);
-  assert.deepEqual(feed.footprints, []);
-  assert.deepEqual(feed.surfaceTiles.tiles, []);
-  assert.equal(feed.worldSummary.expeditionCount, 0);
-  assert.equal(feed.worldSummary.stoneCount, 0);
-  assert.equal(feed.worldSummary.removedTerrainVoxelCount, 0);
+  );
+  assert.deepEqual(
+    feed.footprints,
+    world.footprints
+      .map(
+        (footprint: {
+          agentId: string;
+          acceptedExpeditions: number;
+          totalDistanceMillimeters: number;
+          activeTerrainRemovals: number;
+          activeStonePlacements: number;
+          activeAlterations: number;
+        }) => ({
+          ...footprint,
+          agent: footprint.agentId,
+          outcome:
+            identityStatus.get(footprint.agentId.toLowerCase()) ??
+            "ACTIVE",
+        }),
+      )
+      .sort(
+        (left: { agent: string }, right: { agent: string }) =>
+          left.agent.localeCompare(right.agent),
+      )
+      .slice(0, 50),
+  );
+  assert.equal(
+    feed.surfaceTiles.tiles.length,
+    world.modifiedTiles.length,
+  );
+  assert.equal(
+    feed.worldSummary.expeditionCount,
+    world.expeditions.length,
+  );
+  assert.equal(feed.worldSummary.stoneCount, world.stones.length);
+  assert.equal(
+    feed.worldSummary.removedTerrainVoxelCount,
+    world.removedTerrainVoxels.length,
+  );
 });

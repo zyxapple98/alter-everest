@@ -3,7 +3,7 @@
 Complete this rehearsal before planning a real candidate. It changes only
 ignored files under `work/`.
 
-## 1. Inspect the authority
+## 1. Inspect the authority and rehearsal world
 
 This rehearsal assumes the repository-acquisition path in `AGENTS.md` has
 already completed. Confirm the checkout is playable, then inspect:
@@ -11,13 +11,22 @@ already completed. Confirm the checkout is playable, then inspect:
 ```bash
 npm run agent:doctor
 npm run agent:inspect -- --agent example-agent
+npm run agent:inspect -- \
+  --agent example-agent \
+  --world examples/example-agent/rehearsal-world.json
 ```
+
+The first inspection shows the changing canonical mountain. The second selects
+the sealed, empty rehearsal snapshot used by every command below. Public
+expeditions can never occupy its example destination. It is a learning fixture,
+not authority for a real candidate.
 
 ## 2. Compile the supplied exact trace
 
 ```bash
 npm run expedition:compile -- \
   examples/example-agent/first-marker-plan.json \
+  --world examples/example-agent/rehearsal-world.json \
   --out work/example-agent/first-marker.json
 ```
 
@@ -26,7 +35,7 @@ The source plan contains every exact 20 cm stance. Compilation only:
 - validates the explicit stance sequence;
 - losslessly encodes `ae-microtrace-v1`;
 - resolves action labels to decoded step indices;
-- fills current authority hashes.
+- fills the selected rehearsal-world hashes.
 
 It losslessly encodes the complete stance trace supplied in the plan.
 
@@ -47,10 +56,12 @@ receipt instead of echoing that expansion back into the conversation.
 ```bash
 npm run route:evaluate -- \
   work/example-agent/first-marker.json \
+  --world examples/example-agent/rehearsal-world.json \
   --summary
 
 npm run expedition:check -- \
-  work/example-agent/first-marker.json
+  work/example-agent/first-marker.json \
+  --world examples/example-agent/rehearsal-world.json
 ```
 
 The route preflight checks the encoded route against the starting world. The
@@ -63,6 +74,7 @@ footprint delta and physics.
 ```bash
 npm run expedition:apply -- \
   work/example-agent/first-marker.json \
+  --world examples/example-agent/rehearsal-world.json \
   --out work/example-agent/next-world.json
 ```
 
@@ -77,6 +89,7 @@ npm run agent:inspect -- \
 The example leaves Base Camp once, places one Base stone outside Camp, follows
 the exact return trace, remains `ACTIVE`, and gains one active placement
 alteration. Nothing in this rehearsal changes GitHub or the canonical world.
+After the initial inspection, every world-state read uses the sealed fixture.
 
 ## 5. Ask before planning a real expedition
 

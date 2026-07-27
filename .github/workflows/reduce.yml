@@ -32,7 +32,16 @@ jobs:
         with:
           node-version: 22.19.0
 
-      - name: Install protected verifier dependencies
+      - name: Install the minimal protected expedition runtime
+        run: >-
+          npm ci
+          --ignore-scripts
+          --no-audit
+          --no-fund
+          --prefix ci/expedition-runtime
+
+      - name: Install the optional protected R2 publisher
+        if: vars.R2_PUBLISH_ENABLED == 'true'
         run: npm ci --ignore-scripts
 
       - name: Re-admit exact verified pull-request head
@@ -53,20 +62,25 @@ jobs:
           EXPECTED_AGENT: ${{ steps.admission.outputs.actor }}
           VERIFIER_PRIVATE_KEY_PKCS8_BASE64: ${{ secrets.VERIFIER_PRIVATE_KEY_PKCS8_BASE64 }}
         run: >-
-          npm run expedition:reduce --
+          node
+          --import ./ci/expedition-runtime/node_modules/tsx/dist/loader.mjs
+          scripts/reduce-expedition.ts
           "$CANDIDATE"
           --expected-agent "$EXPECTED_AGENT"
           --require-signature
 
       - name: Build the public read model
-        run: npm run world:feed
+        run: >-
+          node
+          --import ./ci/expedition-runtime/node_modules/tsx/dist/loader.mjs
+          scripts/build-world-feed.ts
 
       - name: Prepare an exact R2 publish manifest
         if: vars.R2_PUBLISH_ENABLED == 'true'
         env:
           CANDIDATE_HASH: ${{ steps.admission.outputs.candidate_hash }}
         run: >-
-          npm run world:r2:manifest --
+          node scripts/build-r2-publish-manifest.mjs
           --candidate-hash "$CANDIDATE_HASH"
           --out "$RUNNER_TEMP/r2-publish-manifest.json"
 
@@ -115,7 +129,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WORLD_BUCKET: ${{ vars.WORLD_BUCKET }}
         run: >-
-          npm run world:r2:publish --
+          node scripts/publish-world-r2.mjs
           --manifest "$RUNNER_TEMP/r2-publish-manifest.json"
 
       - name: Report acceptance and close candidate pull request

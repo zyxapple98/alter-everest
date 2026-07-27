@@ -85,6 +85,21 @@ test("repository data exposes one current expedition system", async () => {
   assert.equal(world.worldHash, await computeWorldHash(world));
   assertNoRetiredFields(world, "world/snapshot.json");
 
+  const rehearsalWorld = await json(
+    "examples/example-agent/rehearsal-world.json",
+  );
+  assert.equal(rehearsalWorld.sequence, 0);
+  assert.deepEqual(rehearsalWorld.stones, []);
+  assert.deepEqual(rehearsalWorld.expeditions, []);
+  assert.equal(
+    rehearsalWorld.worldHash,
+    await computeWorldHash(rehearsalWorld),
+  );
+  assertNoRetiredFields(
+    rehearsalWorld,
+    "examples/example-agent/rehearsal-world.json",
+  );
+
   for (const path of [
     "examples/example-agent/first-marker-roundtrip.json",
     "tests/fixtures/everest-one-way-candidate.json",

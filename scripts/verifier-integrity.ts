@@ -6,10 +6,11 @@ import { fileURLToPath } from "node:url";
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const AUTHORITY_FILES = [
+  "ci/expedition-runtime/package-lock.json",
+  "ci/expedition-runtime/package.json",
   "lib/protocol.ts",
   "lib/player-rules.ts",
   "lib/receipt.ts",
-  "package-lock.json",
   "package.json",
   "protocol/manifest.json",
   "protocol/player-rules.json",

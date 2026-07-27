@@ -2,8 +2,9 @@ FROM node:22.19.0-bookworm-slim@sha256:4a4884e8a44826194dff92ba316264f392056cbe2
 
 WORKDIR /verifier
 
-COPY --chown=node:node package.json package-lock.json ./
-RUN npm ci --ignore-scripts \
+COPY --chown=node:node package.json ./
+COPY --chown=node:node ci/expedition-runtime/package.json ci/expedition-runtime/package-lock.json ./ci/expedition-runtime/
+RUN npm ci --ignore-scripts --no-audit --no-fund --prefix ci/expedition-runtime \
     && npm cache clean --force
 
 COPY --chown=node:node engine ./engine
@@ -16,4 +17,4 @@ COPY --chown=node:node world ./world
 
 USER node
 
-ENTRYPOINT ["node", "--import", "tsx", "scripts/issue-receipt.ts"]
+ENTRYPOINT ["node", "--import", "./ci/expedition-runtime/node_modules/tsx/dist/loader.mjs", "scripts/issue-receipt.ts"]

@@ -40,6 +40,9 @@ or corbelled arches, short masonry bridges, buttressed halls and adequately
 based towers. Floating pieces, long decks, cables, eccentric cantilevers and
 needle towers are rejected.
 
+See the [visual stone-physics gallery](../../research/voxel-static-physics/README.md)
+for illustrated structural units and stable construction sequences.
+
 ## Excavation
 
 A terrain voxel can be quarried only when a face touches exterior air or an
