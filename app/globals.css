@@ -174,23 +174,36 @@ button {
 .site-marker-beacon {
   position: relative;
   flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
+  width: 20px;
+  height: 12px;
   border: 1px solid color-mix(in srgb, var(--cyan) 80%, white);
-  background: rgba(3, 14, 22, 0.82);
+  border-radius: 50%;
+  background: rgba(3, 14, 22, 0.46);
   box-shadow:
-    0 0 0 4px rgba(114, 233, 255, 0.08),
+    0 0 0 5px rgba(114, 233, 255, 0.05),
     0 0 17px rgba(114, 233, 255, 0.56);
+  transform: rotate(-10deg);
+}
+
+.site-marker-beacon::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  content: "";
+  border-radius: 50%;
+  background: rgba(224, 250, 255, 0.92);
+  box-shadow: 0 0 8px rgba(114, 233, 255, 0.9);
+  transform: translate(-50%, -50%);
 }
 
 .site-marker-beacon::after {
   position: absolute;
-  bottom: 8px;
-  left: 3px;
-  width: 1px;
-  height: 20px;
+  inset: 3px 4px;
   content: "";
-  background: linear-gradient(180deg, transparent, rgba(114, 233, 255, 0.78));
+  border: 1px dotted rgba(114, 233, 255, 0.64);
+  border-radius: 50%;
 }
 
 .site-marker-copy {
@@ -226,7 +239,7 @@ button {
 }
 
 .site-marker-summit .site-marker-beacon::after {
-  background: linear-gradient(180deg, transparent, var(--amber));
+  border-color: rgba(255, 200, 107, 0.78);
 }
 
 .site-marker-summit .site-marker-copy {
@@ -435,10 +448,11 @@ button {
 }
 
 .expedition-card {
+  --replay-progress: 0%;
   position: absolute;
   z-index: 7;
   left: 34px;
-  bottom: 132px;
+  bottom: 34px;
   width: 258px;
   padding: 17px 18px 16px;
   pointer-events: auto;
@@ -460,6 +474,33 @@ button {
   align-items: center;
   gap: 9px;
   margin-bottom: 10px;
+}
+
+.expedition-history {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+
+.expedition-history button {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--trace-color) 72%, white);
+  border-radius: 50%;
+  background: transparent;
+  opacity: 0.42;
+}
+
+.expedition-history button:hover,
+.expedition-history button:focus-visible,
+.expedition-history button[aria-pressed="true"] {
+  background: var(--trace-color);
+  box-shadow: 0 0 10px var(--trace-color);
+  opacity: 1;
+  outline: none;
 }
 
 .route-swatch {
@@ -514,6 +555,21 @@ button {
   font-size: 8px;
   line-height: 1.4;
   letter-spacing: 0.08em;
+}
+
+.expedition-progress {
+  height: 2px;
+  margin-top: 10px;
+  overflow: hidden;
+  background: rgba(224, 242, 245, 0.09);
+}
+
+.expedition-progress i {
+  display: block;
+  width: var(--replay-progress);
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--amber));
+  box-shadow: 0 0 12px rgba(114, 233, 255, 0.48);
 }
 
 .endurance-language {
@@ -585,141 +641,6 @@ button {
 
 .observatory[data-watching="true"] .expedition-card {
   border-top-color: rgba(255, 191, 102, 0.72);
-}
-
-.replay-dock {
-  --replay-progress: 0%;
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 8;
-  height: 100px;
-  display: grid;
-  grid-template-columns: 220px 1fr;
-  align-items: center;
-  gap: 24px;
-  padding: 12px 34px 10px;
-  border-top: 1px solid rgba(222, 240, 244, 0.15);
-  background: linear-gradient(180deg, rgba(3, 10, 16, 0.74), rgba(3, 10, 16, 0.94));
-  box-shadow: 0 -24px 70px rgba(1, 7, 12, 0.14);
-  backdrop-filter: blur(14px);
-  transition:
-    opacity 700ms ease,
-    transform 700ms ease;
-}
-
-.replay-progress {
-  position: absolute;
-  top: -1px;
-  right: 0;
-  left: 0;
-  height: 2px;
-  background: rgba(224, 242, 245, 0.08);
-}
-
-.replay-progress i {
-  display: block;
-  width: var(--replay-progress);
-  height: 100%;
-  background: linear-gradient(90deg, var(--cyan), var(--amber));
-  box-shadow: 0 0 14px rgba(114, 233, 255, 0.48);
-}
-
-.replay-title {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  pointer-events: none;
-  font-family: var(--mono);
-}
-
-.replay-title small {
-  color: rgba(213, 233, 237, 0.42);
-  font-size: 8px;
-  letter-spacing: 0.16em;
-}
-
-.replay-title strong {
-  color: rgba(244, 249, 246, 0.76);
-  font-size: 10px;
-  font-weight: 560;
-  letter-spacing: 0.09em;
-}
-
-.replay-list {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  min-width: 0;
-}
-
-.replay-list button {
-  display: grid;
-  grid-template-columns: 7px minmax(80px, 128px);
-  align-items: center;
-  gap: 10px;
-  min-width: 118px;
-  height: 55px;
-  padding: 0 13px;
-  color: rgba(229, 240, 240, 0.56);
-  cursor: pointer;
-  border: 1px solid rgba(222, 239, 241, 0.11);
-  border-radius: 0;
-  background: rgba(6, 18, 27, 0.35);
-  text-align: left;
-  transition:
-    color 160ms ease,
-    border-color 160ms ease,
-    background 160ms ease,
-    transform 160ms ease;
-}
-
-.replay-list button > i {
-  width: 6px;
-  height: 22px;
-  opacity: 0.5;
-}
-
-.replay-list button span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.replay-list button strong {
-  overflow: hidden;
-  font: 580 9px/1 var(--mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.replay-list button small {
-  color: rgba(211, 230, 233, 0.38);
-  font: 540 7px/1 var(--mono);
-  letter-spacing: 0.1em;
-}
-
-.replay-list button:hover,
-.replay-list button:focus-visible {
-  color: var(--paper);
-  border-color: rgba(114, 233, 255, 0.4);
-  background: rgba(10, 30, 43, 0.72);
-  outline: none;
-  transform: translateY(-2px);
-}
-
-.replay-list button[aria-pressed="true"] {
-  color: var(--paper);
-  border-color: rgba(114, 233, 255, 0.7);
-  background: linear-gradient(135deg, rgba(17, 48, 65, 0.78), rgba(7, 21, 31, 0.72));
-  box-shadow: inset 0 0 0 1px rgba(114, 233, 255, 0.06);
-}
-
-.replay-list button[aria-pressed="true"] > i {
-  opacity: 1;
-  box-shadow: 0 0 14px currentColor;
 }
 
 .view-scale {
@@ -1105,7 +1026,7 @@ button {
 .control-teaser {
   position: absolute;
   z-index: 10;
-  bottom: 124px;
+  bottom: 24px;
   left: 50%;
   display: flex;
   align-items: center;
@@ -1163,7 +1084,6 @@ button {
   }
 }
 
-.observatory[data-detail="true"] .replay-dock,
 .observatory[data-detail="true"] .site-overlay {
   display: none;
 }
@@ -1256,18 +1176,13 @@ button {
 }
 
 .observatory[data-ui="quiet"] .site-overlay,
-.observatory[data-ui="quiet"] .expedition-card,
-.observatory[data-ui="quiet"] .replay-dock {
+.observatory[data-ui="quiet"] .expedition-card {
   opacity: 0;
   pointer-events: none;
 }
 
 .observatory[data-ui="quiet"] .expedition-card {
   transform: translateY(9px);
-}
-
-.observatory[data-ui="quiet"] .replay-dock {
-  transform: translateY(12px);
 }
 
 .sr-only {
@@ -1286,23 +1201,6 @@ button {
   50% {
     opacity: 0.32;
   }
-}
-
-@media (max-width: 980px) {
-  .replay-dock {
-    grid-template-columns: 150px 1fr;
-  }
-
-  .replay-list button {
-    min-width: 90px;
-    grid-template-columns: 5px minmax(62px, 1fr);
-    padding: 0 9px;
-  }
-
-  .replay-list button small {
-    display: none;
-  }
-
 }
 
 @media (max-width: 720px) {
@@ -1383,7 +1281,7 @@ button {
   }
 
   .expedition-card {
-    bottom: 108px;
+    bottom: 17px;
     left: 17px;
     width: 205px;
     padding: 12px 13px;
@@ -1397,40 +1295,8 @@ button {
     display: none;
   }
 
-  .replay-dock {
-    height: 82px;
-    display: block;
-    padding: 13px 17px 9px;
-  }
-
-  .replay-title {
-    display: none;
-  }
-
-  .replay-list {
-    justify-content: stretch;
-    height: 100%;
-  }
-
-  .replay-list button {
-    min-width: 0;
-    height: 55px;
-    flex: 1 1 0;
-    grid-template-columns: 4px minmax(0, 1fr);
-    gap: 7px;
-    padding: 0 8px;
-  }
-
-  .replay-list button:nth-child(n + 4) {
-    display: none;
-  }
-
-  .replay-list button strong {
-    font-size: 8px;
-  }
-
   .control-teaser {
-    bottom: 98px;
+    bottom: 20px;
     gap: 16px;
     padding: 10px 15px;
   }
