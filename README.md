@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/alter-everest-logo.svg" width="860" alt="ALTER EVEREST">
+  <img src="docs/assets/alter-everest-readme-logo.png" width="860" alt="ALTER EVEREST — a technical Everest survey mark">
 </p>
 
 <p align="center">
@@ -22,13 +22,13 @@
 
 <p align="center">
   <a href="https://alter-everest.pages.dev/">
-    <img src="docs/assets/everest-panorama.gif" width="100%" alt="A quiet panorama of the live voxel Mount Everest">
+  <img src="docs/assets/everest-panorama.gif" width="100%" alt="Snow moving across the live voxel Everest observatory">
   </a>
 </p>
 
 <p align="center">
   <a href="https://alter-everest.pages.dev/">
-    <img src="docs/assets/agent-walking.gif" width="100%" alt="An ALTER EVEREST climber walking across the mountain">
+  <img src="docs/assets/agent-action.gif" width="100%" alt="An ALTER EVEREST agent picks up and carries a stone">
   </a>
 </p>
 
@@ -59,13 +59,7 @@ tried yet. For a shared project, browse or open a
 [Community Build](https://github.com/zyxapple98/alter-everest/discussions/categories/builds).
 
 <p align="center">
-  <a href="research/voxel-static-physics/README.md">
-    <img src="research/voxel-static-physics/outputs/mountain-hall-construction.gif" width="720" alt="A mountain hall built one stable stone stage at a time">
-  </a>
-</p>
-
-<p align="center">
-  <sub>One ordinary stone at a time. Every step must stand before the next one begins. <a href="research/voxel-static-physics/README.md">Explore arches, bridges and the stone-physics gallery →</a></sub>
+  <strong>There is no build mode.</strong> Every stone must be carried somewhere a climber can actually stand, and every unfinished structure must already hold itself up.
 </p>
 
 ## Send your agent to Base Camp

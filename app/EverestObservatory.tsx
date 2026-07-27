@@ -90,6 +90,7 @@ import {
   SKY_PHASES,
   type SkyPhase,
 } from "./everest/sky-cycle";
+import { createSnowField } from "./everest/snow-field";
 
 interface DemMetadata {
   id: string;
@@ -218,6 +219,7 @@ const WALK_CADENCE_RADIANS_PER_SECOND = 5.2;
 const WALK_VERTICAL_BOB_METERS = 0.035;
 const WALK_ARM_SWING_RADIANS = 0.22;
 const WATCH_TERRAIN_LOOKAHEAD_SECONDS = 12;
+const WATCH_CAMERA_LEAD_IN_SECONDS = 1.2;
 const OVERVIEW_TRACE_SLOT_SECONDS = 8;
 const SELECTED_HIGHLIGHT_SECONDS = 12;
 const EMPTY_MEMORIAL_CLUSTERS: MemorialCluster[] = [];
@@ -2280,6 +2282,7 @@ export default function EverestObservatory() {
   const viewScaleHost = useRef<HTMLDivElement>(null);
   const activeExpeditionRef = useRef(0);
   const manualReplayStarted = useRef(0);
+  const manualReplayReadyAt = useRef(0);
   const overviewReplayRef = useRef<{
     expeditionIndex: number;
     startedAt: number;
@@ -2326,6 +2329,7 @@ export default function EverestObservatory() {
   const [feed, setFeed] = useState(fallbackObservatoryFeed);
   const leaveExpeditionWatch = useCallback(() => {
     manualReplayStarted.current = 0;
+    manualReplayReadyAt.current = 0;
     setWatchingExpedition(null);
     navigationCommandRef.current = { type: "restore-watch-view" };
   }, []);
@@ -2566,6 +2570,8 @@ export default function EverestObservatory() {
         alpinePalette.atmosphere,
       );
       scene.add(atmosphere.root);
+      const snowField = createSnowField(WORLD_UNITS_PER_METER);
+      scene.add(snowField.root);
 
       // Keep navigation and all focus presets inside one canonical movement
       // envelope. Rendered terrain never uses this rectangle as a
@@ -3714,13 +3720,40 @@ export default function EverestObservatory() {
             trace.expeditionIndex === activeExpeditionRef.current,
         );
         const selectedManualTimeline = manualTrace?.fullTimeline;
-        const manualElapsedSeconds = Math.max(
-          0,
-          (time - manualReplayStarted.current) / 1000,
-        );
-        const manualPlayback =
+        const manualReplayRequested =
           manualReplayStarted.current > 0 &&
           selectedManualTimeline !== undefined;
+        const manualSubjectDistanceM = manualTrace
+          ? camera.position.distanceTo(manualTrace.group.position) /
+            WORLD_UNITS_PER_METER
+          : Number.POSITIVE_INFINITY;
+        const manualSubjectProjection = manualTrace
+          ? manualTrace.group.position.clone().project(camera)
+          : null;
+        const manualSubjectFramed =
+          manualSubjectProjection !== null &&
+          manualSubjectProjection.z > -1 &&
+          manualSubjectProjection.z < 1 &&
+          Math.abs(manualSubjectProjection.x) <= 0.7 &&
+          Math.abs(manualSubjectProjection.y) <= 0.7;
+        if (
+          manualReplayRequested &&
+          manualReplayReadyAt.current <= 0 &&
+          terrainSurfaceReady &&
+          cellSizeForResolution(nextResolution) <= 1.6 &&
+          manualSubjectDistanceM <= 12 &&
+          manualSubjectFramed
+        ) {
+          manualReplayReadyAt.current = time;
+        }
+        const manualElapsedSeconds = Math.max(
+          0,
+          manualReplayReadyAt.current > 0
+            ? (time - manualReplayReadyAt.current) / 1000 -
+                WATCH_CAMERA_LEAD_IN_SECONDS
+            : 0,
+        );
+        const manualPlayback = manualReplayRequested;
         const overviewReplay = overviewReplayRef.current;
         const overviewTrace =
           overviewReplay === null
@@ -4985,6 +5018,22 @@ export default function EverestObservatory() {
           );
         });
 
+        const snowProfile = snowField.update({
+          camera,
+          distanceM: cameraDistanceM,
+          deltaSeconds: elapsedSinceRender / 1000,
+          elapsedSeconds: seconds,
+          reducedMotion: reduceMotion,
+        });
+        renderer.domElement.dataset.snowScale = snowProfile.mode;
+        renderer.domElement.dataset.snowParticles = String(
+          snowProfile.visibleCount,
+        );
+        renderer.domElement.dataset.snowPixels =
+          snowProfile.pointPixels.toFixed(2);
+        renderer.domElement.dataset.watchReady = String(
+          !manualPlayback || manualReplayReadyAt.current > 0,
+        );
         updateCameraAtmosphere(atmosphere, camera);
         renderer.render(scene, camera);
       };
@@ -5068,6 +5117,7 @@ export default function EverestObservatory() {
           (surface.mesh.material as THREE.Material).dispose();
         });
         disposeCameraAtmosphere(atmosphere);
+        snowField.dispose();
         siteObjects.forEach(({ label }) => label.remove());
         overlayHost.replaceChildren();
         renderer.dispose();
@@ -5178,6 +5228,7 @@ export default function EverestObservatory() {
     overviewReplayRef.current = null;
     activeExpeditionRef.current = activeExpedition;
     manualReplayStarted.current = performance.now();
+    manualReplayReadyAt.current = 0;
     setWatchingExpedition(activeExpedition);
     const startingPoint = active.actions[0]?.pickup;
     if (startingPoint) {
