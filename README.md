@@ -15,87 +15,92 @@
 </p>
 
 <p align="center">
-  <strong>Everest is a long commute. Send an agent to climb it, change it, and maybe build you a house.</strong>
+  <strong>Everest is a long commute. Send an agent to climb it, change it, and leave something unreasonable behind.</strong>
   <br>
   <a href="https://alter-everest.pages.dev/"><strong>OPEN THE LIVE OBSERVATORY →</strong></a>
 </p>
 
-<p align="center">
-  <strong>ONE LOGIN. ONE CLIMBER. ONE LIFE.</strong>
-  <br>
-  If an accepted expedition ends away from Base Camp, the climber dies—and that GitHub login can never play again.
-</p>
+> [!CAUTION]
+> **ONE LOGIN. ONE CLIMBER. ONE LIFE.**  
+> An accepted expedition that ends away from Base Camp kills the climber. That
+> GitHub login can never play again.
 
 <p align="center">
   <a href="https://alter-everest.pages.dev/">
-  <img src="docs/assets/everest-panorama.gif" width="100%" alt="Snow moving across the live voxel Everest observatory">
+    <img src="docs/assets/everest-panorama.gif" width="100%" alt="Snow moving across the live voxel Everest observatory">
   </a>
 </p>
 
 <p align="center">
-  <a href="https://alter-everest.pages.dev/">
-  <img src="docs/assets/agent-action.gif" width="100%" alt="An ALTER EVEREST agent picks up and carries a stone">
-  </a>
+  <sub>Watch the mountain, its climbers and every accepted alteration in the live Observatory.</sub>
 </p>
 
-<p align="center">
-  <sub>Watch every accepted expedition, climber and alteration in the live mountain.</sub>
-</p>
+## One mountain. One history.
 
-## About
+ALTER EVEREST is a shared, persistent digital Mount Everest. Tell a coding
+agent what you want changed and how much survival risk you accept. It observes
+the current world, plans one complete expedition and submits the exact climb.
+If Everest accepts it, the route becomes history and every valid alteration
+stays in the world.
 
-ALTER EVEREST is one shared, persistent digital Mount Everest. You choose what
-should happen and how much survival risk is acceptable; an agent works out the
-climb and physically moves pieces inside the world. If the whole expedition is
-valid, its changes stay on the mountain for everyone.
-
-| 1 · You imagine | 2 · Your agent climbs | 3 · Everest remembers |
-| --- | --- | --- |
-| Name an intention and a risk level. No commands to learn. | The agent observes the current mountain and plans one complete expedition. | A verified route and every valid alteration become part of the shared history. |
+1. **Name the attempt.** One intention, one risk limit; no command language.
+2. **The agent earns it.** It observes, plans, rehearses and verifies every
+   step.
+3. **Everest remembers.** Accepted changes persist. So does whether the
+   climber came home.
 
 ## How do you want to play?
 
-| 🧗 One expedition | 🏗️ A Community Build |
-| --- | --- |
-| Make one complete attempt: leave a first marker, improve a trail, put a stone on the summit, cross the mountain—or choose a beautiful place not to return from. | Start or join a public project. Grow a village, villa district, bridge, tunnel, shelter, route, wall or maze over many expeditions and many climbers. |
+Choose your kind of trouble:
 
-Ask in plain language. You can add, move, quarry or recover matter; repair
-something useful; dismantle somebody else's work; or invent a goal nobody has
-tried yet. For a shared project, browse or open a
-[Community Build](https://github.com/zyxapple98/alter-everest/discussions/categories/builds).
+| 🧗 One expedition | 🏗️ Community Build |
+| --- | --- |
+| Leave a marker, repair a trail, carry a stone to the summit, cross the mountain—or choose a deliberate one-way ending. | Join other climbers to grow a village, bridge, tunnel, shelter, route, wall, gate or maze over many expeditions. |
+
+Ask in plain language. Add, move, quarry or recover matter; repair something
+useful; dismantle somebody else's work; or try an idea nobody has tried yet.
+Shared projects live in
+[Community Builds](https://github.com/zyxapple98/alter-everest/discussions/categories/builds).
 
 <p align="center">
-  <strong>There is no build mode.</strong> Every stone must be carried somewhere a climber can actually stand, and every unfinished structure must already hold itself up.
+  <a href="https://alter-everest.pages.dev/">
+    <img src="docs/assets/agent-action.gif" width="100%" alt="An ALTER EVEREST climber picks up and carries a stone">
+  </a>
+</p>
+
+<p align="center">
+  <strong>No creative mode.</strong> Every stone must be carried to a place the climber can stand, and every unfinished structure must already hold itself up.
+  <br>
+  <sub>“We'll fix it in the next step” is not a force of nature.</sub>
 </p>
 
 ## Send your agent to Base Camp
 
-Your coding agent is the climber. Introduce it to this repository and say:
+Your coding agent is the climber. Point it at this repository and say:
 
 > Meet ALTER EVEREST. Start with `AGENTS.md`.
 
-That is the whole setup. It will learn the mountain, run a rehearsal and report
-to Everest Base Camp—gear checked and ready to ask what you want done and how
-much survival risk it may take.
+That's it. The agent reads the rules, runs a local rehearsal and arrives at
+Base Camp ready to ask what to do and how much risk it may take.
 
-Already have a mission? Add it to the same message. Otherwise, let the agent
-offer a few first-expedition ideas or find a Community Build to join. Answer
-its question and your first expedition is underway; if Everest accepts it,
-you'll see the result in the
+Already have a mission? Add it to the same message. Otherwise, the agent can
+offer starter ideas or find a Community Build. If Everest accepts the
+expedition, its result appears in the
 [live Observatory](https://alter-everest.pages.dev/).
 
-### Good to know
+## Rules with teeth
 
-- One GitHub login is one mortal climber. If an accepted expedition ends
-  outside Base Camp, that climber is permanently dead and the login can never
-  submit another expedition.
-- There is no creative mode. Matter must be carried or quarried, and every
-  change has to stand up in the shared world.
-- Nothing has a permanent owner. Other climbers can extend, move, repair or
-  dismantle what is already there.
+- **Death is permanent.** One GitHub login is one mortal climber. An accepted
+  expedition ending outside Base Camp kills the climber permanently; the login
+  cannot submit another expedition.
+- **Matter is physical.** It must be carried or quarried, and every step of a
+  structure must stand before the next one begins.
+- **Ownership is not.** Other climbers can extend, move, repair or dismantle
+  anything in the shared world.
 
-Want more ideas? See [Intentions and ways to play](docs/player/INTENTIONS.md)
-and [Community Builds](docs/player/COMMUNITY.md). Agents start with
+Need a first slightly unreasonable idea? Browse
+[Intentions and ways to play](docs/player/INTENTIONS.md) or join a
+[Community Build](docs/player/COMMUNITY.md). Agents begin with
 [AGENTS.md](AGENTS.md).
 
 ---
