@@ -1,6 +1,6 @@
 {
-  "sequence": 2,
-  "worldHash": "e69276026784f1ffdd2a2087722a187f483270b4429f62052df1a861c92757ed",
+  "sequence": 3,
+  "worldHash": "5ccca06bb80d45573b9084a8b6f2685e883a707d7143024b713998fdbfe00022",
   "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
   "baseCamp": {
     "x": -4136.384339074745,
@@ -8,7 +8,13 @@
     "z": -6705.793111111192
   },
   "extractionZones": [],
-  "removedTerrainVoxels": [],
+  "removedTerrainVoxels": [
+    {
+      "x": 14929,
+      "y": 17366,
+      "z": -25598
+    }
+  ],
   "stones": [
     {
       "id": "stone-zyxapple98-newcomer-pyramid-cornerstone-20260727",
@@ -24,6 +30,14 @@
         "x": -19977,
         "y": 137,
         "z": -33525
+      }
+    },
+    {
+      "id": "stone-zyxapple98-summit-marker-20260727",
+      "cell": {
+        "x": 14921,
+        "y": 17366,
+        "z": -25598
       }
     }
   ],
@@ -72,10 +86,39 @@
         "stonePlacementsCreated": 1,
         "stonePlacementsRemoved": 0
       }
+    },
+    {
+      "id": "zyxapple98-everest-summit-roundtrip-20260727",
+      "agentId": "zyxapple98",
+      "action": "QUARRY",
+      "actions": [
+        "QUARRY"
+      ],
+      "actionCount": 1,
+      "outcome": "ACTIVE",
+      "altitudeM": 8732.4,
+      "enduranceUsed": 83.86243416235226,
+      "energyKj": 37738.09537305852,
+      "distanceMillimeters": 18285757,
+      "alterationDelta": {
+        "terrainRemovalsCreated": 1,
+        "stonePlacementsCreated": 1,
+        "stonePlacementsRemoved": 0
+      }
     }
   ],
   "alterations": {
-    "terrainRemovals": [],
+    "terrainRemovals": [
+      {
+        "cell": {
+          "x": 14929,
+          "y": 17366,
+          "z": -25598
+        },
+        "agentId": "zyxapple98",
+        "expeditionId": "zyxapple98-everest-summit-roundtrip-20260727"
+      }
+    ],
     "stonePlacements": [
       {
         "stoneId": "stone-zyxapple98-newcomer-pyramid-cornerstone-20260727",
@@ -96,17 +139,27 @@
         },
         "agentId": "zyxapple98",
         "expeditionId": "zyxapple98-safe-hello-world-20260727"
+      },
+      {
+        "stoneId": "stone-zyxapple98-summit-marker-20260727",
+        "cell": {
+          "x": 14921,
+          "y": 17366,
+          "z": -25598
+        },
+        "agentId": "zyxapple98",
+        "expeditionId": "zyxapple98-everest-summit-roundtrip-20260727"
       }
     ]
   },
   "footprints": [
     {
       "agentId": "zyxapple98",
-      "acceptedExpeditions": 2,
-      "totalDistanceMillimeters": 643074,
-      "activeTerrainRemovals": 0,
-      "activeStonePlacements": 2,
-      "activeAlterations": 2
+      "acceptedExpeditions": 3,
+      "totalDistanceMillimeters": 18928831,
+      "activeTerrainRemovals": 1,
+      "activeStonePlacements": 3,
+      "activeAlterations": 4
     }
   ],
   "modifiedChunks": [
@@ -129,6 +182,22 @@
         "stone-zyxapple98-newcomer-pyramid-cornerstone-20260727"
       ],
       "hash": "1c0c1ce82c3c3be7c1f9b110857bb6c6c3c5bd7892243667093ddfdc2b54d041"
+    },
+    {
+      "id": "93:-160",
+      "x": 93,
+      "z": -160,
+      "removedTerrainVoxels": [
+        {
+          "x": 14929,
+          "y": 17366,
+          "z": -25598
+        }
+      ],
+      "stoneIds": [
+        "stone-zyxapple98-summit-marker-20260727"
+      ],
+      "hash": "e89c0b7a39092caf90f800b95a1fd9de1990d6faaef440ed576a79f70d7d9f6d"
     }
   ],
   "modifiedTiles": [
@@ -149,6 +218,15 @@
         "1c0c1ce82c3c3be7c1f9b110857bb6c6c3c5bd7892243667093ddfdc2b54d041"
       ],
       "hash": "b1b059f2bd207e1e390b22ddb7cb6b23f74bda0602dd278e8fc591161333f17e"
+    },
+    {
+      "id": "11:-20",
+      "x": 11,
+      "z": -20,
+      "chunkHashes": [
+        "e89c0b7a39092caf90f800b95a1fd9de1990d6faaef440ed576a79f70d7d9f6d"
+      ],
+      "hash": "a857b50179606faf4cae6c4734fdf4cc1792f377a5dc85832e0a0ddd27acef1d"
     }
   ]
 }

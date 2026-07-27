@@ -1,0 +1,40 @@
+{
+  "receiptVersion": "1.3.0",
+  "candidateHash": "1648bc2dc024f4825109b40a2d3e3939da0f9c36b7b0077f1e46c0d557742a4d",
+  "candidateId": "zyxapple98-everest-summit-roundtrip-20260727",
+  "agentId": "zyxapple98",
+  "canonicalParent": "e69276026784f1ffdd2a2087722a187f483270b4429f62052df1a861c92757ed",
+  "terrainHash": "c22e5b03a84f2bb0e025bbeb06c8296057d7f3d2c0a51e1de300a42eb9a7e615",
+  "engineHash": "9f8be74582bb35a42060cfb94547d99702f9374c3ee91f95888e8b0eb3ca8539",
+  "issuedAt": null,
+  "result": {
+    "accepted": true,
+    "code": "ACCEPTED",
+    "action": "QUARRY",
+    "actions": [
+      "QUARRY"
+    ],
+    "actionCount": 1,
+    "stoneIds": [
+      "stone-zyxapple98-summit-marker-20260727"
+    ],
+    "outcome": "ACTIVE",
+    "enduranceUsed": 83.862434,
+    "energyKj": 37738.095373,
+    "distanceMillimeters": 18285757,
+    "footprintDelta": {
+      "terrainRemovalsCreated": 1,
+      "stonePlacementsCreated": 1,
+      "stonePlacementsRemoved": 0
+    },
+    "physicsCode": "STABLE",
+    "affectedStoneIds": [
+      "stone-zyxapple98-summit-marker-20260727"
+    ]
+  },
+  "signature": {
+    "algorithm": "Ed25519",
+    "keyId": "1772ca8eef433a87317793c1",
+    "value": "1QBHvx/Wbhy+cp+4pPka29Fsjp59xz4k4556a5tCFZolZ6bGEF4iPa09tur6hC/VspoffY/kCQYEFppcbE14CA=="
+  }
+}
