@@ -5,9 +5,13 @@ import type { ObservatoryFeed } from "../lib/world";
 import {
   agentVisualLod,
   createNormalReplayTimeline,
+  overviewReplayElapsedSeconds,
+  replayAgentVisualState,
   replayActionState,
   sampleActionMatterState,
+  sampleReplayLookahead,
   sampleReplayTimeline,
+  shouldReturnFromExpeditionWatch,
 } from "../app/everest/expedition-replay";
 import {
   expeditionReplayWorldState,
@@ -70,6 +74,90 @@ test("action state distinguishes approach, carry, placement, and completion", ()
   assert.equal(replayActionState(1, actions)?.phase, "complete");
 });
 
+test("large-scale agent state distinguishes walking and matter handling", () => {
+  const base = {
+    progress: 0.2,
+    moving: true,
+    holdKind: null,
+    actionIndex: null,
+    segmentProgress: 0.4,
+    ended: false,
+  } as const;
+  assert.equal(
+    replayAgentVisualState(base, {
+      index: 0,
+      completed: 0,
+      phase: "approaching",
+    }),
+    "walking-empty",
+  );
+  assert.equal(
+    replayAgentVisualState(base, {
+      index: 0,
+      completed: 0,
+      phase: "carrying",
+    }),
+    "walking-loaded",
+  );
+  assert.equal(
+    replayAgentVisualState(
+      { ...base, moving: false, holdKind: "pickup" },
+      null,
+    ),
+    "pickup",
+  );
+  assert.equal(
+    replayAgentVisualState(
+      { ...base, moving: false, holdKind: "release" },
+      null,
+    ),
+    "release",
+  );
+  assert.equal(
+    replayAgentVisualState({ ...base, ended: true }, null),
+    "complete",
+  );
+});
+
+test("watch returns promptly after camp arrival and never holds a terminal empty shot", () => {
+  assert.equal(
+    shouldReturnFromExpeditionWatch({
+      ended: true,
+      returned: true,
+      completedAtMilliseconds: 10_000,
+      nowMilliseconds: 11_499,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldReturnFromExpeditionWatch({
+      ended: true,
+      returned: true,
+      completedAtMilliseconds: 10_000,
+      nowMilliseconds: 11_500,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldReturnFromExpeditionWatch({
+      ended: true,
+      returned: false,
+      completedAtMilliseconds: 10_000,
+      nowMilliseconds: 14_000,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldReturnFromExpeditionWatch({
+      ended: false,
+      returned: true,
+      completedAtMilliseconds: 10_000,
+      nowMilliseconds: 20_000,
+    }),
+    false,
+  );
+});
+
 test("agent LOD is physical at work scale and signal-based at mountain scale", () => {
   const work = agentVisualLod(18);
   const encounter = agentVisualLod(70);
@@ -106,6 +194,54 @@ test("normal replay walks at human pace and pauses for matter handling", () => {
   assert.equal(pickup.moving, false);
   const walking = sampleReplayTimeline(timeline, 30);
   assert.equal(walking.moving, true);
+});
+
+test("overview participants keep real-time speed while starting at staggered positions", () => {
+  const timeline = createNormalReplayTimeline(
+    [
+      { progress: 0, distanceM: 0 },
+      { progress: 1, distanceM: 100 },
+    ],
+    [],
+  );
+  const firstAtTen = overviewReplayElapsedSeconds(
+    timeline,
+    10,
+    0,
+    4,
+  );
+  const firstAtEleven = overviewReplayElapsedSeconds(
+    timeline,
+    11,
+    0,
+    4,
+  );
+  const secondAtTen = overviewReplayElapsedSeconds(
+    timeline,
+    10,
+    1,
+    4,
+  );
+  assert.equal(firstAtEleven - firstAtTen, 1);
+  assert.notEqual(secondAtTen, firstAtTen);
+});
+
+test("watch terrain lookahead follows future replay time", () => {
+  const timeline = createNormalReplayTimeline(
+    [
+      { progress: 0, distanceM: 0 },
+      { progress: 1, distanceM: 100 },
+    ],
+    [],
+  );
+
+  const lookahead = sampleReplayLookahead(timeline, 8, 12);
+  assert.equal(lookahead.moving, true);
+  assert.equal(lookahead.progress, 0.25);
+  assert.equal(
+    sampleReplayLookahead(timeline, 79, 12).progress,
+    1,
+  );
 });
 
 test("matter exists in exactly one phase before, during, and after handling", () => {
@@ -260,7 +396,7 @@ test("the canonical observatory feed reflects the current world", async () => {
   assert.equal(feed.worldHash, world.worldHash);
   assert.equal(
     feed.recentExpeditions.length,
-    Math.min(3, world.expeditions.length),
+    Math.min(100, world.expeditions.length),
   );
   assert.equal(
     feed.footprints.length,

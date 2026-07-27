@@ -55,6 +55,13 @@ export interface ReplayTimelineSample {
   ended: boolean;
 }
 
+export type ReplayAgentVisualState =
+  | "walking-empty"
+  | "walking-loaded"
+  | "pickup"
+  | "release"
+  | "complete";
+
 export type ReplayMatterPhase =
   | "waiting"
   | "picking-up"
@@ -231,6 +238,44 @@ export function sampleReplayTimeline(
 }
 
 /**
+ * Samples a future route position for streaming lookahead. Replays retain
+ * human-scale holds, so this must advance timeline time rather than guessing
+ * from route distance or progress.
+ */
+export function sampleReplayLookahead(
+  timeline: ReplayTimeline,
+  elapsedSeconds: number,
+  lookaheadSeconds: number,
+) {
+  return sampleReplayTimeline(
+    timeline,
+    Math.max(0, elapsedSeconds) + Math.max(0, lookaheadSeconds),
+  );
+}
+
+/**
+ * Keeps every overview participant on its own real-time replay. The offset
+ * spreads a crowd around their routes without changing anyone's walking
+ * speed; the short terminal hold prevents a visible jump at the loop seam.
+ */
+export function overviewReplayElapsedSeconds(
+  timeline: ReplayTimeline,
+  wallSeconds: number,
+  participantIndex: number,
+  participantCount: number,
+) {
+  const cycleSeconds = timeline.totalSeconds + 3;
+  const safeCount = Math.max(1, participantCount);
+  const staggerSeconds =
+    (Math.max(0, participantIndex) / safeCount) * cycleSeconds;
+  const cycleElapsed =
+    ((Math.max(0, wallSeconds) + staggerSeconds) % cycleSeconds +
+      cycleSeconds) %
+    cycleSeconds;
+  return Math.min(cycleElapsed, timeline.totalSeconds);
+}
+
+/**
  * Resolves a single action's material state from timeline time rather than
  * route progress. Holds do not advance route progress, so progress alone
  * cannot distinguish the frame before a release from the frame after it.
@@ -318,6 +363,34 @@ export function replayActionState(
             ? "placing"
             : "complete";
   return { index, completed, phase };
+}
+
+export function replayAgentVisualState(
+  playback: ReplayTimelineSample,
+  actionState: ReplayActionState | null,
+): ReplayAgentVisualState {
+  if (playback.ended) return "complete";
+  if (playback.holdKind === "pickup") return "pickup";
+  if (playback.holdKind === "release") return "release";
+  return actionState?.phase === "carrying"
+    ? "walking-loaded"
+    : "walking-empty";
+}
+
+export function shouldReturnFromExpeditionWatch({
+  ended,
+  returned,
+  completedAtMilliseconds,
+  nowMilliseconds,
+}: {
+  ended: boolean;
+  returned: boolean;
+  completedAtMilliseconds: number;
+  nowMilliseconds: number;
+}) {
+  if (!ended || completedAtMilliseconds <= 0) return false;
+  const holdMilliseconds = returned ? 1_500 : 4_000;
+  return nowMilliseconds - completedAtMilliseconds >= holdMilliseconds;
 }
 
 /**

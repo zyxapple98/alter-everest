@@ -131,6 +131,32 @@ test("the canonical spawn is the sole Base site and lies on the DEM", async () =
   });
 });
 
+test("the observatory exposes fifteen synchronized real route sites", async () => {
+  const [canonical, published] = await Promise.all([
+    readFile(new URL("../world/sites.json", import.meta.url), "utf8").then(
+      JSON.parse,
+    ),
+    readFile(
+      new URL("../public/data/sites.json", import.meta.url),
+      "utf8",
+    ).then(JSON.parse),
+  ]);
+  assert.equal(canonical.sites.length, 15);
+  assert.deepEqual(published, canonical);
+  for (const id of [
+    "south-camp-1",
+    "western-cwm",
+    "south-camp-2",
+    "south-camp-3",
+    "geneva-spur",
+    "the-balcony",
+    "south-summit",
+    "hillary-step",
+  ]) {
+    assert.ok(canonical.sites.some((site: { id: string }) => site.id === id));
+  }
+});
+
 test("naturalized 20 cm columns map deterministically into 32 m chunks and 256 m tiles", () => {
   assert.equal(syntheticReliefM(123.4, -987.6), syntheticReliefM(123.4, -987.6));
   assert.ok(Math.abs(syntheticReliefM(123.4, -987.6)) <= 0.42);

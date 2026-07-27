@@ -163,26 +163,26 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 1px;
   width: max-content;
   opacity: 0;
   visibility: hidden;
   will-change: transform;
-  filter: drop-shadow(0 5px 14px rgba(1, 7, 12, 0.72));
+  filter: drop-shadow(0 2px 5px rgba(1, 7, 12, 0.78));
   transition: opacity 180ms ease;
 }
 
 .site-marker-beacon {
   position: relative;
   flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
+  width: 9px;
+  height: 9px;
   border: 1px solid color-mix(in srgb, var(--cyan) 80%, white);
   border-radius: 50% 50% 50% 0;
   background: rgba(3, 14, 22, 0.74);
   box-shadow:
-    0 0 0 4px rgba(114, 233, 255, 0.045),
-    0 0 14px rgba(114, 233, 255, 0.48);
+    0 0 0 2px rgba(114, 233, 255, 0.045),
+    0 0 9px rgba(114, 233, 255, 0.48);
   transform: rotate(-45deg);
 }
 
@@ -190,8 +190,8 @@ button {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 3px;
-  height: 3px;
+  width: 2px;
+  height: 2px;
   content: "";
   border-radius: 50%;
   background: rgba(224, 250, 255, 0.92);
@@ -200,18 +200,35 @@ button {
 }
 
 .site-marker-copy {
-  min-width: 138px;
-  padding: 7px 10px 6px;
-  border: 1px solid rgba(114, 233, 255, 0.18);
-  background: rgba(3, 13, 21, 0.68);
-  backdrop-filter: blur(8px);
+  box-sizing: border-box;
+  width: var(--site-label-width, auto);
+  min-width: 0;
+  padding: 1px 3px;
+  border: 0;
+  border-radius: 2px;
+  background: rgba(3, 13, 21, 0.38);
+  font-size: 0;
+  line-height: 0;
   text-align: center;
+  transform: translate(
+    var(--site-label-x, 0),
+    var(--site-label-y, 0)
+  );
+  transition: opacity 140ms ease;
+}
+
+.site-marker[data-label="hidden"] .site-marker-copy {
+  opacity: 0;
+  visibility: hidden;
 }
 
 .site-marker strong {
   color: rgba(247, 251, 247, 0.96);
-  font: 640 11px/1.1 var(--mono);
-  letter-spacing: 0.045em;
+  font: 620 8px/1.15 var(--mono);
+  letter-spacing: 0.025em;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.96),
+    0 0 5px rgba(0, 0, 0, 0.8);
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -236,21 +253,21 @@ button {
 
 .site-marker[data-lod="far"] .site-marker-copy {
   min-width: 0;
-  padding: 6px 9px;
+  padding: 1px 3px;
 }
 
 .site-marker[data-lod="far"] .site-marker-beacon {
-  width: 13px;
-  height: 13px;
+  width: 8px;
+  height: 8px;
 }
 
 .site-marker[data-lod="near"] .site-marker-copy {
-  background: rgba(3, 13, 21, 0.76);
+  background: rgba(3, 13, 21, 0.46);
 }
 
 .site-marker[data-lod="near"] .site-marker-beacon {
-  width: 11px;
-  height: 11px;
+  width: 8px;
+  height: 8px;
   opacity: 0.76;
 }
 
@@ -415,28 +432,39 @@ button {
 .expedition-history {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 3px;
   margin-left: auto;
 }
 
 .expedition-history button {
-  width: 7px;
-  height: 7px;
+  display: grid;
+  width: 32px;
+  height: 32px;
   padding: 0;
+  place-items: center;
   cursor: pointer;
-  border: 1px solid color-mix(in srgb, var(--trace-color) 72%, white);
-  border-radius: 50%;
-  background: transparent;
-  opacity: 0.42;
+  border: 1px solid rgba(218, 235, 238, 0.16);
+  border-radius: 2px;
+  color: rgba(231, 246, 248, 0.76);
+  background: rgba(5, 17, 24, 0.36);
+  font: 18px/1 var(--mono);
 }
 
 .expedition-history button:hover,
-.expedition-history button:focus-visible,
-.expedition-history button[aria-pressed="true"] {
-  background: var(--trace-color);
-  box-shadow: 0 0 10px var(--trace-color);
-  opacity: 1;
+.expedition-history button:focus-visible {
+  border-color: rgba(114, 233, 255, 0.72);
+  color: #f6ffff;
+  background: rgba(41, 105, 116, 0.32);
+  box-shadow: 0 0 12px rgba(114, 233, 255, 0.2);
   outline: none;
+}
+
+.expedition-history output {
+  min-width: 38px;
+  color: rgba(218, 235, 238, 0.58);
+  font-size: 8px;
+  letter-spacing: 0.05em;
+  text-align: center;
 }
 
 .route-swatch {
@@ -1233,13 +1261,13 @@ button {
 
   .site-marker-copy {
     min-width: 0;
-    padding: 6px 8px;
+    padding: 1px 3px;
   }
 
   .site-marker strong {
     max-width: 126px;
     overflow: hidden;
-    font-size: 9px;
+    font-size: 8px;
     text-overflow: ellipsis;
   }
 

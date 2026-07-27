@@ -23,6 +23,18 @@ export interface CanonicalWorldScale {
   z: number;
 }
 
+export interface TerrainGridWorldBounds {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export interface CanonicalWindowCell {
+  x: number;
+  z: number;
+}
+
 function metersPerDegreeLongitude(
   registration: CanonicalWorldRegistration,
 ) {
@@ -116,4 +128,57 @@ export function canonicalDistanceM(
   worldDeltaZ: number,
 ) {
   return Math.hypot(worldDeltaX / scale.x, worldDeltaZ / scale.z);
+}
+
+/**
+ * Quantises a scene-space point on a canonical metre grid. Streaming keys
+ * must use this conversion instead of dividing scene units by metre values.
+ */
+export function canonicalWindowCell(
+  registration: CanonicalWorldRegistration,
+  worldX: number,
+  worldZ: number,
+  cellM: number,
+): CanonicalWindowCell {
+  if (!Number.isFinite(cellM) || cellM <= 0) {
+    throw new Error("Canonical window cells require a positive size.");
+  }
+  const canonical = worldToCanonical(registration, worldX, worldZ);
+  return {
+    x: Math.floor(canonical.x / cellM),
+    z: Math.floor(canonical.z / cellM),
+  };
+}
+
+/**
+ * Returns the navigable scene-space rectangle for an elevation grid.
+ *
+ * Keeping this derived from the authority grid, rather than from an initial
+ * landmark/activity crop, lets a moving observer follow any legal route while
+ * retaining a small streamed detail working set.
+ */
+export function terrainGridWorldBounds(
+  registration: CanonicalWorldRegistration,
+  width: number,
+  height: number,
+  insetCells = 1,
+): TerrainGridWorldBounds {
+  if (
+    !Number.isInteger(width) ||
+    !Number.isInteger(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    !Number.isInteger(insetCells) ||
+    insetCells < 0 ||
+    insetCells * 2 > Math.min(width, height)
+  ) {
+    throw new Error("Terrain grid bounds require valid dimensions and inset.");
+  }
+  const { blockSize, xOrigin, zOrigin } = registration.terrain;
+  return {
+    minX: xOrigin + insetCells * blockSize,
+    maxX: xOrigin + (width - insetCells) * blockSize,
+    minZ: zOrigin + insetCells * blockSize,
+    maxZ: zOrigin + (height - insetCells) * blockSize,
+  };
 }

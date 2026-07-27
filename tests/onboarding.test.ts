@@ -596,7 +596,7 @@ test("observatory feed publishes the canonical footprint model", async () => {
     );
     assert.equal(
       feed.recentExpeditions.length,
-      Math.min(3, world.expeditions.length),
+      Math.min(100, world.expeditions.length),
     );
     assert.equal(
       feed.worldSummary.expeditionCount,
