@@ -7,6 +7,10 @@ import {
   disposeCameraAtmosphere,
   updateCameraAtmosphere,
 } from "../app/everest/atmosphere";
+import {
+  kathmanduSkyPhase,
+  SKY_PHASES,
+} from "../app/everest/sky-cycle";
 
 const palette = {
   top: "#02070e",
@@ -63,4 +67,26 @@ test("the atmosphere follows camera position without following rotation", () => 
   ]);
 
   disposeCameraAtmosphere(atmosphere);
+});
+
+test("the Kathmandu sky cycle makes early morning fully readable", () => {
+  const phaseAtLocalTime = (localIsoTime: string) =>
+    kathmanduSkyPhase(
+      new Date(`2026-07-26T${localIsoTime}:00+05:45`),
+    );
+
+  assert.equal(phaseAtLocalTime("04:30"), "night");
+  assert.equal(phaseAtLocalTime("05:45"), "dawn");
+  assert.equal(phaseAtLocalTime("07:10"), "day");
+  assert.equal(phaseAtLocalTime("18:30"), "dusk");
+  assert.equal(phaseAtLocalTime("20:00"), "night");
+});
+
+test("each sky phase has a continuous, non-black terrain horizon", () => {
+  for (const palette of Object.values(SKY_PHASES)) {
+    assert.equal(palette.fog, palette.atmosphere.horizon);
+    assert.notEqual(palette.atmosphere.top, "#000000");
+    assert.notEqual(palette.atmosphere.middle, "#000000");
+    assert.notEqual(palette.atmosphere.horizon, "#000000");
+  }
 });
