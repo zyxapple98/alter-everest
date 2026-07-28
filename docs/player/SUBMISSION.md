@@ -75,3 +75,15 @@ replays it against current HEAD:
 
 The freshness checkpoint reduces stale work but cannot eliminate the race
 before reducer admission. On `STALE_CONFLICT`, refresh, inspect and replan.
+
+## Protocol upgrades and accepted history
+
+Candidate admission always uses the current protocol and route codec. An old
+candidate that has not been accepted must be migrated, regenerated against the
+current authority and completely reverified before submission.
+
+An already accepted proof is immutable history. Its event records the verifier
+`engineHash` that accepted it, and later protocol releases do not retroactively
+re-admit or reject it. Read-only world and Observatory builders may retain a
+bounded decoder for an older route codec so the historical trace remains
+visible. That decoder is not available to current candidate admission.

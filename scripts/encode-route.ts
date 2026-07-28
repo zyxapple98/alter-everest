@@ -12,11 +12,11 @@ if (!inputPath || inputPath === "--help") {
     [
       "route:encode",
       "",
-      "Losslessly encode an exact local stance trace as ae-microtrace-v1.",
+      "Losslessly encode an exact local stance trace as ae-microtrace-v2.",
       "",
       "Usage: npm run route:encode -- <route.json> [--out <encoded-route.json>]",
       "",
-      "Input shape: { stances: [{ cell, mode, protected?, label? }], safeStop? }",
+      "Input shape: { stances: [{ cell, label? }], acceptOneWayDeath? }",
       "This command losslessly encodes the supplied stance cells.",
     ].join("\n"),
   );

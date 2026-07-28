@@ -12,13 +12,13 @@ function number(value) {
 function routeLocomotion(rules) {
   const rows = Object.entries(rules.climber.locomotion).map(
     ([mode, rule]) =>
-      `| ${mode} | ${rule.maximumSlopeDegrees}° | ${rule.maximumLoadedSlopeDegrees}° | ${rule.speedMps} m/s | ${
-        rule.requiresProtection ? "`protected: true`" : "no"
+      `| ${mode} | ${rule.maximumStepM} m | ${rule.maximumSlopeDegrees}° | ${rule.speedMps} m/s | ${
+        rule.stepSpeedMps === undefined ? "—" : `${rule.stepSpeedMps} m/s`
       } |`,
   );
   return [
-    "| Mode | Maximum slope | Maximum loaded slope | Speed | Protection |",
-    "| --- | ---: | ---: | ---: | --- |",
+    "| Derived mode | Maximum step | Maximum effective support slope | Surface speed | 20 cm step speed |",
+    "| --- | ---: | ---: | ---: | ---: |",
     ...rows,
   ].join("\n");
 }

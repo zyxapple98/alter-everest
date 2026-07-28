@@ -323,8 +323,6 @@ export async function validateCandidateCommit(
   const initialStance: RouteStance = {
     step: 0,
     cell: { ...candidate.proof.route.start },
-    mode: "WALK",
-    protected: false,
   };
   const initial = validateStance(view, initialStance);
   if (!initial.valid || !initial.sample) {
@@ -342,6 +340,7 @@ export async function validateCandidateCommit(
     candidate.proof,
     initial.sample,
     context.baseCamp,
+    terrain,
   );
   if (ledger.failureOrNull()) {
     return rejected(
@@ -427,8 +426,8 @@ export async function validateCandidateCommit(
         action,
         stancePoint(stance.cell),
         {
-          baseCamp: currentWorld.baseCamp,
-          stones: working.stones,
+          baseCamp: context.baseCamp,
+          view,
         },
       );
       if (!binding.valid) {
@@ -494,8 +493,8 @@ export async function validateCandidateCommit(
         nextAction,
         stancePoint(stance.cell),
         {
-          baseCamp: currentWorld.baseCamp,
-          stones: working.stones,
+          baseCamp: context.baseCamp,
+          view,
         },
       );
       if (!binding.valid) {
@@ -570,20 +569,6 @@ export async function validateCandidateCommit(
       },
     )) {
       const carrying = activeAction !== null;
-      const movement = validateMovement(
-        view,
-        transition.from,
-        transition.to,
-        transition.movement,
-        carrying,
-      );
-      if (!movement.valid) {
-        return rejectRoute(
-          movement.code as RouteFailureCode,
-          transition.to.step,
-          movement.obstacle,
-        );
-      }
       const stance = inspectCurrentStance(
         transition.to,
         carrying,
@@ -595,10 +580,25 @@ export async function validateCandidateCommit(
           stance.obstacle,
         );
       }
+      const movement = validateMovement(
+        view,
+        previousSample,
+        stance.sample,
+        transition.movement,
+        carrying,
+      );
+      if (!movement.valid) {
+        return rejectRoute(
+          movement.code as RouteFailureCode,
+          transition.to.step,
+          movement.obstacle,
+        );
+      }
       const routeFailureVerdict = ledger.advance(
         previousSample,
         stance.sample,
         transition.movement,
+        movement,
         carrying,
       );
       if (routeFailureVerdict) {

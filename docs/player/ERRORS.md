@@ -1,6 +1,6 @@
 # Error guidance
 
-`expedition:check` and route preflight return:
+`expedition:check` and the read-only `route:evaluate` replay return:
 
 ```json
 {
@@ -11,7 +11,7 @@
     "next": "...",
     "doc": "docs/player/ROUTE.md#locomotion",
     "limits": {
-      "climber.locomotion.WALK.maximumLoadedSlopeDegrees": 32
+      "climber.surfaceSlopePenaltyDegrees.ICE": 10
     }
   }
 }
@@ -34,7 +34,6 @@ document groups failures by the player module that owns the rule.
 ## Route and terrain
 
 - `BASE_REDEPARTURE_FORBIDDEN` — After the first return to Camp, the route cannot leave again.
-- `CLIMB_UNPROTECTED` — Every CLIMB micro-movement must enable personal protection.
 - `ENDURANCE_EXHAUSTED` — The integrated route energy exceeds the expedition capacity.
 - `OUTSIDE_TERRAIN` — A decoded stance lies outside the authoritative terrain.
 - `ROUTE_INVALID` — The route failed a public lifecycle, terrain, movement, or Endurance rule.
@@ -42,15 +41,16 @@ document groups failures by the player module that owns the rule.
 - `ROUTE_OBSTRUCTED` — Matter blocks the climber body during a submitted route phase.
 - `ROUTE_PROGRAM_INVALID` — The compact route program is malformed, non-canonical, or does not match its bounded step count.
 - `ROUTE_UNSUPPORTED` — A decoded stance has no legal terrain or stone support.
-- `SLOPE_EXCEEDED` — The selected locomotion mode is not valid for this slope and carried load.
+- `SLOPE_EXCEEDED` — The actual support surface is too steep after surface and carried-load penalties.
 - `START_OUTSIDE_BASE` — Every expedition starts inside Everest Base Camp.
-- `UNSAFE_TERMINAL` — A non-Base terminal point must be declared safe and satisfy walking slope.
-- `VERTICAL_STEP_EXCEEDED` — A WALK segment attempts a step too high for walking.
+- `UNSAFE_TERMINAL` — A non-Base terminal requires explicit one-way-death acceptance and a walk-safe support surface.
+- `VERTICAL_STEP_EXCEEDED` — A micro-movement exceeds the maximum bounded technical step height.
 
 ## Matter and timing
 
 - `ACTION_AFTER_BASE_RETURN` — No new action or WORLD release may occur after returning to Camp.
 - `ACTION_INDEX_INVALID` — Pickup and release steps are invalid, unordered, or overlap another carry interval.
+- `ACTION_OCCLUDED` — Solid terrain or stone blocks the direct interaction path.
 - `ACTION_POSITION_MISMATCH` — A non-Base pickup or release stance is too far from its matter cell.
 - `BASE_IMPORT_INSIDE_CAMP` — A new Base stone must be imported outside Base Camp.
 - `BASE_PICKUP_AFTER_DEPARTURE` — A Base stone must be picked up before the first departure.

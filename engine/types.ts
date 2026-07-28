@@ -77,28 +77,25 @@ export interface PhysicsVerdict {
 
 export type LocomotionMode = "WALK" | "SCRAMBLE" | "CLIMB";
 export type SurfaceKind = "ROCK" | "SNOW" | "ICE";
+export type SupportKind = "NATURAL" | "STONE";
 
 export interface MicroMovement {
   dx: number;
   dy: number;
   dz: number;
-  mode: LocomotionMode;
-  protected: boolean;
 }
 
 export interface RouteStance {
   step: number;
   cell: VoxelCoordinate;
-  mode: LocomotionMode;
-  protected: boolean;
 }
 
 export interface ExactRoute {
-  codec: "ae-microtrace-v1";
+  codec: "ae-microtrace-v2";
   start: VoxelCoordinate;
   stepCount: number;
   program: string;
-  safeStop?: boolean;
+  acceptOneWayDeath?: boolean;
 }
 
 // Derived verifier state. These fields are never candidate-supplied claims.
@@ -108,8 +105,7 @@ export interface RouteSample extends Vec3 {
   altitudeM: number;
   slopeDegrees: number;
   surface: SurfaceKind;
-  mode: LocomotionMode;
-  protected: boolean;
+  supportKind: SupportKind;
 }
 
 export interface ExpeditionProof {
@@ -126,9 +122,9 @@ export type RouteFailureCode =
   | "ROUTE_OBSTRUCTED"
   | "VERTICAL_STEP_EXCEEDED"
   | "SLOPE_EXCEEDED"
-  | "CLIMB_UNPROTECTED"
   | "ACTION_INDEX_INVALID"
   | "ACTION_POSITION_MISMATCH"
+  | "ACTION_OCCLUDED"
   | "ROUTE_NEVER_LEFT_BASE"
   | "BASE_REDEPARTURE_FORBIDDEN"
   | "ACTION_AFTER_BASE_RETURN"

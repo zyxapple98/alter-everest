@@ -20,7 +20,7 @@ if (!inputPath || inputPath === "--help") {
     [
       "route:decode",
       "",
-      "Expand canonical ae-microtrace-v1 for inspection and conformance tests.",
+      "Expand canonical ae-microtrace-v2 for inspection and conformance tests.",
       "",
       "Usage: npm run route:decode -- <route-or-candidate.json> [--summary] [--range <first:last> | --around-step <step>] [--out <stances.json>]",
       "",
@@ -94,16 +94,14 @@ const summary = {
     minimum,
     maximum,
   },
-  movementModes: Object.fromEntries(
-    ["WALK", "SCRAMBLE", "CLIMB"].map((mode) => [
-      mode,
-      decoded.movements.filter((movement) => movement.mode === mode)
-        .length,
-    ]),
+  verticalDeltas: Object.fromEntries(
+    [...new Set(decoded.movements.map((movement) => movement.dy))]
+      .sort((left, right) => left - right)
+      .map((dy) => [
+        String(dy),
+        decoded.movements.filter((movement) => movement.dy === dy).length,
+      ]),
   ),
-  protectedMovements: decoded.movements.filter(
-    (movement) => movement.protected,
-  ).length,
 };
 const output = summaryOnly
   ? summary

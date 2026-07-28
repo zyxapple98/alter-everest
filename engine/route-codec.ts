@@ -1,13 +1,12 @@
 import type {
   ExactRoute,
-  LocomotionMode,
   MicroMovement,
   RouteStance,
   VoxelCoordinate,
 } from "./types";
 import { ROUTE } from "./constants";
 
-export const EXACT_ROUTE_CODEC = "ae-microtrace-v1" as const;
+export const EXACT_ROUTE_CODEC = "ae-microtrace-v2" as const;
 
 const HORIZONTAL_DIRECTIONS = ROUTE.horizontalDirections;
 const MINIMUM_DY = ROUTE.minimumVerticalDeltaCells;
@@ -15,17 +14,12 @@ const MAXIMUM_DY = ROUTE.maximumVerticalDeltaCells;
 const MOVEMENT_OPCODE_COUNT =
   HORIZONTAL_DIRECTIONS.length * (MAXIMUM_DY - MINIMUM_DY + 1);
 const RUN = MOVEMENT_OPCODE_COUNT;
-const SET_WALK = RUN + 1;
-const SET_SCRAMBLE = RUN + 2;
-const SET_CLIMB = RUN + 3;
-const PROTECTION_OFF = RUN + 4;
-const PROTECTION_ON = RUN + 5;
 
 export const ROUTE_CODEC_LIMITS = {
   minimumDy: MINIMUM_DY,
   maximumDy: MAXIMUM_DY,
   movementOpcodes: MOVEMENT_OPCODE_COUNT,
-  maximumOpcode: PROTECTION_ON,
+  maximumOpcode: RUN,
 } as const;
 
 export interface RouteCodecOptions {
@@ -62,9 +56,7 @@ function sameMovement(
   return (
     left.dx === right.dx &&
     left.dy === right.dy &&
-    left.dz === right.dz &&
-    left.mode === right.mode &&
-    left.protected === right.protected
+    left.dz === right.dz
   );
 }
 
@@ -78,7 +70,7 @@ function movementOpcode(
     movement.dy < MINIMUM_DY ||
     movement.dy > MAXIMUM_DY
   ) {
-    throw new Error("Movement deltas are outside ae-microtrace-v1.");
+    throw new Error("Movement deltas are outside ae-microtrace-v2.");
   }
   const direction = HORIZONTAL_DIRECTIONS.findIndex(
     (entry) => entry.x === movement.dx && entry.z === movement.dz,
@@ -94,11 +86,7 @@ function movementOpcode(
   );
 }
 
-function movementFromOpcode(
-  opcode: number,
-  mode: LocomotionMode,
-  protectedState: boolean,
-): MicroMovement {
+function movementFromOpcode(opcode: number): MicroMovement {
   if (opcode < 0 || opcode >= MOVEMENT_OPCODE_COUNT) {
     throw new Error(`Invalid movement opcode ${opcode}.`);
   }
@@ -110,8 +98,6 @@ function movementFromOpcode(
     dx: direction.x,
     dy,
     dz: direction.z,
-    mode,
-    protected: protectedState,
   };
 }
 
@@ -176,36 +162,10 @@ function decodeBase64Url(value: string) {
   return bytes;
 }
 
-function modeOpcode(mode: LocomotionMode) {
-  if (mode === "WALK") return SET_WALK;
-  if (mode === "SCRAMBLE") return SET_SCRAMBLE;
-  return SET_CLIMB;
-}
-
-function appendStateChange(
-  output: number[],
-  current: { mode: LocomotionMode; protected: boolean },
-  movement: MicroMovement,
-) {
-  if (movement.mode !== current.mode) {
-    output.push(modeOpcode(movement.mode));
-    current.mode = movement.mode;
-  }
-  if (movement.protected !== current.protected) {
-    output.push(movement.protected ? PROTECTION_ON : PROTECTION_OFF);
-    current.protected = movement.protected;
-  }
-}
-
 export function encodeRouteProgram(movements: readonly MicroMovement[]) {
   const output: number[] = [];
-  const current: { mode: LocomotionMode; protected: boolean } = {
-    mode: "WALK",
-    protected: false,
-  };
   for (let index = 0; index < movements.length; ) {
     const movement = movements[index];
-    appendStateChange(output, current, movement);
     const opcode = movementOpcode(movement);
     let count = 1;
     while (
@@ -226,13 +186,6 @@ export function encodeRouteProgram(movements: readonly MicroMovement[]) {
   return canonicalBase64Url(Uint8Array.from(output));
 }
 
-function modeFromOpcode(opcode: number): LocomotionMode | null {
-  if (opcode === SET_WALK) return "WALK";
-  if (opcode === SET_SCRAMBLE) return "SCRAMBLE";
-  if (opcode === SET_CLIMB) return "CLIMB";
-  return null;
-}
-
 export function decodeRouteProgram(
   route: ExactRoute,
   options: RouteCodecOptions,
@@ -241,8 +194,6 @@ export function decodeRouteProgram(
     {
       step: 0,
       cell: { ...route.start },
-      mode: "WALK",
-      protected: false,
     },
   ];
   const movements: MicroMovement[] = [];
@@ -278,15 +229,10 @@ export function validateRouteProgram(
   }
 
   const bytes = decodeBase64Url(route.program);
-  let mode: LocomotionMode = "WALK";
-  let protectedState = false;
   let offset = 0;
   let previousMovementOpcode: number | null = null;
   let previousPlainCount = 0;
   let previousInstructionWasRun = false;
-  let pendingModeChange = false;
-  let pendingProtectionChange = false;
-  let stateChangedSinceMovement = false;
   let decodedSteps = 0;
 
   const appendMovement = (opcode: number, count: number, fromRun: boolean) => {
@@ -298,7 +244,6 @@ export function validateRouteProgram(
     }
     if (
       options.requireCanonical !== false &&
-      !stateChangedSinceMovement &&
       opcode === previousMovementOpcode
     ) {
       if (fromRun || previousInstructionWasRun) {
@@ -311,13 +256,10 @@ export function validateRouteProgram(
     } else {
       previousPlainCount = fromRun ? 0 : count;
     }
-    movementFromOpcode(opcode, mode, protectedState);
+    movementFromOpcode(opcode);
     decodedSteps += count;
     previousMovementOpcode = opcode;
     previousInstructionWasRun = fromRun;
-    pendingModeChange = false;
-    pendingProtectionChange = false;
-    stateChangedSinceMovement = false;
   };
 
   while (offset < bytes.length) {
@@ -337,51 +279,9 @@ export function validateRouteProgram(
       appendMovement(movement, decoded.value, true);
       continue;
     }
-    const nextMode = modeFromOpcode(opcode);
-    if (nextMode) {
-      if (nextMode === mode) {
-        throw new Error("Redundant locomotion state change is not canonical.");
-      }
-      if (
-        options.requireCanonical !== false &&
-        (pendingModeChange || pendingProtectionChange)
-      ) {
-        throw new Error(
-          "Locomotion state changes must be singular and precede protection changes.",
-        );
-      }
-      mode = nextMode;
-      pendingModeChange = true;
-      stateChangedSinceMovement = true;
-      continue;
-    }
-    if (opcode === PROTECTION_OFF || opcode === PROTECTION_ON) {
-      const nextProtection = opcode === PROTECTION_ON;
-      if (nextProtection === protectedState) {
-        throw new Error("Redundant protection state change is not canonical.");
-      }
-      if (
-        options.requireCanonical !== false &&
-        pendingProtectionChange
-      ) {
-        throw new Error(
-          "Protection state may change only once before a movement.",
-        );
-      }
-      protectedState = nextProtection;
-      pendingProtectionChange = true;
-      stateChangedSinceMovement = true;
-      continue;
-    }
     throw new Error(`Unknown route opcode ${opcode}.`);
   }
 
-  if (
-    options.requireCanonical !== false &&
-    (pendingModeChange || pendingProtectionChange)
-  ) {
-    throw new Error("Route program ends with an unused state change.");
-  }
   if (decodedSteps !== route.stepCount) {
     throw new Error(
       `Route program decodes to ${decodedSteps} steps, expected ${route.stepCount}.`,
@@ -396,24 +296,18 @@ export function* iterateRouteTransitions(
 ): Generator<RouteTransition> {
   validateRouteProgram(route, options);
   const bytes = decodeBase64Url(route.program);
-  let mode: LocomotionMode = "WALK";
-  let protectedState = false;
   let offset = 0;
   let from: RouteStance = {
     step: 0,
     cell: { ...route.start },
-    mode,
-    protected: protectedState,
   };
 
-  while (offset < bytes.length) {
-    const opcode = bytes[offset++];
-    if (opcode < MOVEMENT_OPCODE_COUNT) {
-      const movement = movementFromOpcode(
-        opcode,
-        mode,
-        protectedState,
-      );
+  const emit = function* (
+    movementOpcodeValue: number,
+    count: number,
+  ): Generator<RouteTransition> {
+    const movement = movementFromOpcode(movementOpcodeValue);
+    for (let repeat = 0; repeat < count; repeat += 1) {
       const to: RouteStance = {
         step: from.step + 1,
         cell: {
@@ -421,49 +315,27 @@ export function* iterateRouteTransitions(
           y: from.cell.y + movement.dy,
           z: from.cell.z + movement.dz,
         },
-        mode: movement.mode,
-        protected: movement.protected,
       };
       yield { from, to, movement: { ...movement } };
       from = to;
+    }
+  };
+
+  while (offset < bytes.length) {
+    const opcode = bytes[offset++];
+    if (opcode < MOVEMENT_OPCODE_COUNT) {
+      yield* emit(opcode, 1);
       continue;
     }
-    if (opcode === RUN) {
-      const movementOpcodeValue = bytes[offset++];
-      const decoded = decodeUnsigned(bytes, offset);
-      offset = decoded.offset;
-      const movement = movementFromOpcode(
-        movementOpcodeValue,
-        mode,
-        protectedState,
-      );
-      for (let repeat = 0; repeat < decoded.value; repeat += 1) {
-        const to: RouteStance = {
-          step: from.step + 1,
-          cell: {
-            x: from.cell.x + movement.dx,
-            y: from.cell.y + movement.dy,
-            z: from.cell.z + movement.dz,
-          },
-          mode: movement.mode,
-          protected: movement.protected,
-        };
-        yield { from, to, movement: { ...movement } };
-        from = to;
-      }
-      continue;
-    }
-    const nextMode = modeFromOpcode(opcode);
-    if (nextMode) {
-      mode = nextMode;
-      continue;
-    }
-    protectedState = opcode === PROTECTION_ON;
+    const movementOpcodeValue = bytes[offset++];
+    const decoded = decodeUnsigned(bytes, offset);
+    offset = decoded.offset;
+    yield* emit(movementOpcodeValue, decoded.value);
   }
 }
 
 export function movementsFromStances(
-  stances: readonly Omit<RouteStance, "step">[],
+  stances: readonly Pick<RouteStance, "cell">[],
 ) {
   if (stances.length < 2) {
     throw new Error("An exact trace needs at least two stances.");
@@ -479,8 +351,6 @@ export function movementsFromStances(
       dx: to.cell.x - from.cell.x,
       dy: to.cell.y - from.cell.y,
       dz: to.cell.z - from.cell.z,
-      mode: to.mode,
-      protected: to.protected,
     };
     movementOpcode(movement);
     movements.push(movement);
@@ -489,8 +359,8 @@ export function movementsFromStances(
 }
 
 export function exactRouteFromStances(
-  stances: readonly Omit<RouteStance, "step">[],
-  safeStop = false,
+  stances: readonly Pick<RouteStance, "cell">[],
+  acceptOneWayDeath = false,
 ): ExactRoute {
   const movements = movementsFromStances(stances);
   return {
@@ -498,6 +368,87 @@ export function exactRouteFromStances(
     start: { ...stances[0].cell },
     stepCount: movements.length,
     program: encodeRouteProgram(movements),
-    ...(safeStop ? { safeStop: true } : {}),
+    ...(acceptOneWayDeath ? { acceptOneWayDeath: true } : {}),
   };
+}
+
+interface HistoricalV1Route {
+  codec: "ae-microtrace-v1";
+  start: VoxelCoordinate;
+  stepCount: number;
+  program: string;
+  safeStop?: boolean;
+}
+
+/**
+ * Read-only compatibility for immutable accepted proof artifacts. Candidate
+ * admission and verification still accept ae-microtrace-v2 only.
+ */
+export function decodeStoredRouteProgram(
+  route: ExactRoute | HistoricalV1Route,
+  options: RouteCodecOptions,
+): DecodedRoute {
+  if (route.codec === EXACT_ROUTE_CODEC) {
+    return decodeRouteProgram(route, options);
+  }
+  if (
+    !Number.isSafeInteger(route.stepCount) ||
+    route.stepCount < 1 ||
+    route.stepCount > options.maximumSteps
+  ) {
+    throw new Error("Historical route step count is outside current bounds.");
+  }
+  const bytes = decodeBase64Url(route.program);
+  const stances: RouteStance[] = [
+    { step: 0, cell: { ...route.start } },
+  ];
+  const movements: MicroMovement[] = [];
+  let offset = 0;
+  let current = stances[0];
+
+  const append = (opcode: number, count: number) => {
+    const movement = movementFromOpcode(opcode);
+    if (movements.length + count > route.stepCount) {
+      throw new Error("Historical route exceeds its declared step count.");
+    }
+    for (let repeat = 0; repeat < count; repeat += 1) {
+      const next = {
+        step: current.step + 1,
+        cell: {
+          x: current.cell.x + movement.dx,
+          y: current.cell.y + movement.dy,
+          z: current.cell.z + movement.dz,
+        },
+      };
+      movements.push({ ...movement });
+      stances.push(next);
+      current = next;
+    }
+  };
+
+  while (offset < bytes.length) {
+    const opcode = bytes[offset++];
+    if (opcode < MOVEMENT_OPCODE_COUNT) {
+      append(opcode, 1);
+      continue;
+    }
+    if (opcode === RUN) {
+      if (offset >= bytes.length) {
+        throw new Error("Truncated historical RUN movement.");
+      }
+      const movementOpcodeValue = bytes[offset++];
+      const decoded = decodeUnsigned(bytes, offset);
+      offset = decoded.offset;
+      append(movementOpcodeValue, decoded.value);
+      continue;
+    }
+    if (opcode >= RUN + 1 && opcode <= RUN + 6) {
+      continue;
+    }
+    throw new Error(`Unknown historical route opcode ${opcode}.`);
+  }
+  if (movements.length !== route.stepCount) {
+    throw new Error("Historical route does not match its step count.");
+  }
+  return { stances, movements };
 }

@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { CLIMBER, TERRAIN } from "../engine/constants";
-import { voxelCenter } from "../engine/mutation";
+import {
+  createMovementWorldView,
+  validateStance,
+  walkSafeSupport,
+} from "../engine/movement";
+import { isInsideBaseCamp, voxelCenter } from "../engine/mutation";
 import { currentTopVoxel } from "../engine/surface";
 import { formatPlayerHelp, PLAYER_DOCS } from "../lib/player-rules";
 import { loadCanonicalWorld, loadDemBundle } from "./expedition-kit";
@@ -15,18 +20,18 @@ function usage() {
 const help = formatPlayerHelp({
   command: "site:query",
   purpose:
-    "Resolve a named Everest site into local coordinates, exact 20 cm surface cells, zone status, and safe-stop observations.",
+    "Resolve a named Everest site into local coordinates, exact 20 cm surface cells, zone status, and one-way-terminal observations.",
   usage: usage(),
   sections: [
     {
       heading: "Authority",
       lines: [
-        "Grounded cells and safe stops are planning hints, not placement or route approval.",
+        "Grounded cells and one-way terminals are planning hints, not placement or route approval.",
       ],
     },
   ],
   output:
-    "JSON site anchor, terrain, zones, candidate cell, safe stops, and exact follow-up queries.",
+    "JSON site anchor, terrain, zones, candidate cell, one-way terminals, and exact follow-up queries.",
   next: [
     "Run world:query around the anchor.",
     "Run terrain:query for exact cells or a planning chunk.",
@@ -91,7 +96,8 @@ const z =
 const truth = terrain.oracle.sample(x, z);
 if (!truth) throw new Error(`Site ${site.id} is outside authoritative terrain.`);
 
-const safeStopCandidates = [];
+const movementView = createMovementWorldView(world, terrain.oracle);
+const oneWayTerminalCandidates = [];
 const radialSteps = 6;
 const angularSteps = 16;
 for (let radialStep = 0; radialStep <= radialSteps; radialStep += 1) {
@@ -101,13 +107,6 @@ for (let radialStep = 0; radialStep <= radialSteps; radialStep += 1) {
     const angle = (Math.PI * 2 * angularStep) / samples;
     const candidateX = x + Math.cos(angle) * radiusM;
     const candidateZ = z + Math.sin(angle) * radiusM;
-    const candidateTruth = terrain.oracle.sample(candidateX, candidateZ);
-    if (
-      !candidateTruth ||
-      candidateTruth.slopeDegrees > CLIMBER.maxWalkSlopeDegrees
-    ) {
-      continue;
-    }
     const candidateColumnX = Math.floor(
       candidateX / TERRAIN.voxelEdgeM,
     );
@@ -121,25 +120,39 @@ for (let radialStep = 0; radialStep <= radialSteps; radialStep += 1) {
       candidateColumnZ,
     );
     if (candidateTop === null) continue;
-    safeStopCandidates.push({
-      x: candidateX,
-      y: candidateTruth.y,
-      z: candidateZ,
-      altitudeM:
-        terrain.config.registration.verticalDatumM + candidateTruth.y,
-      slopeDegrees: candidateTruth.slopeDegrees,
-      surface: candidateTruth.surface,
-      safeStop: true,
-      exactStance: {
-        x: candidateColumnX,
-        y: candidateTop + 1,
-        z: candidateColumnZ,
-      },
+    const supportTop = world.stones.reduce(
+      (top, stone) =>
+        stone.cell.x === candidateColumnX &&
+        stone.cell.z === candidateColumnZ
+          ? Math.max(top, stone.cell.y)
+          : top,
+      candidateTop,
+    );
+    const exactStance = {
+      x: candidateColumnX,
+      y: supportTop + 1,
+      z: candidateColumnZ,
+    };
+    const stance = validateStance(movementView, {
+      step: 0,
+      cell: exactStance,
+    });
+    if (!stance.sample || !walkSafeSupport(stance.sample)) continue;
+    oneWayTerminalCandidates.push({
+      x: stance.sample.x,
+      y: stance.sample.y,
+      z: stance.sample.z,
+      altitudeM: stance.sample.altitudeM,
+      slopeDegrees: stance.sample.slopeDegrees,
+      surface: stance.sample.surface,
+      supportKind: stance.sample.supportKind,
+      acceptOneWayDeath: true,
+      exactStance,
       distanceFromAnchorM: radiusM,
     });
   }
 }
-const nearbySafeStops = safeStopCandidates
+const nearbyOneWayTerminals = oneWayTerminalCandidates
   .sort(
     (left, right) =>
       left.distanceFromAnchorM - right.distanceFromAnchorM ||
@@ -174,8 +187,11 @@ console.log(
       terrain: truth,
       distanceFromBaseM,
       zones: {
-        insideBaseCamp:
-          distanceFromBaseM <= CLIMBER.baseCampRadiusM + 1e-6,
+        insideBaseCamp: isInsideBaseCamp(
+          voxelCenter(groundedCell),
+          world,
+          terrain.oracle,
+        ),
         insideSpawnCore:
           distanceFromBaseM < CLIMBER.protectedSpawnRadiusM,
       },
@@ -187,9 +203,9 @@ console.log(
         note:
           "A planning hint only. Recheck interaction reach, route clearance, occupancy and full static physics.",
       },
-      nearbySafeStops: {
+      nearbyOneWayTerminals: {
         maximumWalkSlopeDegrees: CLIMBER.maxWalkSlopeDegrees,
-        samples: nearbySafeStops,
+        samples: nearbyOneWayTerminals,
         note:
           "Route-terminal planning hints within the site radius. Recheck route clearance and the full verifier.",
       },

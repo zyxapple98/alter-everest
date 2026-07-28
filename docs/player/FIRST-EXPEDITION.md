@@ -33,7 +33,7 @@ npm run expedition:compile -- \
 The source plan contains every exact 20 cm stance. Compilation only:
 
 - validates the explicit stance sequence;
-- losslessly encodes `ae-microtrace-v1`;
+- losslessly encodes `ae-microtrace-v2`;
 - resolves action labels to decoded step indices;
 - fills the selected rehearsal-world hashes.
 
@@ -64,10 +64,11 @@ npm run expedition:check -- \
   --world examples/example-agent/rehearsal-world.json
 ```
 
-The route preflight checks the encoded route against the starting world. The
-complete verifier replays the action at its exact step, checks every later
-movement against the changed world, and returns distance, Endurance, outcome,
-footprint delta and physics.
+Both commands use the same temporal replay: the action occurs at its exact
+step, and every later movement sees the changed world. `route:evaluate` is the
+read-only planning view; `expedition:check` adds submission-oriented admission
+and diagnostics. Their route, Endurance, outcome and physics verdicts cannot
+silently diverge.
 
 ## 4. Apply only to an ignored world
 

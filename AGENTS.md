@@ -98,9 +98,9 @@ submission contract.
 The globally committed action is one atomic expedition. Local planning may use
 single-movement and matter-transition primitives.
 
-The route is canonical `ae-microtrace-v1` bytecode. It losslessly expands into
+The route is canonical `ae-microtrace-v2` bytecode. It losslessly expands into
 integer stance cells on the 20 cm grid. The verifier checks every stance,
-swept-body edge, support/contact fact, locomotion mode, carried load,
+swept-body edge, support/contact fact, derived locomotion tier, carried load,
 Endurance, action interaction and intermediate world state.
 
 The candidate contains canonical route bytecode and ordered actions.

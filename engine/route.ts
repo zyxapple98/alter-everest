@@ -6,22 +6,16 @@ import {
   TERRAIN,
 } from "./constants";
 import {
-  createMovementWorldView,
   stancePoint,
-  validateMovement,
-  validateStance,
+  walkSafeSupport,
 } from "./movement";
 import { isInsideBaseCamp } from "./mutation";
-import {
-  decodeRouteProgram,
-  iterateRouteTransitions,
-} from "./route-codec";
+import { decodeRouteProgram } from "./route-codec";
 import type { TerrainOracle } from "./terrain";
 import type {
   ExpeditionProof,
   LocomotionMode,
   MicroMovement,
-  PhysicsSnapshot,
   RouteFailureCode,
   RouteSample,
   RouteStance,
@@ -29,6 +23,7 @@ import type {
   SurfaceKind,
   Vec3,
 } from "./types";
+import type { MovementVerdict } from "./movement";
 
 export interface DecodedCandidateRoute {
   stances: RouteStance[];
@@ -44,36 +39,18 @@ export interface EnduranceSegment {
   mode: LocomotionMode;
   surface: SurfaceKind;
   altitudeM: number;
+  speedMps: number;
+  elapsedSeconds: number;
   energyKj: number;
   endurance: number;
-}
-
-export interface RouteEvaluation {
-  verdict: RouteVerdict;
-  endurance: {
-    capacity: number;
-    kilojoulesPerEndurance: number;
-    energyKj: number;
-    enduranceUsed: number;
-    enduranceRemaining: number;
-    segmentCount: number;
-  };
 }
 
 function horizontalDistance(a: Vec3, b: Vec3) {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
 
-function speedFor(mode: LocomotionMode) {
-  if (mode === "WALK") return CLIMBER.walkSpeedMps;
-  if (mode === "SCRAMBLE") return CLIMBER.scrambleSpeedMps;
-  return CLIMBER.climbSpeedMps;
-}
-
-function terrainFactor(surface: SurfaceKind) {
-  if (surface === "SNOW") return CLIMBER.snowTerrainFactor;
-  if (surface === "ICE") return CLIMBER.iceTerrainFactor;
-  return CLIMBER.rockTerrainFactor;
+function surfaceMultiplier(surface: SurfaceKind) {
+  return ENDURANCE_MODEL.surfaceMultipliers[surface];
 }
 
 function altitudeMultiplier(altitudeM: number) {
@@ -88,32 +65,6 @@ function altitudeMultiplier(altitudeM: number) {
       (model.maximumAltitudeM - model.minimumAltitudeM)) *
       (model.maximumMultiplier - 1)
   );
-}
-
-function pandolfWatts(
-  bodyMassKg: number,
-  loadMassKg: number,
-  speedMps: number,
-  gradePercent: number,
-  factor: number,
-) {
-  const model = ENDURANCE_MODEL.metabolicModel;
-  const totalMass = bodyMassKg + loadMassKg;
-  const loadRatio = loadMassKg / bodyMassKg;
-  const base =
-    model.baseBodyFactor * bodyMassKg +
-    model.loadRatioFactor * totalMass * loadRatio * loadRatio;
-  const terrain =
-    factor *
-    totalMass *
-    (model.speedSquaredFactor * speedMps * speedMps +
-      model.gradeFactor *
-        speedMps *
-        Math.max(
-          model.minimumGradePercent,
-          Math.min(model.maximumGradePercent, gradePercent),
-        ));
-  return Math.max(model.minimumWatts, base + terrain);
 }
 
 export function validateActionSteps(proof: ExpeditionProof) {
@@ -194,41 +145,58 @@ export function enduranceSegment(
   from: RouteSample,
   to: RouteSample,
   movement: MicroMovement,
+  movementVerdict: Pick<
+    MovementVerdict,
+    "mode" | "effectiveSpeedMps"
+  >,
   carrying: boolean,
 ): EnduranceSegment {
-  const distanceM =
-    Math.hypot(movement.dx, movement.dy, movement.dz) *
-    TERRAIN.voxelEdgeM;
   const horizontalM =
     Math.hypot(movement.dx, movement.dz) * TERRAIN.voxelEdgeM;
-  const speedMps = speedFor(movement.mode);
-  const seconds = distanceM / speedMps;
-  const gradePercent = ((to.y - from.y) / horizontalM) * 100;
-  const watts = pandolfWatts(
-    CLIMBER.bodyMassKg,
-    carrying ? PHYSICS.stoneMassKg : 0,
-    speedMps,
-    gradePercent,
-    terrainFactor(to.surface),
+  const ascentM = Math.max(0, to.y - from.y);
+  const descentM = Math.max(0, from.y - to.y);
+  const distanceM = Math.hypot(
+    horizontalM,
+    ascentM + descentM,
   );
+  const speedMps = movementVerdict.effectiveSpeedMps;
+  const seconds = distanceM / speedMps;
+  const model = ENDURANCE_MODEL.additiveModel;
+  const totalMassKg =
+    CLIMBER.bodyMassKg + (carrying ? PHYSICS.stoneMassKg : 0);
+  const baseKj =
+    totalMassKg *
+    (horizontalM * model.horizontalKilojoulesPerKgM +
+      ascentM * model.ascentKilojoulesPerKgM +
+      descentM * model.descentKilojoulesPerKgM);
   const altitudeM = (from.altitudeM + to.altitudeM) / 2;
   const energyKj =
-    (watts * altitudeMultiplier(altitudeM) * seconds) / 1000;
+    baseKj *
+    model.locomotionMultipliers[movementVerdict.mode] *
+    surfaceMultiplier(to.surface) *
+    altitudeMultiplier(altitudeM);
   return {
     fromStep: from.step,
     toStep: to.step,
     distanceM,
-    ascentM: to.y - from.y,
+    ascentM,
     carrying,
-    mode: movement.mode,
+    mode: movementVerdict.mode,
     surface: to.surface,
     altitudeM,
+    speedMps,
+    elapsedSeconds: seconds,
     energyKj,
     endurance: energyKj / CLIMBER.kilojoulesPerEndurance,
   };
 }
 
-function segmentTouchesCamp(from: Vec3, to: Vec3, baseCamp: Vec3) {
+function segmentTouchesCamp(
+  from: Vec3,
+  to: Vec3,
+  baseCamp: Vec3,
+  terrain: TerrainOracle,
+) {
   const dx = to.x - from.x;
   const dz = to.z - from.z;
   const lengthSquared = dx * dx + dz * dz;
@@ -246,9 +214,11 @@ function segmentTouchesCamp(from: Vec3, to: Vec3, baseCamp: Vec3) {
         );
   const closestX = from.x + dx * projection;
   const closestZ = from.z + dz * projection;
-  return (
-    Math.hypot(closestX - baseCamp.x, closestZ - baseCamp.z) <=
-    CLIMBER.baseCampRadiusM + 1e-9
+  const closestY = from.y + (to.y - from.y) * projection;
+  return isInsideBaseCamp(
+    { x: closestX, y: closestY, z: closestZ },
+    { baseCamp },
+    terrain,
   );
 }
 
@@ -260,7 +230,6 @@ export class ExactRouteLedger {
   private elapsedSeconds = 0;
   private distanceM = 0;
   private loadedDistanceM = 0;
-  private segmentCount = 0;
   private maximumAltitudeM: number;
   private terminal: RouteSample;
 
@@ -268,12 +237,13 @@ export class ExactRouteLedger {
     private readonly proof: ExpeditionProof,
     first: RouteSample,
     private readonly baseCamp: Vec3,
+    private readonly terrain: TerrainOracle,
   ) {
     this.maximumAltitudeM = first.altitudeM;
     this.terminal = first;
     if (!validateActionSteps(proof)) {
       this.failure = this.failureVerdict("ACTION_INDEX_INVALID", 0);
-    } else if (!isInsideBaseCamp(first, { baseCamp })) {
+    } else if (!isInsideBaseCamp(first, { baseCamp }, terrain)) {
       this.failure = this.failureVerdict("START_OUTSIDE_BASE", 0);
     } else if (
       proof.actions.filter((action) => action.source.kind === "BASE")
@@ -335,6 +305,7 @@ export class ExactRouteLedger {
     from: RouteSample,
     to: RouteSample,
     movement: MicroMovement,
+    movementVerdict: MovementVerdict,
     carrying: boolean,
   ) {
     if (this.failure) return this.failure;
@@ -344,12 +315,16 @@ export class ExactRouteLedger {
       to.altitudeM,
     );
 
-    const fromInside = isInsideBaseCamp(from, {
-      baseCamp: this.baseCamp,
-    });
-    const toInside = isInsideBaseCamp(to, {
-      baseCamp: this.baseCamp,
-    });
+    const fromInside = isInsideBaseCamp(
+      from,
+      { baseCamp: this.baseCamp },
+      this.terrain,
+    );
+    const toInside = isInsideBaseCamp(
+      to,
+      { baseCamp: this.baseCamp },
+      this.terrain,
+    );
     if (!this.departed && !toInside) {
       this.departed = true;
       const lateWithdrawal = this.proof.actions.find(
@@ -368,7 +343,7 @@ export class ExactRouteLedger {
         this.returned = true;
       } else if (
         !fromInside &&
-        segmentTouchesCamp(from, to, this.baseCamp)
+        segmentTouchesCamp(from, to, this.baseCamp, this.terrain)
       ) {
         return this.reject("BASE_REDEPARTURE_FORBIDDEN", to.step);
       }
@@ -390,11 +365,15 @@ export class ExactRouteLedger {
       return this.reject("BASE_REDEPARTURE_FORBIDDEN", to.step);
     }
 
-    const segment = enduranceSegment(from, to, movement, carrying);
-    this.segmentCount += 1;
+    const segment = enduranceSegment(
+      from,
+      to,
+      movement,
+      movementVerdict,
+      carrying,
+    );
     this.energyKj += segment.energyKj;
-    this.elapsedSeconds +=
-      segment.distanceM / speedFor(segment.mode);
+    this.elapsedSeconds += segment.elapsedSeconds;
     this.distanceM += segment.distanceM;
     if (carrying) this.loadedDistanceM += segment.distanceM;
     if (
@@ -414,13 +393,15 @@ export class ExactRouteLedger {
         this.terminal.step,
       );
     }
-    const returnsToBase = isInsideBaseCamp(this.terminal, {
-      baseCamp: this.baseCamp,
-    });
+    const returnsToBase = isInsideBaseCamp(
+      this.terminal,
+      { baseCamp: this.baseCamp },
+      this.terrain,
+    );
     if (
       !returnsToBase &&
-      (!this.proof.route.safeStop ||
-        this.terminal.slopeDegrees > CLIMBER.maxWalkSlopeDegrees)
+      (!this.proof.route.acceptOneWayDeath ||
+        !walkSafeSupport(this.terminal))
     ) {
       return this.reject("UNSAFE_TERMINAL", this.terminal.step);
     }
@@ -449,133 +430,6 @@ export class ExactRouteLedger {
     };
   }
 
-  evaluation(verdict = this.finish()): RouteEvaluation {
-    return {
-      verdict,
-      endurance: {
-        capacity: CLIMBER.enduranceCapacity,
-        kilojoulesPerEndurance:
-          CLIMBER.kilojoulesPerEndurance,
-        energyKj: verdict.energyKj,
-        enduranceUsed: verdict.enduranceUsed,
-        enduranceRemaining: verdict.enduranceRemaining,
-        segmentCount: this.segmentCount,
-      },
-    };
-  }
-}
-
-function carryingAtStep(
-  proof: ExpeditionProof,
-  step: number,
-  actionIndex: number,
-) {
-  let cursor = actionIndex;
-  while (
-    cursor < proof.actions.length &&
-    step >= proof.actions[cursor].releaseStep
-  ) {
-    cursor += 1;
-  }
-  const action = proof.actions[cursor];
-  return {
-    actionIndex: cursor,
-    carrying:
-      Boolean(action) &&
-      step >= action.pickupStep &&
-      step < action.releaseStep,
-  };
-}
-
-export function validateRoute(
-  proof: ExpeditionProof,
-  world: PhysicsSnapshot & { baseCamp: Vec3 },
-  terrain: TerrainOracle,
-): RouteEvaluation {
-  const initialStance: RouteStance = {
-    step: 0,
-    cell: { ...proof.route.start },
-    mode: "WALK",
-    protected: false,
-  };
-  const view = createMovementWorldView(world, terrain);
-  const first = validateStance(view, initialStance);
-  if (!first.valid || !first.sample) {
-    const verdict = invalid(
-      first.code as RouteFailureCode,
-      0,
-      { obstacle: first.obstacle },
-    );
-    return {
-      verdict,
-      endurance: {
-        capacity: CLIMBER.enduranceCapacity,
-        kilojoulesPerEndurance:
-          CLIMBER.kilojoulesPerEndurance,
-        energyKj: 0,
-        enduranceUsed: 0,
-        enduranceRemaining: CLIMBER.enduranceCapacity,
-        segmentCount: 0,
-      },
-    };
-  }
-
-  const ledger = new ExactRouteLedger(
-    proof,
-    first.sample,
-    world.baseCamp,
-  );
-  let previousSample = first.sample;
-  let actionIndex = 0;
-  try {
-    for (const transition of iterateRouteTransitions(proof.route, {
-      maximumSteps: CANDIDATE_LIMITS.maximumDecodedRouteSteps,
-      requireCanonical: true,
-    })) {
-      const carryingState = carryingAtStep(
-        proof,
-        transition.from.step,
-        actionIndex,
-      );
-      actionIndex = carryingState.actionIndex;
-      const movement = validateMovement(
-        view,
-        transition.from,
-        transition.to,
-        transition.movement,
-        carryingState.carrying,
-      );
-      if (!movement.valid) {
-        const verdict = ledger.reject(
-          movement.code as RouteFailureCode,
-          transition.to.step,
-          movement.obstacle,
-        );
-        return ledger.evaluation(verdict);
-      }
-      const stance = validateStance(view, transition.to);
-      if (!stance.valid || !stance.sample) {
-        const verdict = ledger.reject(
-          stance.code as RouteFailureCode,
-          transition.to.step,
-          stance.obstacle,
-        );
-        return ledger.evaluation(verdict);
-      }
-      const failure = ledger.advance(
-        previousSample,
-        stance.sample,
-        transition.movement,
-        carryingState.carrying,
-      );
-      if (failure) return ledger.evaluation(failure);
-      previousSample = stance.sample;
-    }
-  } catch {
-    const verdict = ledger.reject("ROUTE_PROGRAM_INVALID", 0);
-    return ledger.evaluation(verdict);
-  }
-  return ledger.evaluation();
 }
 
 export function startPointForProof(proof: ExpeditionProof) {

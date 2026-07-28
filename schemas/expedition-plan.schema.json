@@ -49,14 +49,10 @@
     "stance": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cell", "mode"],
+      "required": ["cell"],
       "properties": {
         "label": { "$ref": "#/$defs/identifier" },
-        "cell": { "$ref": "#/$defs/voxel" },
-        "mode": {
-          "enum": ["WALK", "SCRAMBLE", "CLIMB"]
-        },
-        "protected": { "type": "boolean" }
+        "cell": { "$ref": "#/$defs/voxel" }
       }
     },
     "route": {
@@ -68,22 +64,9 @@
           "type": "array",
           "minItems": 2,
           "maxItems": 250001,
-          "prefixItems": [
-            {
-              "allOf": [
-                { "$ref": "#/$defs/stance" },
-                {
-                  "properties": {
-                    "mode": { "const": "WALK" },
-                    "protected": { "const": false }
-                  }
-                }
-              ]
-            }
-          ],
           "items": { "$ref": "#/$defs/stance" }
         },
-        "safeStop": { "type": "boolean" }
+        "acceptOneWayDeath": { "type": "boolean" }
       }
     },
     "source": {

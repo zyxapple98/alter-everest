@@ -62,19 +62,17 @@ proof
     start
     stepCount
     program
-    safeStop?
+    acceptOneWayDeath?
   actions[1..512]
 ```
 
 The candidate is limited to 262,144 bytes. The decoded route is limited to
 250,000 movements. It contains only declarative data.
 
-The route codec is `ae-microtrace-v1`. It losslessly represents:
+The route codec is `ae-microtrace-v2`. It losslessly represents:
 
 - the initial integer stance cell;
-- each signed 20 cm cell delta;
-- `WALK`, `SCRAMBLE` or `CLIMB`;
-- whether personal protection is enabled.
+- each signed 20 cm cell delta.
 
 The local authoring plan may attach labels to stance cells. The compiler
 resolves those labels to exact step numbers and encodes the supplied trace. It
@@ -87,8 +85,8 @@ For every decoded transition the verifier derives and checks:
 - terrain or stone support beneath the stance;
 - swept climber-body clearance;
 - horizontal and vertical movement bounds;
-- slope and selected locomotion mode;
-- protection for climbing;
+- discrete step height and the actual supporting-surface profile;
+- the uniquely derived WALK, SCRAMBLE or CLIMB tier;
 - carried load;
 - elapsed time, energy and Endurance;
 - Base Camp crossings and terminal safety.
@@ -135,15 +133,17 @@ expedition commits only when every intermediate state is legal.
 
 Each GitHub login is one mortal climber identity.
 
-- Every expedition starts inside the 140 m Everest Base Camp zone.
+- Every expedition starts inside the 140 m Everest Base Camp radius and the
+  public 2 m height band around the local natural surface.
 - It leaves Camp exactly once.
 - Its first return begins a terminal Camp phase.
 - Returning preserves the identity.
-- A legal safe terminal elsewhere accepts the expedition and kills the
-  identity.
+- A walk-safe terminal elsewhere requires explicit one-way-death acceptance;
+  acceptance kills the identity.
 
-The verifier infers the outcome from the exact terminal stance. Outcome is not
-a candidate option.
+The verifier infers the outcome from the exact terminal stance.
+`acceptOneWayDeath` is consent to the inferred `DEAD` outcome, not a request
+for an outcome or a claim that the endpoint is safe.
 
 ## 7. Planning surface
 
@@ -158,7 +158,7 @@ The repository exposes observation and evaluation primitives:
 | `move:check` | One movement transition |
 | `route:encode` / `route:decode` | Lossless route codec |
 | `expedition:compile` | Label resolution and candidate packaging |
-| `route:evaluate` | Route and Endurance replay |
+| `route:evaluate` | Complete read-only temporal replay |
 | `expedition:check` | Complete route, actions and physics verdict |
 | `expedition:apply` | Temporary local world application |
 | `authority:check` | Canonical freshness check |

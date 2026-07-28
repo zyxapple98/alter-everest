@@ -8,11 +8,11 @@ import {
   ROUTE_CODEC_LIMITS,
 } from "../engine/route-codec";
 import type { ExactRoute, MicroMovement } from "../engine/types";
-import { LOCOMOTION, ROUTE } from "../engine/constants";
+import { ROUTE } from "../engine/constants";
 
 const options = { maximumSteps: 250_000, requireCanonical: true };
 const baseRoute = {
-  codec: "ae-microtrace-v1",
+  codec: "ae-microtrace-v2",
   start: { x: 10, y: 20, z: 30 },
 } as const;
 
@@ -20,7 +20,7 @@ function program(bytes: number[]) {
   return Buffer.from(bytes).toString("base64url");
 }
 
-test("codec and locomotion bounds come from public player rules", () => {
+test("codec movement bounds come from public player rules", () => {
   assert.equal(
     ROUTE_CODEC_LIMITS.minimumDy,
     ROUTE.minimumVerticalDeltaCells,
@@ -36,58 +36,28 @@ test("codec and locomotion bounds come from public player rules", () => {
         ROUTE.minimumVerticalDeltaCells +
         1),
   );
-  assert.equal(LOCOMOTION.CLIMB.requiresProtection, true);
 });
 
-test("ae-microtrace-v1 round-trips cells and locomotion state exactly", () => {
+test("ae-microtrace-v2 round-trips exact cells without agent locomotion state", () => {
   const stances = [
-    {
-      cell: { x: 10, y: 20, z: 30 },
-      mode: "WALK" as const,
-      protected: false,
-    },
-    {
-      cell: { x: 11, y: 20, z: 30 },
-      mode: "WALK" as const,
-      protected: false,
-    },
-    {
-      cell: { x: 12, y: 21, z: 29 },
-      mode: "SCRAMBLE" as const,
-      protected: false,
-    },
-    {
-      cell: { x: 13, y: 22, z: 28 },
-      mode: "CLIMB" as const,
-      protected: true,
-    },
+    { cell: { x: 10, y: 20, z: 30 } },
+    { cell: { x: 11, y: 20, z: 30 } },
+    { cell: { x: 12, y: 21, z: 29 } },
+    { cell: { x: 13, y: 23, z: 28 } },
   ];
   const route = exactRouteFromStances(stances, true);
   const decoded = decodeRouteProgram(route, options);
 
-  assert.equal(route.safeStop, true);
+  assert.equal(route.acceptOneWayDeath, true);
   assert.deepEqual(
-    decoded.stances.map(({ cell, mode, protected: protectedState }) => ({
-      cell,
-      mode,
-      protected: protectedState,
-    })),
+    decoded.stances.map(({ cell }) => ({ cell })),
     stances,
   );
-  assert.equal(
-    encodeRouteProgram(decoded.movements),
-    route.program,
-  );
+  assert.equal(encodeRouteProgram(decoded.movements), route.program);
 });
 
 test("long repeated microtraces remain compact and bounded", () => {
-  const movement: MicroMovement = {
-    dx: 1,
-    dy: 0,
-    dz: 0,
-    mode: "WALK",
-    protected: false,
-  };
+  const movement: MicroMovement = { dx: 1, dy: 0, dz: 0 };
   const movements = Array.from({ length: 250_000 }, () => movement);
   const route: ExactRoute = {
     ...baseRoute,
@@ -160,33 +130,17 @@ test("decoder rejects non-canonical and adversarial programs", () => {
       route: {
         ...baseRoute,
         stepCount: 1,
-        program: program([137, 68]),
-      },
-      message: /Redundant locomotion/,
-    },
-    {
-      route: {
-        ...baseRoute,
-        stepCount: 1,
-        program: program([141, 138, 68]),
-      },
-      message: /precede protection changes/,
-    },
-    {
-      route: {
-        ...baseRoute,
-        stepCount: 1,
-        program: program([68, 138]),
-      },
-      message: /unused state change/,
-    },
-    {
-      route: {
-        ...baseRoute,
-        stepCount: 1,
-        program: program([142]),
+        program: program([137]),
       },
       message: /Unknown route opcode/,
+    },
+    {
+      route: {
+        ...baseRoute,
+        stepCount: 3,
+        program: program([136, 136, 3]),
+      },
+      message: /movement opcode/,
     },
     {
       route: {

@@ -7,7 +7,6 @@ import {
   validateStance,
 } from "../engine/movement";
 import type {
-  LocomotionMode,
   MicroMovement,
   RouteStance,
 } from "../engine/types";
@@ -26,10 +25,10 @@ if (process.argv.includes("--help")) {
       "Evaluate one exact 20 cm micro-transition against a named local world.",
       "",
       "Usage:",
-      "  npm run move:check -- --x <cell> --y <cell> --z <cell> --dx <-1..1> --dy <-8..8> --dz <-1..1> --mode <WALK|SCRAMBLE|CLIMB> [--protected] [--carrying] [--world <snapshot.json>]",
+      "  npm run move:check -- --x <cell> --y <cell> --z <cell> --dx <-1..1> --dy <-8..8> --dz <-1..1> [--carrying] [--world <snapshot.json>]",
       "  npm run move:check -- --moves <moves.json> [--world <snapshot.json>]",
       "",
-      "Batch entries use {label?, from:{x,y,z}, movement:{dx,dy,dz,mode,protected?,carrying?}}.",
+      "Batch entries use {label?, from:{x,y,z}, movement:{dx,dy,dz,carrying?}}.",
       "A batch contains 1–4096 independent transitions evaluated against the same world.",
       "This command checks supplied transitions. It never searches for another move.",
     ].join("\n"),
@@ -69,21 +68,11 @@ function parseMove(value: unknown, index: number): ProposedMove {
     ["x", "y", "z"].some((axis) => !Number.isSafeInteger(from[axis])) ||
     Object.keys(movement).some(
       (key) =>
-        ![
-          "dx",
-          "dy",
-          "dz",
-          "mode",
-          "protected",
-          "carrying",
-        ].includes(key),
+        !["dx", "dy", "dz", "carrying"].includes(key),
     ) ||
     ["dx", "dy", "dz"].some(
       (axis) => !Number.isSafeInteger(movement[axis]),
     ) ||
-    !["WALK", "SCRAMBLE", "CLIMB"].includes(String(movement.mode)) ||
-    (movement.protected !== undefined &&
-      typeof movement.protected !== "boolean") ||
     (movement.carrying !== undefined &&
       typeof movement.carrying !== "boolean")
   ) {
@@ -113,8 +102,6 @@ function parseMove(value: unknown, index: number): ProposedMove {
       dx: movement.dx as number,
       dy: movement.dy as number,
       dz: movement.dz as number,
-      mode: movement.mode as LocomotionMode,
-      protected: movement.protected === true,
       carrying: movement.carrying === true,
     },
   };
@@ -131,10 +118,6 @@ if (movesPath) {
   }
   proposedMoves = parsed.map(parseMove);
 } else {
-  const mode = argument("--mode") as LocomotionMode | undefined;
-  if (!mode || !["WALK", "SCRAMBLE", "CLIMB"].includes(mode)) {
-    throw new Error("--mode must be WALK, SCRAMBLE or CLIMB.");
-  }
   proposedMoves = [
     parseMove(
       {
@@ -147,8 +130,6 @@ if (movesPath) {
           dx: integerArgument("--dx"),
           dy: integerArgument("--dy"),
           dz: integerArgument("--dz"),
-          mode,
-          protected: process.argv.includes("--protected"),
           carrying: process.argv.includes("--carrying"),
         },
       },
@@ -165,8 +146,6 @@ const results = proposedMoves.map((proposed, index) => {
   const from: RouteStance = {
     step: 0,
     cell: { ...proposed.from },
-    mode: "WALK",
-    protected: false,
   };
   const movement = proposed.movement;
   const to: RouteStance = {
@@ -176,21 +155,22 @@ const results = proposedMoves.map((proposed, index) => {
       y: from.cell.y + movement.dy,
       z: from.cell.z + movement.dz,
     },
-    mode: movement.mode,
-    protected: movement.protected,
   };
   const fromVerdict = validateStance(view, from);
-  const movementVerdict = fromVerdict.valid
-    ? validateMovement(
-        view,
-        from,
-        to,
-        movement,
-        movement.carrying === true,
-      )
-    : null;
-  const toVerdict =
-    movementVerdict?.valid === true ? validateStance(view, to) : null;
+  const toVerdict = validateStance(view, to);
+  const movementVerdict =
+    fromVerdict.valid &&
+    fromVerdict.sample &&
+    toVerdict.valid &&
+    toVerdict.sample
+      ? validateMovement(
+          view,
+          fromVerdict.sample,
+          toVerdict.sample,
+          movement,
+          movement.carrying === true,
+        )
+      : null;
   const valid =
     fromVerdict.valid &&
     movementVerdict?.valid === true &&

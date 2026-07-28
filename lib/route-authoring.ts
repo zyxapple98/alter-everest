@@ -2,24 +2,20 @@ import { CANDIDATE_LIMITS } from "../engine/constants";
 import { exactRouteFromStances } from "../engine/route-codec";
 import type {
   ExactRoute,
-  LocomotionMode,
   RouteStance,
   VoxelCoordinate,
 } from "../engine/types";
 
-const MODES = new Set<LocomotionMode>(["WALK", "SCRAMBLE", "CLIMB"]);
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export interface AuthoringStance {
   label?: string;
   cell: VoxelCoordinate;
-  mode: LocomotionMode;
-  protected: boolean;
 }
 
 export interface AuthoringRoute {
   stances: AuthoringStance[];
-  safeStop: boolean;
+  acceptOneWayDeath: boolean;
 }
 
 function parseCell(value: unknown, index: number): VoxelCoordinate {
@@ -51,16 +47,17 @@ export function parseAuthoringRoute(value: unknown): AuthoringRoute {
   const route = value as Record<string, unknown>;
   if (
     Object.keys(route).some(
-      (key) => !["stances", "safeStop"].includes(key),
+      (key) => !["stances", "acceptOneWayDeath"].includes(key),
     ) ||
-    (route.safeStop !== undefined && typeof route.safeStop !== "boolean") ||
+    (route.acceptOneWayDeath !== undefined &&
+      typeof route.acceptOneWayDeath !== "boolean") ||
     !Array.isArray(route.stances) ||
     route.stances.length < 2 ||
     route.stances.length >
       CANDIDATE_LIMITS.maximumDecodedRouteSteps + 1
   ) {
     throw new Error(
-      `route requires 2–${CANDIDATE_LIMITS.maximumDecodedRouteSteps + 1} exact stances and optional safeStop.`,
+      `route requires 2–${CANDIDATE_LIMITS.maximumDecodedRouteSteps + 1} exact stances and optional acceptOneWayDeath.`,
     );
   }
 
@@ -72,7 +69,7 @@ export function parseAuthoringRoute(value: unknown): AuthoringRoute {
     const stance = entry as Record<string, unknown>;
     if (
       Object.keys(stance).some(
-        (key) => !["label", "cell", "mode", "protected"].includes(key),
+        (key) => !["label", "cell"].includes(key),
       )
     ) {
       throw new Error(`stance ${index} contains unsupported properties.`);
@@ -86,31 +83,16 @@ export function parseAuthoringRoute(value: unknown): AuthoringRoute {
       throw new Error(`stance label "${label}" is duplicated.`);
     }
     if (label) labels.add(label);
-    if (!MODES.has(stance.mode as LocomotionMode)) {
-      throw new Error(
-        `stance ${index} mode must be WALK, SCRAMBLE or CLIMB.`,
-      );
-    }
-    if (
-      stance.protected !== undefined &&
-      typeof stance.protected !== "boolean"
-    ) {
-      throw new Error(`stance ${index} protected must be boolean.`);
-    }
     return {
       ...(label ? { label } : {}),
       cell: parseCell(stance.cell, index),
-      mode: stance.mode as LocomotionMode,
-      protected: stance.protected === true,
     };
   });
 
-  if (stances[0].mode !== "WALK" || stances[0].protected) {
-    throw new Error(
-      "stance 0 must use the codec initial state WALK with protected false.",
-    );
-  }
-  return { stances, safeStop: route.safeStop === true };
+  return {
+    stances,
+    acceptOneWayDeath: route.acceptOneWayDeath === true,
+  };
 }
 
 export function compileAuthoringRoute(value: unknown): {
@@ -125,12 +107,13 @@ export function compileAuthoringRoute(value: unknown): {
     return {
       step,
       cell: { ...stance.cell },
-      mode: stance.mode,
-      protected: stance.protected,
     };
   });
   return {
-    route: exactRouteFromStances(stances, parsed.safeStop),
+    route: exactRouteFromStances(
+      stances,
+      parsed.acceptOneWayDeath,
+    ),
     labelSteps,
     stances,
   };
