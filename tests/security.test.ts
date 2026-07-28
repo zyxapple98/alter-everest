@@ -111,7 +111,7 @@ test("candidate shape limits reject oversized and extended proofs", () => {
     agentId: "agent-1",
     proof: {
       route: {
-        codec: "ae-microtrace-v1",
+        codec: "ae-microtrace-v2",
         start: { x: 0, y: 1, z: 0 },
         stepCount: CANDIDATE_LIMITS.maximumDecodedRouteSteps + 1,
         program: "AA",
@@ -147,7 +147,7 @@ test("BASE to BASE is rejected before route execution", () => {
     agentId: "agent-1",
     proof: {
       route: {
-        codec: "ae-microtrace-v1",
+        codec: "ae-microtrace-v2",
         start: { x: 0, y: 1, z: 0 },
         stepCount: 1,
         program: "RA",

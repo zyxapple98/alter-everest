@@ -9,7 +9,7 @@ import type {
 import { currentHighestPoint } from "../engine/highest-point";
 import { CANDIDATE_LIMITS } from "../engine/constants";
 import { stancePoint } from "../engine/movement";
-import { decodeRouteProgram } from "../engine/route-codec";
+import { decodeStoredRouteProgram } from "../engine/route-codec";
 import type { TerrainOracle } from "../engine/terrain";
 import { loadDemBundle } from "./expedition-kit";
 import { agentIdentityStyle } from "../lib/agent-identity";
@@ -187,7 +187,7 @@ async function traceForEvent(
     throw new Error(`Proof hash mismatch for event ${event.eventHash}.`);
   }
   const candidate = JSON.parse(bytes.toString("utf8")) as CandidateCommit;
-  const route = decodeRouteProgram(candidate.proof.route, {
+  const route = decodeStoredRouteProgram(candidate.proof.route, {
     maximumSteps: CANDIDATE_LIMITS.maximumDecodedRouteSteps,
     requireCanonical: true,
   }).stances.map((stance) => {

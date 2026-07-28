@@ -62,16 +62,19 @@ assert.deepEqual(
   "STONE source must use matterId instead of repeating stoneId",
 );
 assert.equal(
-  planSchema.$defs.route.properties.stances.prefixItems[0].allOf[1]
-    .properties.mode.const,
-  "WALK",
-  "authoring schema must expose the codec initial mode",
+  schema.$defs.route.properties.codec.const,
+  playerRules.route.codec,
+  "candidate schema route codec drifted from player rules",
 );
 assert.equal(
-  planSchema.$defs.route.properties.stances.prefixItems[0].allOf[1]
-    .properties.protected.const,
+  planSchema.$defs.stance.required.includes("cell"),
+  true,
+  "authoring stances must require one exact cell",
+);
+assert.equal(
+  Object.hasOwn(planSchema.$defs.stance.properties, "mode"),
   false,
-  "authoring schema must expose the codec initial protection state",
+  "authoring stances must not ask the agent to choose locomotion",
 );
 assert.equal(
   playerRules.route.horizontalDirections.length,

@@ -60,9 +60,9 @@ test("repository data exposes one current expedition system", async () => {
       json("package.json"),
     ]);
 
-  assert.equal(manifest.protocolVersion, "0.7.0");
+  assert.equal(manifest.protocolVersion, "0.8.0");
   assert.equal(schema.properties.protocol.const, manifest.protocolVersion);
-  assert.equal(schema.$defs.route.properties.codec.const, "ae-microtrace-v1");
+  assert.equal(schema.$defs.route.properties.codec.const, "ae-microtrace-v2");
   assert.equal(schema.$defs.proof.required.includes("actions"), true);
   assert.equal(packageJson.scripts["route:encode"].includes("encode-route"), true);
 
@@ -106,7 +106,7 @@ test("repository data exposes one current expedition system", async () => {
   ]) {
     const candidate = await json(path);
     assert.equal(candidate.protocol, manifest.protocolVersion, path);
-    assert.equal(candidate.proof.route.codec, "ae-microtrace-v1", path);
+    assert.equal(candidate.proof.route.codec, "ae-microtrace-v2", path);
     assert.equal(Array.isArray(candidate.proof.route), false, path);
     assertNoRetiredFields(candidate, path);
   }
@@ -123,7 +123,11 @@ test("repository data exposes one current expedition system", async () => {
       json(`world/receipts/${name}`),
     ]);
     assert.equal(event.eventVersion, "1.2.0", name);
-    assert.equal(proof.protocol, manifest.protocolVersion, name);
+    assert.match(
+      proof.protocol,
+      /^0\.(?:7|8)\.0$/,
+      `${name} must preserve a known historical protocol`,
+    );
     assert.equal(receipt.receiptVersion, "1.3.0", name);
     assertNoRetiredFields(event, `world/events/${name}`);
     assertNoRetiredFields(proof, `world/proofs/${name}`);

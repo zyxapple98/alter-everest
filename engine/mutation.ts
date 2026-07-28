@@ -1,4 +1,5 @@
 import { CLIMBER, TERRAIN } from "./constants";
+import type { TerrainOracle } from "./terrain";
 import type {
   CanonicalWorld,
   ExpeditionAction,
@@ -57,12 +58,17 @@ export function isInsideSpawnCore(
 export function isInsideBaseCamp(
   point: { x: number; y: number; z: number },
   world: Pick<CanonicalWorld, "baseCamp">,
+  terrain: TerrainOracle,
 ) {
-  return (
+  const truth = terrain.sample(point.x, point.z);
+  return Boolean(
+    truth &&
     Math.hypot(
       point.x - world.baseCamp.x,
       point.z - world.baseCamp.z,
-    ) <= CLIMBER.baseCampRadiusM + 1e-6
+    ) <= CLIMBER.baseCampRadiusM + 1e-6 &&
+      Math.abs(point.y - truth.y) <=
+        CLIMBER.baseCampMaximumHeightFromNaturalSurfaceM + 1e-9,
   );
 }
 

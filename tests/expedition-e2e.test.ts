@@ -41,12 +41,11 @@ function firstMarkerCandidate(
     startZ,
     endX: startX + 705,
     endZ: startZ,
-    mode: "SCRAMBLE",
   });
   const stances =
     input.roundTripRoute === false ? outbound : roundTrip(outbound);
   const destinationX = startX + 705;
-  const destinationZ = startZ + 4;
+  const destinationZ = startZ + 3;
   const destinationTop = currentTopVoxel(
     terrain.oracle,
     world.removedTerrainVoxels,
@@ -55,7 +54,7 @@ function firstMarkerCandidate(
   );
   assert.notEqual(destinationTop, null);
   return {
-    protocol: "0.7.0",
+    protocol: "0.8.0",
     id: input.id,
     parentWorldHash: world.worldHash,
     terrainHash: world.terrainHash,
@@ -148,6 +147,20 @@ test("legal exact one-way expedition accepts and kills the identity", async () =
   assert.equal(next.tombstones.at(-1)?.agentId, "one-way-agent");
 });
 
+test("an outside terminal requires explicit one-way death consent", async () => {
+  const world = await loadRehearsalWorld();
+  const candidate = firstMarkerCandidate(world, {
+    agentId: "unconsented-one-way-agent",
+    id: "unconsented-one-way",
+    roundTripRoute: false,
+  });
+  delete candidate.proof.route.acceptOneWayDeath;
+
+  const verdict = await verify(candidate, world);
+  assert.equal(verdict.accepted, false);
+  assert.equal(verdict.route?.code, "UNSAFE_TERMINAL");
+});
+
 test("GitHub identity lifecycle is case-insensitive", async () => {
   const world = await loadRehearsalWorld();
   const first = firstMarkerCandidate(world, {
@@ -212,6 +225,6 @@ test("a competing stone turns an exact stale trace into conflict", async () => {
   assert.equal(verdict.accepted, false);
   assert.equal(verdict.code, "STALE_CONFLICT");
   assert.equal(verdict.route?.code, "ROUTE_OBSTRUCTED");
-  assert.ok((verdict.route?.failureStep ?? -1) < 20);
+  assert.equal(verdict.route?.failureStep, 20);
   assert.equal(verdict.route?.obstacle, "competing-route-blocker");
 });

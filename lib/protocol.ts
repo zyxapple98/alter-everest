@@ -103,9 +103,9 @@ function validRoute(value: unknown): value is ExactRoute {
       "start",
       "stepCount",
       "program",
-      "safeStop",
+      "acceptOneWayDeath",
     ]) &&
-    route.codec === "ae-microtrace-v1" &&
+    route.codec === "ae-microtrace-v2" &&
     validVoxel(route.start) &&
     Number.isSafeInteger(route.stepCount) &&
     (route.stepCount as number) >= 1 &&
@@ -113,7 +113,8 @@ function validRoute(value: unknown): value is ExactRoute {
       CANDIDATE_LIMITS.maximumDecodedRouteSteps &&
     typeof route.program === "string" &&
     /^[A-Za-z0-9_-]*$/.test(route.program) &&
-    (route.safeStop === undefined || typeof route.safeStop === "boolean")
+    (route.acceptOneWayDeath === undefined ||
+      typeof route.acceptOneWayDeath === "boolean")
   );
 }
 
@@ -178,7 +179,7 @@ export function validateCandidateShape(
     }
     if (!validRoute(candidate.proof.route)) {
       errors.push(
-        `proof.route must be a bounded ae-microtrace-v1 route with at most ${CANDIDATE_LIMITS.maximumDecodedRouteSteps} steps`,
+        `proof.route must be a bounded ae-microtrace-v2 route with at most ${CANDIDATE_LIMITS.maximumDecodedRouteSteps} steps`,
       );
     }
     if (

@@ -32,7 +32,7 @@ function measured<T>(operation: () => T) {
 
 const maximumSteps = CANDIDATE_LIMITS.maximumDecodedRouteSteps;
 const maximumRoute: ExactRoute = {
-  codec: "ae-microtrace-v1",
+  codec: "ae-microtrace-v2",
   start: { x: 0, y: 1, z: 0 },
   stepCount: maximumSteps,
   // RUN, east/dy=0 movement opcode, canonical ULEB128 count.
@@ -62,13 +62,13 @@ const alternatingBytes = Uint8Array.from(
   (_, index) => (index % 2 === 0 ? 68 : 67),
 );
 const nearLimitRoute: ExactRoute = {
-  codec: "ae-microtrace-v1",
+  codec: "ae-microtrace-v2",
   start: { x: 0, y: 1, z: 0 },
   stepCount: alternatingBytes.length,
   program: Buffer.from(alternatingBytes).toString("base64url"),
 };
 const nearLimitCandidate = {
-  protocol: "0.7.0",
+  protocol: "0.8.0",
   id: "route-benchmark",
   parentWorldHash: "benchmark",
   terrainHash: "a".repeat(64),

@@ -14,7 +14,7 @@
   ],
   "properties": {
     "protocol": {
-      "const": "0.7.0"
+      "const": "0.8.0"
     },
     "id": {
       "type": "string",
@@ -57,7 +57,7 @@
       "additionalProperties": false,
       "required": ["codec", "start", "stepCount", "program"],
       "properties": {
-        "codec": { "const": "ae-microtrace-v1" },
+        "codec": { "const": "ae-microtrace-v2" },
         "start": { "$ref": "#/$defs/voxel" },
         "stepCount": {
           "type": "integer",
@@ -68,7 +68,7 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9_-]*$"
         },
-        "safeStop": { "type": "boolean" }
+        "acceptOneWayDeath": { "type": "boolean" }
       }
     },
     "action": {

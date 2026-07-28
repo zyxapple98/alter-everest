@@ -1,4 +1,4 @@
-import { CLIMBER, LOCOMOTION, TERRAIN } from "./constants";
+import { CLIMBER, TERRAIN } from "./constants";
 import { voxelCenter, voxelKey } from "./mutation";
 import { baseTopVoxel, isSolidTerrainVoxel } from "./surface";
 import type { TerrainOracle } from "./terrain";
@@ -9,7 +9,6 @@ import type {
   RouteSample,
   RouteStance,
   StoneState,
-  SurfaceKind,
   Vec3,
   VoxelCoordinate,
 } from "./types";
@@ -27,8 +26,7 @@ export type MovementFailureCode =
   | "ROUTE_UNSUPPORTED"
   | "ROUTE_OBSTRUCTED"
   | "VERTICAL_STEP_EXCEEDED"
-  | "SLOPE_EXCEEDED"
-  | "CLIMB_UNPROTECTED";
+  | "SLOPE_EXCEEDED";
 
 export interface StanceVerdict {
   valid: boolean;
@@ -43,7 +41,13 @@ export interface MovementVerdict {
   valid: boolean;
   code: "MOVEMENT_VALID" | MovementFailureCode;
   obstacle: string | null;
+  mode: LocomotionMode;
   slopeDegrees: number;
+  effectiveSlopeDegrees: number;
+  geometricSlopeDegrees: number;
+  stepHeightM: number;
+  effectiveSpeedMps: number;
+  walkStep: boolean;
 }
 
 export function createMovementWorldView(
@@ -85,7 +89,7 @@ export function stanceSupportCell(cell: VoxelCoordinate): VoxelCoordinate {
   return { x: cell.x, y: cell.y - 1, z: cell.z };
 }
 
-function solidAt(view: MovementWorldView, cell: VoxelCoordinate) {
+export function solidAt(view: MovementWorldView, cell: VoxelCoordinate) {
   return (
     view.stonesByCell.has(voxelKey(cell)) ||
     isSolidTerrainVoxel(view.terrain, view.removed, cell)
@@ -94,19 +98,6 @@ function solidAt(view: MovementWorldView, cell: VoxelCoordinate) {
 
 function stoneAt(view: MovementWorldView, cell: VoxelCoordinate) {
   return view.stonesByCell.get(voxelKey(cell)) ?? null;
-}
-
-function surfaceAt(altitudeM: number, slopeDegrees: number): SurfaceKind {
-  const classification = TERRAIN.surfaceClassification;
-  if (
-    altitudeM >= classification.iceAltitudeM ||
-    (altitudeM >= classification.shelteredIceAltitudeM &&
-      slopeDegrees < classification.shelteredIceMaximumSlopeDegrees)
-  ) {
-    return "ICE";
-  }
-  if (altitudeM >= classification.snowAltitudeM) return "SNOW";
-  return "ROCK";
 }
 
 const STONE_CLEARANCE_BUCKET_EDGE_CELLS = 32;
@@ -207,7 +198,12 @@ function pointClearance(
   for (const cell of nearbyBodyCells(point, bounds)) {
     if (checkStones) {
       const stone = stoneAt(view, cell);
-      if (stone) return { clear: false, obstacle: stone.id };
+      const stoneTopM = (cell.y + 1) * TERRAIN.voxelEdgeM;
+      const walkableLowContact =
+        stoneTopM <= point.y + CLIMBER.maxWalkStepM + 1e-9;
+      if (stone && !walkableLowContact) {
+        return { clear: false, obstacle: stone.id };
+      }
     }
     if (
       checkTerrain &&
@@ -281,44 +277,109 @@ export function validateStance(
   }
 
   const altitudeM = truth.altitudeM + (point.y - truth.y);
+  const supportStone = stoneAt(view, supportCell);
   const sample: RouteSample = {
     step: stance.step,
     cell: { ...stance.cell },
     ...point,
     altitudeM,
-    slopeDegrees: truth.slopeDegrees,
-    surface: surfaceAt(altitudeM, truth.slopeDegrees),
-    mode: stance.mode,
-    protected: stance.protected,
+    slopeDegrees: supportStone ? 0 : truth.slopeDegrees,
+    surface: supportStone ? "ROCK" : truth.surface,
+    supportKind: supportStone ? "STONE" : "NATURAL",
   };
   return {
     valid: true,
     code: "STANCE_VALID",
     sample,
     supportCell,
-    supportStone: stoneAt(view, supportCell),
+    supportStone,
     obstacle: null,
   };
 }
 
-function allowedSlope(mode: LocomotionMode, carrying: boolean) {
-  if (mode === "WALK") {
-    return carrying
-      ? CLIMBER.maxLoadedWalkSlopeDegrees
-      : CLIMBER.maxWalkSlopeDegrees;
+export function movementSpeedMps(
+  mode: LocomotionMode,
+  stepHeightM: number,
+) {
+  if (
+    mode === "WALK" &&
+    stepHeightM > 0 &&
+    stepHeightM <= CLIMBER.maxWalkStepM + 1e-9
+  ) {
+    return CLIMBER.walkStepSpeedMps;
   }
-  if (mode === "SCRAMBLE") {
-    return carrying
-      ? CLIMBER.maxLoadedScrambleSlopeDegrees
-      : CLIMBER.maxScrambleSlopeDegrees;
+  if (mode === "WALK") return CLIMBER.walkSpeedMps;
+  if (mode === "SCRAMBLE") return CLIMBER.scrambleSpeedMps;
+  return CLIMBER.climbSpeedMps;
+}
+
+function modeRank(mode: LocomotionMode) {
+  if (mode === "WALK") return 0;
+  if (mode === "SCRAMBLE") return 1;
+  return 2;
+}
+
+function modeAtRank(rank: number): LocomotionMode {
+  if (rank <= 0) return "WALK";
+  if (rank === 1) return "SCRAMBLE";
+  return "CLIMB";
+}
+
+function stepMode(stepHeightM: number): LocomotionMode | null {
+  if (stepHeightM <= CLIMBER.maxWalkStepM + 1e-9) return "WALK";
+  if (stepHeightM <= CLIMBER.maxScrambleStepM + 1e-9) {
+    return "SCRAMBLE";
   }
-  return CLIMBER.maxClimbSlopeDegrees;
+  if (stepHeightM <= CLIMBER.maxClimbStepM + 1e-9) {
+    return "CLIMB";
+  }
+  return null;
+}
+
+function surfacePenalty(sample: RouteSample) {
+  return CLIMBER.surfaceSlopePenaltyDegrees[sample.surface];
+}
+
+export function effectiveSupportSlopeDegrees(
+  from: RouteSample,
+  to: RouteSample,
+  carrying: boolean,
+) {
+  return (
+    Math.max(
+      from.slopeDegrees + surfacePenalty(from),
+      to.slopeDegrees + surfacePenalty(to),
+    ) + (carrying ? CLIMBER.carriedLoadSlopePenaltyDegrees : 0)
+  );
+}
+
+function slopeMode(effectiveSlopeDegrees: number): LocomotionMode | null {
+  if (effectiveSlopeDegrees <= CLIMBER.maxWalkSlopeDegrees + 1e-9) {
+    return "WALK";
+  }
+  if (
+    effectiveSlopeDegrees <=
+    CLIMBER.maxScrambleSlopeDegrees + 1e-9
+  ) {
+    return "SCRAMBLE";
+  }
+  if (effectiveSlopeDegrees <= CLIMBER.maxClimbSlopeDegrees + 1e-9) {
+    return "CLIMB";
+  }
+  return null;
+}
+
+export function walkSafeSupport(sample: RouteSample) {
+  return (
+    sample.slopeDegrees + surfacePenalty(sample) <=
+    CLIMBER.maxWalkSlopeDegrees + 1e-9
+  );
 }
 
 export function validateMovement(
   view: MovementWorldView,
-  from: RouteStance,
-  to: RouteStance,
+  from: RouteSample,
+  to: RouteSample,
   movement: MicroMovement,
   carrying: boolean,
 ): MovementVerdict {
@@ -326,39 +387,50 @@ export function validateMovement(
   const horizontalM =
     Math.hypot(movement.dx, movement.dz) * edge;
   const verticalM = movement.dy * edge;
-  const slopeDegrees =
+  const stepHeightM = Math.abs(verticalM);
+  const geometricSlopeDegrees =
     (Math.atan2(Math.abs(verticalM), horizontalM) * 180) / Math.PI;
-  if (
-    movement.mode === "WALK" &&
-    Math.abs(verticalM) > CLIMBER.maxWalkStepM + 1e-9
-  ) {
+  const slopeDegrees = Math.max(from.slopeDegrees, to.slopeDegrees);
+  const effectiveSlopeDegrees = effectiveSupportSlopeDegrees(
+    from,
+    to,
+    carrying,
+  );
+  const byStep = stepMode(stepHeightM);
+  const bySlope = slopeMode(effectiveSlopeDegrees);
+  const mode =
+    byStep && bySlope
+      ? modeAtRank(Math.max(modeRank(byStep), modeRank(bySlope)))
+      : "CLIMB";
+  const walkStep =
+    mode === "WALK" &&
+    movement.dy !== 0 &&
+    stepHeightM <= CLIMBER.maxWalkStepM + 1e-9;
+  const diagnostics = {
+    mode,
+    slopeDegrees,
+    effectiveSlopeDegrees,
+    geometricSlopeDegrees,
+    stepHeightM,
+    effectiveSpeedMps: movementSpeedMps(mode, stepHeightM),
+    walkStep,
+  };
+  if (!byStep) {
     return {
       valid: false,
       code: "VERTICAL_STEP_EXCEEDED",
       obstacle: null,
-      slopeDegrees,
+      ...diagnostics,
     };
   }
-  if (slopeDegrees > allowedSlope(movement.mode, carrying) + 1e-9) {
+  if (!bySlope) {
     return {
       valid: false,
       code: "SLOPE_EXCEEDED",
       obstacle: null,
-      slopeDegrees,
+      ...diagnostics,
     };
   }
-  if (
-    LOCOMOTION[movement.mode].requiresProtection &&
-    !movement.protected
-  ) {
-    return {
-      valid: false,
-      code: "CLIMB_UNPROTECTED",
-      obstacle: null,
-      slopeDegrees,
-    };
-  }
-
   const fromPoint = stancePoint(from.cell);
   const toPoint = stancePoint(to.cell);
   const distanceM = Math.hypot(
@@ -386,7 +458,7 @@ export function validateMovement(
         valid: false,
         code: "ROUTE_OBSTRUCTED",
         obstacle: clearance.obstacle,
-        slopeDegrees,
+        ...diagnostics,
       };
     }
   }
@@ -394,7 +466,7 @@ export function validateMovement(
     valid: true,
     code: "MOVEMENT_VALID",
     obstacle: null,
-    slopeDegrees,
+    ...diagnostics,
   };
 }
 

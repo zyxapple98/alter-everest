@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { validateRoute } from "../engine/route";
+import { validateCandidateCommit } from "../engine/commit";
 import type { CandidateCommit } from "../engine/types";
+import { validateCandidateShape } from "../lib/protocol";
 import {
   formatPlayerHelp,
   guidanceForCode,
@@ -15,18 +16,18 @@ const usage =
 const help = formatPlayerHelp({
   command: "route:evaluate",
   purpose:
-    "Decode and replay the exact route against one current world without applying matter mutations.",
+    "Replay one candidate read-only through the same temporal verifier used by expedition:check.",
   usage,
   sections: [
     {
       heading: "Boundary",
       lines: [
-        "A passing preflight is not a candidate verdict; pickup/release physics and post-action world changes are excluded.",
+        "The replay includes ordered matter mutations and physics but never writes the world.",
       ],
     },
   ],
   output:
-    "Exact route verdict, decoded-step failure, distance and Endurance ledger.",
+    "Complete read-only verdict plus exact route distance and Endurance ledger.",
   next: ["Run expedition:check for the complete candidate verdict."],
   docs: [PLAYER_DOCS.route, PLAYER_DOCS.errors],
 });
@@ -45,36 +46,48 @@ const [candidate, world, terrain] = await Promise.all([
   loadCanonicalWorld(worldPath),
   loadDemBundle(),
 ]);
-const evaluation = validateRoute(candidate.proof, world, terrain.oracle);
+const shape = validateCandidateShape(candidate);
+if (!shape.valid) {
+  throw new Error(`Candidate shape invalid:\n- ${shape.errors.join("\n- ")}`);
+}
+const verdict = await validateCandidateCommit(candidate, world, {
+  baseCamp: world.baseCamp,
+  extractionZones: world.extractionZones,
+  terrain: terrain.oracle,
+});
 const summary = process.argv.includes("--summary");
-const actionableCode = evaluation.verdict.valid
+const route = verdict.route;
+const actionableCode = verdict.accepted
   ? null
-  : evaluation.verdict.code;
+  : route?.code ?? verdict.physics?.code ?? verdict.code;
 
 console.log(
   JSON.stringify(
     {
-      scope: "ROUTE_PREFLIGHT_ONLY",
-      route: evaluation.verdict,
+      scope: "FULL_READ_ONLY_REPLAY",
+      route,
       decodedSteps: candidate.proof.route.stepCount,
-      endurance: summary
+      endurance: route
         ? {
-            capacity: evaluation.endurance.capacity,
-            kilojoulesPerEndurance:
-              evaluation.endurance.kilojoulesPerEndurance,
-            energyKj: evaluation.endurance.energyKj,
-            enduranceUsed: evaluation.endurance.enduranceUsed,
-            enduranceRemaining:
-              evaluation.endurance.enduranceRemaining,
-            segmentCount: evaluation.endurance.segmentCount,
+            energyKj: route.energyKj,
+            enduranceUsed: route.enduranceUsed,
+            enduranceRemaining: route.enduranceRemaining,
           }
-        : evaluation.endurance,
-      preflightAccepted: evaluation.verdict.valid,
-      fullCandidateAccepted: null,
+        : null,
+      physics: summary
+        ? verdict.physics && {
+            valid: verdict.physics.valid,
+            code: verdict.physics.code,
+            evaluatedStoneCells: verdict.physics.evaluatedStoneCells,
+            cavityCellsChecked: verdict.physics.cavityCellsChecked,
+          }
+        : verdict.physics,
+      fullCandidateAccepted: verdict.accepted,
+      candidateCode: verdict.code,
       actionableCode,
       rule: guidanceForCode(actionableCode),
       next:
-        "Run expedition:check for ordered matter actions, temporal world changes, static physics, identity and footprint.",
+        "expedition:check reports the same verifier result with submission-oriented diagnostics.",
     },
     null,
     2,

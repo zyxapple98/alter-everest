@@ -46,7 +46,7 @@ test("onboarding exposes the exact-route player loop", async () => {
       "new-climber",
     ])).stdout,
   );
-  assert.equal(inspected.protocol, "0.7.0");
+  assert.equal(inspected.protocol, "0.8.0");
   assert.equal(inspected.player.status, "NEW");
   assert.deepEqual(inspected.player.footprint, {
     agentId: "new-climber",
@@ -102,9 +102,11 @@ test("onboarding exposes the exact-route player loop", async () => {
   );
   assert.equal(site.site.id, "south-col");
   assert.ok(Number.isSafeInteger(site.candidateGroundedCell.cell.y));
-  assert.ok(site.nearbySafeStops.samples.length > 0);
+  assert.ok(site.nearbyOneWayTerminals.samples.length > 0);
   assert.ok(
-    Number.isSafeInteger(site.nearbySafeStops.samples[0].exactStance.y),
+    Number.isSafeInteger(
+      site.nearbyOneWayTerminals.samples[0].exactStance.y,
+    ),
   );
 
   for (const script of [
@@ -156,17 +158,13 @@ test("route codec CLI losslessly round-trips exact stances", async () => {
       {
         label: "start",
         cell: { x: 10, y: 20, z: 30 },
-        mode: "WALK",
-        protected: false,
       },
       {
         label: "finish",
         cell: { x: 11, y: 21, z: 30 },
-        mode: "SCRAMBLE",
-        protected: false,
       },
     ],
-    safeStop: true,
+    acceptOneWayDeath: true,
   };
 
   try {
@@ -178,7 +176,7 @@ test("route codec CLI losslessly round-trips exact stances", async () => {
         encodedPath,
       ])).stdout,
     );
-    assert.equal(encoded.route.codec, "ae-microtrace-v1");
+    assert.equal(encoded.route.codec, "ae-microtrace-v2");
     assert.equal(encoded.route.stepCount, 1);
     assert.deepEqual(encoded.labelSteps, { start: 0, finish: 1 });
 
@@ -193,20 +191,12 @@ test("route codec CLI losslessly round-trips exact stances", async () => {
     assert.equal(decoded.stepCount, 1);
     assert.deepEqual(
       decoded.stances.map(
-        (stance: { cell: unknown; mode: string; protected: boolean }) => ({
+        (stance: { cell: unknown }) => ({
           cell: stance.cell,
-          mode: stance.mode,
-          protected: stance.protected,
         }),
       ),
-      authoringRoute.stances.map(({
+      authoringRoute.stances.map(({ cell }) => ({
         cell,
-        mode,
-        protected: protectedState,
-      }) => ({
-        cell,
-        mode,
-        protected: protectedState,
       })),
     );
   } finally {
@@ -231,7 +221,7 @@ test("labelled exact plans compile without route generation", async () => {
       ])).stdout,
     );
     assert.equal(summary.compiled, true);
-    assert.equal(summary.routeCodec, "ae-microtrace-v1");
+    assert.equal(summary.routeCodec, "ae-microtrace-v2");
     assert.equal(summary.routeSteps, 1410);
     assert.deepEqual(summary.bindings[0], {
       action: 1,
@@ -282,11 +272,10 @@ test("the first exact expedition passes preflight, verifier and apply", async ()
         "--summary",
       ])).stdout,
     );
-    assert.equal(preflight.scope, "ROUTE_PREFLIGHT_ONLY");
-    assert.equal(preflight.preflightAccepted, true);
+    assert.equal(preflight.scope, "FULL_READ_ONLY_REPLAY");
+    assert.equal(preflight.fullCandidateAccepted, true);
     assert.equal(Object.hasOwn(preflight, "accepted"), false);
     assert.equal(preflight.decodedSteps, 1410);
-    assert.equal(preflight.endurance.segmentCount, 1410);
     assert.equal(preflight.route.distanceMillimeters, 295_586);
     assert.equal(preflight.route.outcome, "ACTIVE");
 
@@ -437,8 +426,6 @@ test("batch movement, compact terrain and matter transition tools compose", asyn
       dx: to.cell.x - from.cell.x,
       dy: to.cell.y - from.cell.y,
       dz: to.cell.z - from.cell.z,
-      mode: to.mode,
-      protected: to.protected,
       carrying: true,
     };
     await writeFile(

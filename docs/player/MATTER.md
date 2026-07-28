@@ -66,8 +66,10 @@ The preferred authoring plan uses waypoint labels:
 
 ## Interaction points
 
-A non-Base pickup or release stance must be within 1.25 m of the target cell
-center. A Base pickup or release stance must be inside Camp.
+A non-Base pickup or release target must be within 0.60 m horizontally and
+between 0.20 m below and 1.80 m above the stance. A short sampled line from
+the climber's upper body to the target must remain free of solid terrain and
+other stones. A Base pickup or release stance must be inside Camp.
 
 Use `world:query` for current stone cells, `terrain:query` for exact exposed
 voxels and grounded destination hints, and `matter:check` for one supplied

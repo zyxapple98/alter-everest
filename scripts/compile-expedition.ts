@@ -27,8 +27,8 @@ const help = formatPlayerHelp({
     {
       heading: "Plan shape",
       lines: [
-        '{ "id", "agentId", "route": { "stances", "safeStop" }, "actions" }',
-        "Every stance contains an exact integer cell and locomotion state.",
+        '{ "id", "agentId", "route": { "stances", "acceptOneWayDeath?" }, "actions" }',
+        "Every stance contains an exact integer cell; the verifier derives locomotion.",
         "Each action uses pickupAt and releaseAt stance labels.",
         "Compilation losslessly encodes the supplied stance cells and action labels.",
         "Machine shape: schemas/expedition-plan.schema.json",

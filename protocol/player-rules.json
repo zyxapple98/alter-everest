@@ -1,5 +1,5 @@
 {
-  "rulesVersion": "2.0.0",
+  "rulesVersion": "3.0.0",
   "docs": {
     "entry": "AGENTS.md",
     "firstExpedition": "docs/player/FIRST-EXPEDITION.md",
@@ -68,6 +68,7 @@
   },
   "lifecycle": {
     "baseCampRadiusM": 140,
+    "baseCampMaximumHeightFromNaturalSurfaceM": 2,
     "protectedSpawnRadiusM": 20,
     "departuresPerExpedition": 1,
     "survivalRequiresReturnToBase": true
@@ -87,49 +88,56 @@
     "bodyMassKg": 78,
     "clearanceRadiusM": 0.3,
     "clearanceHeightM": 1.72,
-    "interactionReachM": 1.25,
-    "maximumWalkStepM": 0.42,
+    "maximumInteractionHorizontalReachM": 0.6,
+    "minimumInteractionHeightM": -0.2,
+    "maximumInteractionHeightM": 1.8,
+    "interactionVisibilitySampleM": 0.1,
+    "carriedLoadSlopePenaltyDegrees": 3,
+    "surfaceSlopePenaltyDegrees": {
+      "ROCK": 0,
+      "SNOW": 5,
+      "ICE": 10
+    },
     "locomotion": {
       "WALK": {
+        "maximumStepM": 0.2,
         "maximumSlopeDegrees": 35,
-        "maximumLoadedSlopeDegrees": 32,
         "speedMps": 0.78,
-        "requiresProtection": false
+        "stepSpeedMps": 0.34
       },
       "SCRAMBLE": {
+        "maximumStepM": 0.4,
         "maximumSlopeDegrees": 55,
-        "maximumLoadedSlopeDegrees": 48,
-        "speedMps": 0.34,
-        "requiresProtection": false
+        "speedMps": 0.34
       },
       "CLIMB": {
+        "maximumStepM": 1.6,
         "maximumSlopeDegrees": 82,
-        "maximumLoadedSlopeDegrees": 82,
-        "speedMps": 0.16,
-        "requiresProtection": true
+        "speedMps": 0.16
       }
     },
     "endurance": {
       "capacity": 100,
       "kilojoulesPerUnit": 450,
-      "terrainFactors": {
-        "ROCK": 1.15,
-        "SNOW": 1.62,
-        "ICE": 1.36
+      "surfaceMultipliers": {
+        "ROCK": 1,
+        "SNOW": 1.25,
+        "ICE": 1.15
       },
       "altitudeMultiplier": {
         "minimumAltitudeM": 2500,
         "maximumAltitudeM": 9000,
         "maximumMultiplier": 1.85
       },
-      "metabolicModel": {
-        "baseBodyFactor": 1.5,
-        "loadRatioFactor": 2,
-        "speedSquaredFactor": 1.5,
-        "gradeFactor": 0.35,
-        "minimumGradePercent": -20,
-        "maximumGradePercent": 100,
-        "minimumWatts": 95
+      "additiveModel": {
+        "horizontalKilojoulesPerKgM": 0.004,
+        "ascentKilojoulesPerKgM": 0.028,
+        "descentKilojoulesPerKgM": 0.006,
+        "locomotionMultipliers": {
+          "WALK": 1,
+          "SCRAMBLE": 1.3,
+          "CLIMB": 1.7
+        }
       }
     }
   },
@@ -167,7 +175,7 @@
     }
   },
   "route": {
-    "codec": "ae-microtrace-v1",
+    "codec": "ae-microtrace-v2",
     "voxelEdgeM": 0.2,
     "minimumVerticalDeltaCells": -8,
     "maximumVerticalDeltaCells": 8,
@@ -183,7 +191,7 @@
       { "x": 1, "z": 1 }
     ],
     "clearanceModel": {
-      "stones": "FULL_SWEPT_BODY",
+      "stones": "FULL_SWEPT_BODY_WITH_WALKABLE_LOW_CONTACTS",
       "terrain": "FULL_SWEPT_BODY_IN_EXCAVATIONS",
       "excavationEdgeTrigger": "EITHER_ENDPOINT_AT_OR_BELOW_NATIVE_SURFACE"
     }
@@ -256,7 +264,10 @@
       "summary": "Every expedition starts inside Everest Base Camp.",
       "next": "Start the route at the canonical Base Camp position from agent:inspect.",
       "doc": "docs/player/ROUTE.md#one-sortie-lifecycle",
-      "relatedValues": ["lifecycle.baseCampRadiusM"]
+      "relatedValues": [
+        "lifecycle.baseCampRadiusM",
+        "lifecycle.baseCampMaximumHeightFromNaturalSurfaceM"
+      ]
     },
     "ROUTE_OBSTRUCTED": {
       "ruleId": "route.clearance",
@@ -266,30 +277,24 @@
       "relatedValues": ["climber.clearanceRadiusM", "climber.clearanceHeightM"]
     },
     "VERTICAL_STEP_EXCEEDED": {
-      "ruleId": "route.walk-step",
-      "summary": "A WALK segment attempts a step too high for walking.",
-      "next": "Choose a different path or a valid steeper locomotion mode.",
+      "ruleId": "route.step-height",
+      "summary": "A micro-movement exceeds the maximum bounded technical step height.",
+      "next": "Choose a sequence of supported stance cells with smaller vertical changes.",
       "doc": "docs/player/ROUTE.md#locomotion",
-      "relatedValues": ["climber.maximumWalkStepM"]
+      "relatedValues": ["climber.locomotion.CLIMB.maximumStepM"]
     },
     "SLOPE_EXCEEDED": {
       "ruleId": "route.locomotion-slope",
-      "summary": "The selected locomotion mode is not valid for this slope and carried load.",
-      "next": "Use the public loaded/unloaded slope table to change the path or mode.",
+      "summary": "The actual support surface is too steep after surface and carried-load penalties.",
+      "next": "Choose a gentler supported path or construct a level tread.",
       "doc": "docs/player/ROUTE.md#locomotion",
       "relatedValues": [
         "climber.locomotion.WALK.maximumSlopeDegrees",
-        "climber.locomotion.WALK.maximumLoadedSlopeDegrees",
         "climber.locomotion.SCRAMBLE.maximumSlopeDegrees",
-        "climber.locomotion.SCRAMBLE.maximumLoadedSlopeDegrees",
-        "climber.locomotion.CLIMB.maximumSlopeDegrees"
+        "climber.locomotion.CLIMB.maximumSlopeDegrees",
+        "climber.surfaceSlopePenaltyDegrees",
+        "climber.carriedLoadSlopePenaltyDegrees"
       ]
-    },
-    "CLIMB_UNPROTECTED": {
-      "ruleId": "route.climb-protection",
-      "summary": "Every CLIMB micro-movement must enable personal protection.",
-      "next": "Enable protection for that movement or choose another valid mode.",
-      "doc": "docs/player/ROUTE.md#locomotion"
     },
     "ACTION_INDEX_INVALID": {
       "ruleId": "matter.action-timeline",
@@ -300,16 +305,30 @@
     "ACTION_POSITION_MISMATCH": {
       "ruleId": "matter.interaction-reach",
       "summary": "A non-Base pickup or release stance is too far from its matter cell.",
-      "next": "Move the bound exact stance within interaction reach of the cell center.",
+      "next": "Move the bound exact stance into the public horizontal and vertical reach window.",
       "doc": "docs/player/MATTER.md#interaction-points",
-      "relatedValues": ["climber.interactionReachM"]
+      "relatedValues": [
+        "climber.maximumInteractionHorizontalReachM",
+        "climber.minimumInteractionHeightM",
+        "climber.maximumInteractionHeightM"
+      ]
+    },
+    "ACTION_OCCLUDED": {
+      "ruleId": "matter.interaction-visibility",
+      "summary": "Solid terrain or stone blocks the direct interaction path.",
+      "next": "Move to a visible side of the target before pickup or release.",
+      "doc": "docs/player/MATTER.md#interaction-points",
+      "relatedValues": ["climber.interactionVisibilitySampleM"]
     },
     "ROUTE_NEVER_LEFT_BASE": {
       "ruleId": "route.must-depart",
       "summary": "A legal expedition must leave Everest Base Camp.",
       "next": "Extend the route beyond the Base Camp cylinder.",
       "doc": "docs/player/ROUTE.md#one-sortie-lifecycle",
-      "relatedValues": ["lifecycle.baseCampRadiusM"]
+      "relatedValues": [
+        "lifecycle.baseCampRadiusM",
+        "lifecycle.baseCampMaximumHeightFromNaturalSurfaceM"
+      ]
     },
     "BASE_REDEPARTURE_FORBIDDEN": {
       "ruleId": "route.no-redeparture",
@@ -348,28 +367,40 @@
       "summary": "A new Base stone must be imported outside Base Camp.",
       "next": "Choose a WORLD destination beyond the Camp boundary.",
       "doc": "docs/player/MATTER.md#base-supply",
-      "relatedValues": ["lifecycle.baseCampRadiusM"]
+      "relatedValues": [
+        "lifecycle.baseCampRadiusM",
+        "lifecycle.baseCampMaximumHeightFromNaturalSurfaceM"
+      ]
     },
     "BASE_PICKUP_OUTSIDE_CAMP": {
       "ruleId": "matter.base-pickup-in-camp",
       "summary": "A BASE pickup stance must be inside Everest Base Camp.",
       "next": "Bind the pickup to an in-Camp route stance.",
       "doc": "docs/player/MATTER.md#base-supply",
-      "relatedValues": ["lifecycle.baseCampRadiusM"]
+      "relatedValues": [
+        "lifecycle.baseCampRadiusM",
+        "lifecycle.baseCampMaximumHeightFromNaturalSurfaceM"
+      ]
     },
     "BASE_RELEASE_OUTSIDE_CAMP": {
       "ruleId": "matter.base-release-in-camp",
       "summary": "A BASE recovery release stance must be inside Everest Base Camp.",
       "next": "Carry the matter into Camp before releasing it to BASE.",
       "doc": "docs/player/MATTER.md#recovery",
-      "relatedValues": ["lifecycle.baseCampRadiusM"]
+      "relatedValues": [
+        "lifecycle.baseCampRadiusM",
+        "lifecycle.baseCampMaximumHeightFromNaturalSurfaceM"
+      ]
     },
     "UNSAFE_TERMINAL": {
-      "ruleId": "route.safe-terminal",
-      "summary": "A non-Base terminal point must be declared safe and satisfy walking slope.",
-      "next": "Use a nearbySafeStops hint or choose another walk-safe endpoint and set safeStop: true.",
+      "ruleId": "route.one-way-terminal",
+      "summary": "A non-Base terminal requires explicit one-way-death acceptance and a walk-safe support surface.",
+      "next": "Return to Base, or choose a walk-safe endpoint and set acceptOneWayDeath: true.",
       "doc": "docs/player/ROUTE.md#survival-and-terminal-points",
-      "relatedValues": ["climber.locomotion.WALK.maximumSlopeDegrees"]
+      "relatedValues": [
+        "climber.locomotion.WALK.maximumSlopeDegrees",
+        "climber.surfaceSlopePenaltyDegrees"
+      ]
     },
     "OUTSIDE_TERRAIN": {
       "ruleId": "route.terrain-bounds",
@@ -380,7 +411,7 @@
     "ENDURANCE_EXHAUSTED": {
       "ruleId": "route.endurance-capacity",
       "summary": "The integrated route energy exceeds the expedition capacity.",
-      "next": "Shorten or lower the route, reduce loaded distance, or end at a viable one-way safe stop.",
+      "next": "Shorten or lower the route, reduce loaded distance, or end at a viable one-way terminal.",
       "doc": "docs/player/ROUTE.md#endurance",
       "relatedValues": ["climber.endurance.capacity", "climber.endurance.kilojoulesPerUnit"]
     },
